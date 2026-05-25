@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+*.egg
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Secrets / local overrides
+.env
+.env.local
+notes-prompt.txt
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

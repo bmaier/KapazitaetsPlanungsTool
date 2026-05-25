@@ -1,0 +1,10 @@
+{
+  "concept_scheme": "urn:xauslaender:geschlecht",
+  "version": "1.0",
+  "concepts": [
+    {"code": "M", "label": "männlich", "broader": null},
+    {"code": "W", "label": "weiblich", "broader": null},
+    {"code": "D", "label": "divers", "broader": null},
+    {"code": "X", "label": "keine Angabe", "broader": null}
+  ]
+}

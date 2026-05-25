@@ -1,0 +1,14 @@
+[tool.poetry]
+name = "bordercapcontrol-skos-service"
+version = "0.1.0"
+description = "SKOS Codelisten Service — Stellt XAusländer-Codelisten als REST-API bereit"
+authors = ["BorderCapControl Team"]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.111.0"
+uvicorn = {extras = ["standard"], version = "^0.29.0"}
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

@@ -1,0 +1,179 @@
+{
+  "realm": "bordercapcontrol",
+  "displayName": "BorderCapControl",
+  "displayNameHtml": "BorderCapControl",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": false,
+  "passwordPolicy": "length(1)",
+  "roles": {
+    "realm": [
+      {
+        "name": "reader",
+        "description": "Lesezugriff auf alle Kapazitätsdaten",
+        "composite": false,
+        "clientRole": false
+      },
+      {
+        "name": "writer",
+        "description": "Schreibzugriff auf Kapazitäts- und Reservierungsdaten",
+        "composite": false,
+        "clientRole": false
+      },
+      {
+        "name": "location-admin",
+        "description": "Verwaltung von Standorten und deren Kapazitäten",
+        "composite": false,
+        "clientRole": false
+      },
+      {
+        "name": "system-admin",
+        "description": "Vollständiger Systemzugriff inkl. Benutzerverwaltung",
+        "composite": false,
+        "clientRole": false
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "bordercapcontrol-frontend",
+      "name": "BorderCapControl Frontend",
+      "description": "React SPA für die Kapazitätsplanung",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:3000/*"
+      ],
+      "webOrigins": [
+        "http://localhost:3000"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:3000/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "realm roles mapper",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "multivalued": "true",
+            "userinfo.token.claim": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "roles",
+            "jsonType.label": "String"
+          }
+        },
+        {
+          "name": "location_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "location_id",
+            "claim.name": "location_id",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "jsonType.label": "String",
+            "multivalued": "false"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "bordercapcontrol-test",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "bordercapcontrol-test-secret",
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "protocol": "openid-connect",
+      "clientAuthenticatorType": "client-secret"
+    }
+  ],
+  "users": [
+    {
+      "username": "admin_user",
+      "email": "admin@bordercap.local",
+      "firstName": "Admin",
+      "lastName": "User",
+      "enabled": true,
+      "emailVerified": true,
+      "attributes": {
+        "location_id": [
+          "a1b2c3d4-0001-0001-0001-000000000001"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Admin1234!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "system-admin"
+      ]
+    },
+    {
+      "username": "writer_user",
+      "email": "writer@bordercap.local",
+      "firstName": "Writer",
+      "lastName": "User",
+      "enabled": true,
+      "emailVerified": true,
+      "attributes": {
+        "location_id": [
+          "a1b2c3d4-0001-0001-0001-000000000001"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Writer1234!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "writer"
+      ]
+    },
+    {
+      "username": "reader_user",
+      "email": "reader@bordercap.local",
+      "firstName": "Reader",
+      "lastName": "User",
+      "enabled": true,
+      "emailVerified": true,
+      "attributes": {
+        "location_id": [
+          "a1b2c3d4-0003-0003-0003-000000000003"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Reader1234!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "reader"
+      ]
+    }
+  ],
+  "loginTheme": "bordercap"
+}

@@ -1,0 +1,59 @@
+---
+# BorderCapControl — Docker Compose Override (Lokale Entwicklung)
+# Aktiviert Hot-Reload für das Backend und macht Port-Bindings explizit.
+# Diese Datei wird von Docker Compose automatisch geladen und überschreibt
+# Teile von docker-compose.yml.
+
+version: "3.9"
+
+# Port-Übersicht für lokale Entwicklung:
+# 5432  → PostgreSQL (direkter DB-Zugriff mit DBeaver etc.)
+# 8080  → Keycloak Admin-UI (http://localhost:8080/admin)
+# 8000  → Backend API (http://localhost:8000/docs)
+# 8001  → SKOS Codelisten (http://localhost:8001/docs)
+# 8082  → Tileserver (http://localhost:8082/)
+
+services:
+
+  # Port-Übersicht für lokale Entwicklung:
+  # 5432  → PostgreSQL (direkter DB-Zugriff)
+  # 8080  → Keycloak Admin-UI (http://localhost:8080/admin)
+  # 8000  → Backend API (http://localhost:8000/docs)
+  # 8001  → SKOS Codelisten (http://localhost:8001/docs)
+  # 8082  → Tileserver (http://localhost:8082/)
+
+  postgres:
+    ports:
+      - "5432:5432"
+
+  keycloak:
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./infra/keycloak/themes:/opt/keycloak/themes:ro
+
+  skos_service:
+    ports:
+      - "8001:8001"
+
+  tileserver:
+    ports:
+      - "8082:8080"
+
+  # Backend: Hot-Reload via uvicorn --reload + Source-Code-Volume
+  backend:
+    ports:
+      - "8000:8000"
+    environment:
+      KEYCLOAK_PUBLIC_URL: "http://localhost:8080"
+    command: >
+      python -m uvicorn src.main:app
+        --host 0.0.0.0
+        --port 8000
+        --reload
+        --reload-dir /home/appuser/app/src
+    volumes:
+      # Hot-Reload: lokaler src/-Ordner wird in Container gemountet
+      - ./backend/src:/home/appuser/app/src:rw
+      # Alembic-Migrationen ebenfalls live
+      - ./backend/alembic:/home/appuser/app/alembic:rw

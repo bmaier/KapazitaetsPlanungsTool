@@ -1,0 +1,225 @@
+/* BorderCapControl — Custom Keycloak Login Theme
+   Branding: BAMF-Blau #003366, sauber, modern, BITV-konform
+*/
+
+/* ── Hintergrund: dunkelblauer Verlauf ── */
+body {
+  background: linear-gradient(135deg, #001f4d 0%, #003366 50%, #1a5276 100%) !important;
+  min-height: 100vh;
+  font-family: "Roboto", "Helvetica Neue", Arial, sans-serif !important;
+}
+
+/* ── Zentrierte Login-Karte ── */
+#kc-container-wrapper,
+.login-pf body .container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  padding: 20px;
+}
+
+#kc-container,
+.card-pf,
+.login-pf .card-pf {
+  background: #ffffff !important;
+  border-radius: 12px !important;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.35) !important;
+  border: none !important;
+  padding: 40px 48px !important;
+  max-width: 440px !important;
+  width: 100% !important;
+  margin: 0 auto;
+}
+
+/* ── Header: Logo + Titel ── */
+#kc-header,
+.login-pf-header {
+  text-align: center !important;
+  margin-bottom: 32px;
+}
+
+#kc-header-wrapper,
+.login-pf-header h1 {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  gap: 12px;
+}
+
+/* Wappen/Logo-Platzhalter als farbiger Kreis */
+#kc-header-wrapper::before,
+.login-pf-header::before {
+  content: "⚖";
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  background: linear-gradient(135deg, #003366, #1a5276);
+  border-radius: 50%;
+  font-size: 28px;
+  color: white;
+  margin: 0 auto 8px;
+  box-shadow: 0 4px 16px rgba(0, 51, 102, 0.3);
+}
+
+#kc-header-wrapper {
+  font-size: 22px !important;
+  font-weight: 700 !important;
+  color: #003366 !important;
+  line-height: 1.3 !important;
+}
+
+/* Realm-Name (Realm-Display-Name) als Untertitel */
+#kc-header-wrapper span,
+.login-pf-brand {
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  color: #5b7fa6 !important;
+  display: block;
+  margin-top: 4px;
+  letter-spacing: 0.5px;
+}
+
+/* ── Formular-Labels ── */
+#kc-form label,
+.login-pf label,
+.control-label {
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: #37474f !important;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-bottom: 6px !important;
+}
+
+/* ── Eingabefelder ── */
+#kc-form input[type="text"],
+#kc-form input[type="password"],
+#kc-form input[type="email"],
+.login-pf input[type="text"],
+.login-pf input[type="password"],
+.form-control {
+  border: 2px solid #e0e7ef !important;
+  border-radius: 8px !important;
+  padding: 12px 16px !important;
+  font-size: 15px !important;
+  color: #212121 !important;
+  background: #f8fafc !important;
+  transition: border-color 0.2s, box-shadow 0.2s !important;
+  height: auto !important;
+  box-shadow: none !important;
+}
+
+#kc-form input:focus,
+.form-control:focus {
+  border-color: #003366 !important;
+  background: #ffffff !important;
+  box-shadow: 0 0 0 3px rgba(0, 51, 102, 0.12) !important;
+  outline: none !important;
+}
+
+/* ── Login-Button ── */
+#kc-login,
+.login-pf input[type="submit"],
+.btn-primary {
+  background: linear-gradient(135deg, #003366 0%, #1a5276 100%) !important;
+  border: none !important;
+  border-radius: 8px !important;
+  color: #ffffff !important;
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  padding: 13px 24px !important;
+  width: 100% !important;
+  cursor: pointer !important;
+  margin-top: 8px !important;
+  transition: opacity 0.2s, transform 0.1s !important;
+  box-shadow: 0 4px 12px rgba(0, 51, 102, 0.3) !important;
+  letter-spacing: 0.3px;
+}
+
+#kc-login:hover,
+.btn-primary:hover {
+  opacity: 0.92 !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 6px 16px rgba(0, 51, 102, 0.35) !important;
+}
+
+#kc-login:active,
+.btn-primary:active {
+  transform: translateY(0) !important;
+}
+
+/* ── Fehlermeldungen ── */
+#kc-content-wrapper .alert,
+.alert-error,
+.pf-m-danger {
+  background: #fff0f0 !important;
+  border: 1px solid #ffcdd2 !important;
+  border-radius: 8px !important;
+  color: #c62828 !important;
+  padding: 12px 16px !important;
+  font-size: 13px !important;
+}
+
+/* ── "Passwort vergessen"-Link ── */
+#kc-form-options a,
+.login-pf a {
+  color: #1a5276 !important;
+  font-size: 13px !important;
+  text-decoration: none !important;
+  font-weight: 500;
+}
+
+#kc-form-options a:hover,
+.login-pf a:hover {
+  color: #003366 !important;
+  text-decoration: underline !important;
+}
+
+/* ── Divider / Trennlinie ── */
+.login-pf hr {
+  border-color: #e0e7ef !important;
+  margin: 20px 0;
+}
+
+/* ── Passwort-Sichtbarkeit Toggle ── */
+.pf-v5-c-button.pf-m-plain {
+  color: #5b7fa6 !important;
+}
+
+/* ── Footer-Text ── */
+#kc-info-message,
+.login-pf footer,
+.instruction {
+  color: #78909c !important;
+  font-size: 13px !important;
+  text-align: center;
+  margin-top: 16px;
+}
+
+/* ── "Remember me" Checkbox ── */
+#rememberMe {
+  accent-color: #003366;
+}
+
+/* ── Social Login Buttons ── */
+.kc-social-providers .pf-v5-c-button {
+  border: 2px solid #e0e7ef !important;
+  border-radius: 8px !important;
+  font-weight: 500 !important;
+}
+
+/* ── Pflichtfeld-Marker ── */
+.required {
+  color: #c62828 !important;
+}
+
+/* ── Responsive ── */
+@media (max-width: 480px) {
+  .card-pf,
+  #kc-container {
+    padding: 28px 24px !important;
+  }
+}

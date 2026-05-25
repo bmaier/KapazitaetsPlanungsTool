@@ -1,0 +1,12 @@
+{
+  "concept_scheme": "urn:xauslaender:staatsangehoerigkeit",
+  "version": "1.0",
+  "note": "Placeholder — vollständige XAusländer-Codeliste via Script zu befüllen",
+  "concepts": [
+    {"code": "DE", "label": "Deutschland"},
+    {"code": "AF", "label": "Afghanistan"},
+    {"code": "SY", "label": "Syrien"},
+    {"code": "IQ", "label": "Irak"},
+    {"code": "ER", "label": "Eritrea"}
+  ]
+}
