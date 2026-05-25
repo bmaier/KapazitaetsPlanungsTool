@@ -28,6 +28,11 @@ class LocationModel(Base):
     kontingent: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     notbett_kapazitaet: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    labels: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    lat: Mapped[Optional[float]] = mapped_column(nullable=True)
+    lon: Mapped[Optional[float]] = mapped_column(nullable=True)
+    valid_from: Mapped[Optional[date]] = mapped_column(nullable=True)
+    valid_until: Mapped[Optional[date]] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
@@ -78,6 +83,7 @@ class BedModel(Base):
     )  # KONTINGENT | NOTBETT
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     labels: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    deaktiviert_ab: Mapped[Optional[date]] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )

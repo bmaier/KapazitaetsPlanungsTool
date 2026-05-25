@@ -11,6 +11,8 @@ class SuggestionRequest(BaseModel):
     cross_location: bool = False
     familien_modus: bool = False
     minderjaehrige: int = Field(default=0, ge=0)
+    label_filter: list[str] = []
+    include_notbetten: bool = False
 
     @model_validator(mode='after')
     def check_dates_and_family(self):
@@ -29,6 +31,7 @@ class BedOption(BaseModel):
     room_name: str
     bett_typ: str
     location_name: str = ''
+    room_labels: list[str] = []
 
 
 class Variant(BaseModel):

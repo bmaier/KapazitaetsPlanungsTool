@@ -50,6 +50,19 @@ interface Location {
   kontingent: number
   notbett_kapazitaet: number
   is_active: boolean
+  labels?: string[]
+  lat?: number | null
+  lon?: number | null
+}
+
+interface PendingReservation {
+  id: string
+  azr_id: string
+  geschlecht: string
+  herkunftsland: string
+  belegung_start: string
+  belegung_ende: string
+  requester_location_id: string
 }
 
 interface BedStatus {
@@ -66,6 +79,8 @@ interface BedStatus {
   room_labels?: string[]
   bed_labels?: string[]
   occ_labels?: string[]
+  is_notbett?: boolean
+  deaktiviert_ab?: string | null
 }
 
 interface RoomStatus {
@@ -262,6 +277,17 @@ export default function Drilldown() {
   const [verlegenTargetBed, setVerlegenTargetBed] = useState('')
   const [verlegenSaving, setVerlegenSaving] = useState(false)
 
+  // Pending requests assignment dialog
+  const [pendingRequests, setPendingRequests] = useState<PendingReservation[]>([])
+  const [pendingOpen, setPendingOpen] = useState(false)
+  const [pendingLoading, setPendingLoading] = useState(false)
+  const [assignBed, setAssignBed] = useState<BedStatus | null>(null)
+
+  // Edit dialog extra fields
+  const [editLat, setEditLat] = useState('')
+  const [editLon, setEditLon] = useState('')
+  const [editLocLabels, setEditLocLabels] = useState<string[]>([])
+
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'warning' }>({
     open: false, message: '', severity: 'success',
   })
@@ -318,25 +344,51 @@ export default function Drilldown() {
     setEditKontingent(String(location?.kontingent ?? ''))
     setEditNotbett(String(location?.notbett_kapazitaet ?? ''))
     setEditAdresse(location?.adresse ?? '')
+    setEditLat(location?.lat != null ? String(location.lat) : '')
+    setEditLon(location?.lon != null ? String(location.lon) : '')
+    setEditLocLabels(location?.labels ?? [])
     setEditTab(0)
     setEditOpen(true)
     if (isAdmin) loadMgmtRooms()
+  }
+
+  async function loadPendingRequests() {
+    if (!id) return
+    setPendingLoading(true)
+    try {
+      const res = await get<PendingReservation[]>(`/api/reservations?status=PENDING&target=mine`)
+      setPendingRequests(res)
+    } catch {
+      setPendingRequests([])
+    } finally {
+      setPendingLoading(false)
+    }
+  }
+
+  function openPendingRequests() {
+    setPendingOpen(true)
+    loadPendingRequests()
   }
 
   async function saveEdit() {
     if (!id) return
     setSaving(true)
     try {
-      const updated = await patch<Location>(`/api/locations/${id}`, {
+      const body: Record<string, unknown> = {
         kontingent: Number(editKontingent),
         notbett_kapazitaet: Number(editNotbett),
         adresse: editAdresse,
-      })
+        labels: editLocLabels,
+      }
+      if (editLat !== '') body.lat = parseFloat(editLat)
+      if (editLon !== '') body.lon = parseFloat(editLon)
+      const updated = await patch<Location>(`/api/locations/${id}`, body)
       setLocation(updated)
       setEditOpen(false)
       setSnackbar({ open: true, message: 'Einrichtung aktualisiert.', severity: 'success' })
-    } catch {
-      setSnackbar({ open: true, message: 'Speichern fehlgeschlagen.', severity: 'error' })
+    } catch (err: unknown) {
+      const detail = (err as { detail?: { detail?: string } }).detail?.detail
+      setSnackbar({ open: true, message: detail ?? 'Speichern fehlgeschlagen.', severity: 'error' })
     } finally {
       setSaving(false)
     }
@@ -545,11 +597,16 @@ export default function Drilldown() {
               </Box>
             ))}
             {totalPending > 0 && (
-              <Box sx={{ textAlign: 'center' }}>
+              <Box
+                sx={{ textAlign: 'center', cursor: canEdit ? 'pointer' : 'default', '&:hover': canEdit ? { opacity: 0.8 } : {} }}
+                onClick={canEdit ? openPendingRequests : undefined}
+              >
                 <Typography variant="h4" fontWeight={800} sx={{ color: '#ffcc80', lineHeight: 1 }}>
                   {totalPending}
                 </Typography>
-                <Typography variant="caption" sx={{ opacity: 0.8 }}>Anfragen</Typography>
+                <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                  {canEdit ? '▶ Anfragen' : 'Anfragen'}
+                </Typography>
               </Box>
             )}
           </Box>
@@ -588,15 +645,85 @@ export default function Drilldown() {
         <Box display="flex" justifyContent="center" mt={6}><CircularProgress /></Box>
       ) : rooms.length === 0 ? (
         <Alert severity="info">Keine Räume für diese Einrichtung gefunden.</Alert>
-      ) : (
-        <Grid container spacing={3}>
-          {rooms.map((room) => (
-            <Grid item xs={12} md={6} key={room.room_id}>
-              <BedGrid room={room} canEdit={canEdit} onBedClick={handleBedClick} />
+      ) : (() => {
+        const notbettRooms = rooms.filter((r) => r.beds.some((b) => b.is_notbett))
+        const kontingentRooms = rooms.filter((r) => !r.beds.some((b) => b.is_notbett))
+        return (
+          <>
+            <Grid container spacing={3}>
+              {kontingentRooms.map((room) => (
+                <Grid item xs={12} md={6} key={room.room_id}>
+                  <BedGrid room={room} canEdit={canEdit} onBedClick={handleBedClick} />
+                </Grid>
+              ))}
             </Grid>
-          ))}
-        </Grid>
-      )}
+
+            {notbettRooms.length > 0 && (
+              <Box mt={4}>
+                <Box display="flex" alignItems="center" gap={1} mb={2}>
+                  <Typography variant="h6" fontWeight={700} color="warning.dark">
+                    Notbetten
+                  </Typography>
+                  <Chip label="Max. 1 Tag · Kurzzeitunterbringung" size="small"
+                    sx={{ bgcolor: '#fff3e0', color: '#e65100', fontWeight: 600 }} />
+                </Box>
+                <Grid container spacing={3}>
+                  {notbettRooms.map((room) => (
+                    <Grid item xs={12} md={6} key={room.room_id}>
+                      <Paper elevation={2} sx={{ p: 2.5, borderRadius: 3, borderTop: '4px solid #ff9800' }}>
+                        <Box display="flex" alignItems="center" gap={1} mb={1.5}>
+                          <Typography fontWeight={700} color="warning.dark">{room.room_name}</Typography>
+                          <Box sx={{ flexGrow: 1 }} />
+                          <Typography variant="caption" color="text.secondary">
+                            {room.beds.filter((b) => b.status === 'FREI').length} frei ·{' '}
+                            {room.beds.filter((b) => b.status === 'BELEGT').length} belegt
+                          </Typography>
+                        </Box>
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                          {room.beds.map((bed) => {
+                            const isBelegt = bed.status === 'BELEGT'
+                            return (
+                              <Tooltip key={bed.bed_id}
+                                title={isBelegt
+                                  ? `${bed.azr_id ?? '–'} · ${bed.belegung_start} – ${bed.belegung_ende} · Max. 1 Tag!`
+                                  : 'Notbett frei · Max. 1 Tag Belegung'}
+                                arrow>
+                                <Box onClick={() => canEdit && handleBedClick(bed, room)}
+                                  sx={{
+                                    width: 58, height: 58, borderRadius: 1.5,
+                                    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                                    bgcolor: isBelegt ? '#fff3e0' : '#f1f8e9',
+                                    border: `2px solid ${isBelegt ? '#ff9800' : '#8bc34a'}`,
+                                    cursor: canEdit ? 'pointer' : 'default',
+                                    '&:hover': canEdit ? { transform: 'scale(1.1)', boxShadow: 3 } : {},
+                                  }}>
+                                  <BedIcon sx={{ fontSize: 16, color: isBelegt ? '#e65100' : '#558b2f', mb: 0.2 }} />
+                                  <Typography variant="caption" fontWeight={700}
+                                    sx={{ color: isBelegt ? '#e65100' : '#558b2f', lineHeight: 1, fontSize: 10 }}>
+                                    N{bed.bett_nummer}
+                                  </Typography>
+                                  {isBelegt && bed.azr_id && (
+                                    <Typography sx={{ fontSize: 7, color: '#e65100', lineHeight: 1, maxWidth: 52, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', px: 0.3 }}>
+                                      {bed.azr_id.slice(-6)}
+                                    </Typography>
+                                  )}
+                                </Box>
+                              </Tooltip>
+                            )
+                          })}
+                        </Box>
+                        <Alert severity="warning" sx={{ mt: 1.5, py: 0.5, fontSize: 11 }}>
+                          Notbetten sind temporäre Plätze. Tägliche Postkorb-Meldung bei belegten Notbetten.
+                        </Alert>
+                      </Paper>
+                    </Grid>
+                  ))}
+                </Grid>
+              </Box>
+            )}
+          </>
+        )
+      })()}
 
       {/* ── Bett belegen Dialog ── */}
       <Dialog open={!!belegBed} onClose={() => setBelegBed(null)} maxWidth="sm" fullWidth>
@@ -725,10 +852,17 @@ export default function Drilldown() {
                     entityType="OCCUPANCY"
                     entityId={manageBed.bed.occupancy_id}
                     onSaved={(newLabels) => {
+                      const bedId = manageBed?.bed.bed_id
                       setManageBed((prev) => prev ? {
                         ...prev,
                         bed: { ...prev.bed, occ_labels: newLabels }
                       } : prev)
+                      if (bedId) {
+                        setRooms((prev) => prev.map((room) => ({
+                          ...room,
+                          beds: room.beds.map((b) => b.bed_id === bedId ? { ...b, occ_labels: newLabels } : b),
+                        })))
+                      }
                     }}
                   />
                 </Box>
@@ -832,12 +966,35 @@ export default function Drilldown() {
           {/* Tab 0: Stammdaten */}
           {editTab === 0 && (
             <Box display="flex" flexDirection="column" gap={2.5}>
-              <TextField label="Kontingent (Plätze)" type="number" value={editKontingent}
-                onChange={(e) => setEditKontingent(e.target.value)} inputProps={{ min: 0 }} fullWidth />
-              <TextField label="Notbett-Kapazität" type="number" value={editNotbett}
-                onChange={(e) => setEditNotbett(e.target.value)} inputProps={{ min: 0 }} fullWidth />
+              <Box display="flex" gap={2}>
+                <TextField label="Kontingent (Plätze)" type="number" value={editKontingent}
+                  onChange={(e) => setEditKontingent(e.target.value)} inputProps={{ min: 0 }} fullWidth />
+                <TextField label="Notbett-Kapazität" type="number" value={editNotbett}
+                  onChange={(e) => setEditNotbett(e.target.value)} inputProps={{ min: 0 }} fullWidth />
+              </Box>
               <TextField label="Adresse" value={editAdresse}
                 onChange={(e) => setEditAdresse(e.target.value)} fullWidth multiline rows={2} />
+              <Box display="flex" gap={2}>
+                <TextField label="Breitengrad (Lat)" type="number" value={editLat}
+                  onChange={(e) => setEditLat(e.target.value)}
+                  placeholder="z.B. 50.0264" fullWidth
+                  helperText="Für Kartenansicht" />
+                <TextField label="Längengrad (Lon)" type="number" value={editLon}
+                  onChange={(e) => setEditLon(e.target.value)}
+                  placeholder="z.B. 8.5431" fullWidth
+                  helperText="Für Kartenansicht" />
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                  Einrichtungs-Labels
+                </Typography>
+                <LabelChips
+                  labels={editLocLabels}
+                  entityType="ROOM"
+                  entityId={id ?? 'new'}
+                  onSaved={(l) => setEditLocLabels(l)}
+                />
+              </Box>
             </Box>
           )}
 
@@ -975,6 +1132,61 @@ export default function Drilldown() {
           {editTab === 0 && (
             <Button variant="contained" onClick={saveEdit} disabled={saving}>
               {saving ? <CircularProgress size={18} /> : 'Stammdaten speichern'}
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Pending Requests Dialog ── */}
+      <Dialog open={pendingOpen} onClose={() => { setPendingOpen(false); setAssignBed(null) }} maxWidth="md" fullWidth>
+        <DialogTitle fontWeight={700}>
+          <Box display="flex" alignItems="center" gap={1}>
+            <WarningAmberIcon sx={{ color: '#e65100' }} />
+            Offene Reservierungsanfragen
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 1 }}>
+          {pendingLoading ? (
+            <Box display="flex" justifyContent="center" py={4}><CircularProgress /></Box>
+          ) : pendingRequests.length === 0 ? (
+            <Alert severity="info">Keine offenen Anfragen vorhanden.</Alert>
+          ) : (
+            <>
+              {assignBed && (
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  Bett <strong>{assignBed.bett_nummer}</strong> wird zugewiesen — wählen Sie die Anfrage:
+                </Alert>
+              )}
+              <Box display="flex" flexDirection="column" gap={1.5}>
+                {pendingRequests.map((req) => (
+                  <Paper key={req.id} elevation={1} sx={{
+                    p: 2, borderRadius: 2, border: '1px solid #e0e0e0',
+                    '&:hover': { borderColor: '#003366', bgcolor: '#f3f6fb' },
+                  }}>
+                    <Box display="flex" alignItems="center" gap={2} flexWrap="wrap">
+                      <Box sx={{ flex: 1 }}>
+                        <Typography fontWeight={700}>{req.azr_id}</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {req.geschlecht === 'M' ? 'Männlich' : req.geschlecht === 'W' ? 'Weiblich' : 'Divers'} ·{' '}
+                          {req.herkunftsland} · {req.belegung_start} – {req.belegung_ende}
+                        </Typography>
+                      </Box>
+                      <Button size="small" variant="outlined"
+                        onClick={() => navigate(`/reservations?highlight=${req.id}`)}>
+                        Zur Anfrage
+                      </Button>
+                    </Box>
+                  </Paper>
+                ))}
+              </Box>
+            </>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => { setPendingOpen(false); setAssignBed(null) }}>Schließen</Button>
+          {canEdit && (
+            <Button variant="contained" onClick={() => navigate('/suggestions')}>
+              Neue Reservierungsanfrage
             </Button>
           )}
         </DialogActions>

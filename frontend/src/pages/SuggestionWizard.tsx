@@ -30,6 +30,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import PeopleIcon from '@mui/icons-material/People'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useApiClient } from '../api/client'
+import { useKeycloak } from '../auth/KeycloakProvider'
 
 const STEPS = ['Anfrage stellen', 'Option wählen', 'Bestätigen']
 
@@ -54,6 +55,7 @@ type Modus = 'einzeln' | 'gruppe' | 'familie'
 export default function SuggestionWizard() {
   const { post } = useApiClient()
   const navigate = useNavigate()
+  const { locationId } = useKeycloak()
   const [searchParams] = useSearchParams()
 
   // URL-Parameter: Verlegen von Drilldown übergeben
@@ -134,8 +136,10 @@ export default function SuggestionWizard() {
       setSuggestion(res)
       setSelectedVariant(null)
       setActiveStep(1)
-    } catch {
-      setSnackbar({ open: true, message: 'Suche fehlgeschlagen. Bitte erneut versuchen.', severity: 'error' })
+    } catch (err: unknown) {
+      const apiErr = err as { detail?: { detail?: string } }
+      const msg = apiErr?.detail?.detail ?? 'Suche fehlgeschlagen. Bitte erneut versuchen.'
+      setSnackbar({ open: true, message: msg, severity: 'error' })
     } finally {
       setLoading(false)
     }
@@ -331,12 +335,18 @@ export default function SuggestionWizard() {
             <input type="checkbox" checked={crossLocation} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCrossLocation(e.target.checked)} style={{ width: 20, height: 20, cursor: 'pointer' }} />
           </Box>
 
+          {!locationId && (
+            <Alert severity="warning" sx={{ borderRadius: 2 }}>
+              Kein Einrichtungs-Kontext erkannt. Bitte ab- und wieder anmelden, damit die richtige Einrichtung zugewiesen wird.
+            </Alert>
+          )}
+
           <Box display="flex" gap={2} mt={1}>
             <Button variant="outlined" onClick={() => navigate('/')}>Abbrechen</Button>
             <Button
               variant="contained"
               onClick={handleSearch}
-              disabled={!formValid || loading}
+              disabled={!formValid || loading || !locationId}
               startIcon={loading ? <CircularProgress size={16} /> : <SearchIcon />}
               size="large"
             >

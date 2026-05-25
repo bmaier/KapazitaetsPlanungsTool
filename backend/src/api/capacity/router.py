@@ -12,7 +12,7 @@ from typing import List, Optional
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.db.capacity_repo import (
@@ -23,12 +23,12 @@ from src.adapters.db.capacity_repo import (
     SqlSystemSettingsRepo,
 )
 from src.adapters.db.engine import AsyncSessionFactory
-from src.adapters.db.models import LocationModel
-from src.adapters.keycloak.jwt import get_current_user
+from src.adapters.keycloak.jwt import UserContext, get_current_user
 from src.api.capacity.schemas import (
     BedCreate,
     BedResponse,
     BedStatusItem,
+    BedUpdateRequest,
     EuQuotaUpdate,
     LabelCatalogEntry,
     LabelCatalogResponse,
@@ -36,7 +36,7 @@ from src.api.capacity.schemas import (
     LocationCreate,
     LocationResponse,
     LocationSummaryResponse,
-    LocationUpdate,
+    LocationUpdateRequest,
     OccupancyCreate,
     OccupancyResponse,
     RoomBedStatus,
@@ -177,6 +177,11 @@ async def create_location(
         kontingent=created.kontingent,
         notbett_kapazitaet=created.notbett_kapazitaet,
         is_active=created.is_active,
+        labels=[],
+        lat=None,
+        lon=None,
+        valid_from=None,
+        valid_until=None,
     )
 
 
@@ -186,21 +191,32 @@ async def list_locations(
     session: AsyncSession = Depends(get_session),
 ):
     """Listet alle aktiven Einrichtungen. Mit ?include_inactive=true auch inaktive."""
-    repo = SqlLocationRepo(session)
-    if include_inactive:
-        locations = await repo.list_all()
-    else:
-        locations = await repo.list_active()
+    where_clause = "" if include_inactive else "WHERE is_active = true"
+    result = await session.execute(
+        text(f"""
+            SELECT id, name, adresse, kontingent, notbett_kapazitaet, is_active,
+                   labels, lat, lon, valid_from, valid_until
+            FROM capacity.locations
+            {where_clause}
+            ORDER BY name
+        """)
+    )
+    rows = result.mappings().all()
     return [
         LocationResponse(
-            id=loc.id,
-            name=loc.name,
-            adresse=loc.adresse,
-            kontingent=loc.kontingent,
-            notbett_kapazitaet=loc.notbett_kapazitaet,
-            is_active=loc.is_active,
+            id=row["id"],
+            name=row["name"],
+            adresse=row["adresse"],
+            kontingent=row["kontingent"],
+            notbett_kapazitaet=row["notbett_kapazitaet"],
+            is_active=row["is_active"],
+            labels=list(row["labels"] or []),
+            lat=row["lat"],
+            lon=row["lon"],
+            valid_from=row["valid_from"],
+            valid_until=row["valid_until"],
         )
-        for loc in locations
+        for row in rows
     ]
 
 
@@ -263,49 +279,89 @@ async def get_location(
     session: AsyncSession = Depends(get_session),
 ):
     """Gibt eine einzelne Einrichtung zurück."""
-    repo = SqlLocationRepo(session)
-    loc = await repo.get_by_id(location_id)
-    if not loc:
+    result = await session.execute(
+        text("""
+            SELECT id, name, adresse, kontingent, notbett_kapazitaet, is_active,
+                   labels, lat, lon, valid_from, valid_until
+            FROM capacity.locations
+            WHERE id = :id
+        """),
+        {"id": str(location_id)},
+    )
+    row = result.mappings().one_or_none()
+    if not row:
         raise HTTPException(status_code=404, detail="Location nicht gefunden")
     return LocationResponse(
-        id=loc.id,
-        name=loc.name,
-        adresse=loc.adresse,
-        kontingent=loc.kontingent,
-        notbett_kapazitaet=loc.notbett_kapazitaet,
-        is_active=loc.is_active,
+        id=row["id"],
+        name=row["name"],
+        adresse=row["adresse"],
+        kontingent=row["kontingent"],
+        notbett_kapazitaet=row["notbett_kapazitaet"],
+        is_active=row["is_active"],
+        labels=list(row["labels"] or []),
+        lat=row["lat"],
+        lon=row["lon"],
+        valid_from=row["valid_from"],
+        valid_until=row["valid_until"],
     )
 
 
 @router.patch("/locations/{location_id}", response_model=LocationResponse, status_code=200)
 async def update_location(
     location_id: UUID,
-    body: LocationUpdate,
+    body: LocationUpdateRequest,
     session: AsyncSession = Depends(get_session),
+    _: UserContext = Depends(get_current_user),
 ):
-    """Aktualisiert Kontingent, Notbett-Kapazität oder Adresse einer Einrichtung."""
-    repo = SqlLocationRepo(session)
-    loc = await repo.get_by_id(location_id)
-    if not loc:
-        raise HTTPException(status_code=404, detail="Location nicht gefunden")
-    result = await session.execute(
-        select(LocationModel).where(LocationModel.id == location_id)
-    )
-    model = result.scalar_one()
-    if body.kontingent is not None:
-        model.kontingent = body.kontingent
-    if body.notbett_kapazitaet is not None:
-        model.notbett_kapazitaet = body.notbett_kapazitaet
+    """Aktualisiert Felder einer Einrichtung inkl. Labels, Koordinaten und Gültigkeitsdaten."""
+    updates: dict = {}
+    if body.name is not None:
+        updates["name"] = body.name
     if body.adresse is not None:
-        model.adresse = body.adresse
-    model.updated_at = datetime.now(timezone.utc)
+        updates["adresse"] = body.adresse
+    if body.kontingent is not None:
+        updates["kontingent"] = body.kontingent
+    if body.notbett_kapazitaet is not None:
+        updates["notbett_kapazitaet"] = body.notbett_kapazitaet
+    if body.labels is not None:
+        updates["labels"] = body.labels
+    if body.lat is not None:
+        updates["lat"] = body.lat
+    if body.lon is not None:
+        updates["lon"] = body.lon
+    if body.valid_from is not None:
+        updates["valid_from"] = body.valid_from
+    if body.valid_until is not None:
+        updates["valid_until"] = body.valid_until
+
+    if not updates:
+        raise HTTPException(status_code=422, detail="Keine Felder zum Aktualisieren")
+
+    updates["id"] = str(location_id)
+    set_clause = ", ".join(f"{k} = :{k}" for k in updates if k != "id")
+    result = await session.execute(
+        text(
+            f"UPDATE capacity.locations SET {set_clause}, updated_at = NOW() "
+            f"WHERE id = :id RETURNING id, name, adresse, kontingent, notbett_kapazitaet, "
+            f"is_active, labels, lat, lon, valid_from, valid_until"
+        ),
+        updates,
+    )
+    row = result.mappings().one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Einrichtung nicht gefunden")
     return LocationResponse(
-        id=model.id,
-        name=model.name,
-        adresse=model.adresse,
-        kontingent=model.kontingent,
-        notbett_kapazitaet=model.notbett_kapazitaet,
-        is_active=model.is_active,
+        id=row["id"],
+        name=row["name"],
+        adresse=row["adresse"],
+        kontingent=row["kontingent"],
+        notbett_kapazitaet=row["notbett_kapazitaet"],
+        is_active=row["is_active"],
+        labels=list(row["labels"] or []),
+        lat=row["lat"],
+        lon=row["lon"],
+        valid_from=row["valid_from"],
+        valid_until=row["valid_until"],
     )
 
 
@@ -332,6 +388,7 @@ async def get_bed_status(
               b.bett_nummer,
               b.bett_typ,
               b.labels    AS bed_labels,
+              b.deaktiviert_ab,
               CASE WHEN o.id IS NOT NULL THEN 'BELEGT' ELSE 'FREI' END AS status,
               o.id        AS occupancy_id,
               o.azr_id,
@@ -387,6 +444,8 @@ async def get_bed_status(
             room_labels=list(row["room_labels"] or []),
             bed_labels=list(row["bed_labels"] or []),
             occ_labels=list(row["occ_labels"] or []),
+            deaktiviert_ab=row.get("deaktiviert_ab"),
+            is_notbett=(row["bett_typ"] == "NOTBETT"),
         ))
     return [RoomBedStatus(**rooms_map[rid]) for rid in rooms_order]
 
@@ -455,6 +514,54 @@ async def search_occupants(
         """), params)
         rows = result.mappings().all()
     return [dict(row) for row in rows]
+
+
+@router.patch("/locations/{location_id}/labels", status_code=200)
+async def set_location_labels(
+    location_id: UUID,
+    body: LabelsUpdateRequest,
+    session: AsyncSession = Depends(get_session),
+    _: UserContext = Depends(get_current_user),
+):
+    """Setzt die Labels einer Einrichtung (vollständiges Ersetzen)."""
+    result = await session.execute(
+        text("UPDATE capacity.locations SET labels = :labels, updated_at = NOW() WHERE id = :id RETURNING id"),
+        {"labels": body.labels, "id": str(location_id)},
+    )
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Einrichtung nicht gefunden")
+    return {"labels": body.labels}
+
+
+@router.post("/locations/{location_id}/deactivate", status_code=200)
+async def deactivate_location_safe(
+    location_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    _: UserContext = Depends(get_current_user),
+):
+    """Deaktiviert eine Einrichtung. Schlägt fehl, wenn noch aktive Belegungen vorhanden sind."""
+    result = await session.execute(
+        text("""
+            SELECT COUNT(*) AS cnt
+            FROM persons.occupants o
+            JOIN capacity.beds b ON b.id = o.bed_id
+            JOIN capacity.rooms r ON r.id = b.room_id
+            WHERE r.location_id = :loc_id
+              AND o.belegung_ende >= CURRENT_DATE
+        """),
+        {"loc_id": str(location_id)},
+    )
+    row = result.fetchone()
+    if row and row.cnt > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Einrichtung hat noch {row.cnt} aktive Belegungen. Erst umbuchen, dann deaktivieren.",
+        )
+    await session.execute(
+        text("UPDATE capacity.locations SET is_active = false, updated_at = NOW() WHERE id = :id"),
+        {"id": str(location_id)},
+    )
+    return {"status": "deactivated"}
 
 
 @router.delete("/locations/{location_id}", status_code=200)

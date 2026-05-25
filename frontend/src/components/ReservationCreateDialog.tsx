@@ -99,13 +99,20 @@ export default function ReservationCreateDialog({ open, onClose, onCreated, loca
       onCreated()
       onClose()
     } catch (err: unknown) {
-      const detail = (err as { detail?: { detail?: string | { msg: string }[] } }).detail
-      const msg =
-        Array.isArray(detail?.detail)
-          ? detail.detail.map((d: { msg: string }) => d.msg).join('; ')
-          : typeof detail?.detail === 'string'
-          ? detail.detail
-          : 'Unbekannter Fehler'
+      const body = (err as { detail?: unknown }).detail
+      let msg = 'Unbekannter Fehler'
+      if (typeof body === 'string') {
+        msg = body
+      } else if (body && typeof body === 'object') {
+        const inner = (body as { detail?: unknown }).detail
+        if (typeof inner === 'string') {
+          msg = inner
+        } else if (Array.isArray(inner)) {
+          msg = inner.map((d: { msg: string }) => d.msg).join('; ')
+        } else if (typeof inner === 'undefined' && typeof (body as { message?: string }).message === 'string') {
+          msg = (body as { message: string }).message
+        }
+      }
       setApiError(msg)
     } finally {
       setSubmitting(false)

@@ -328,3 +328,223 @@ Für die Demo wurden realistische Testdaten angelegt:
 * **Benutzer:** Mehrere SBs und Admins mit verschiedenen Rollen und Standortzugehörigkeiten.
 * **Einrichtungen:** Mindestens 4 Einrichtungen mit je mehreren Räumen und unterschiedlichen Geschlechtsdesignationen.
 * **Belegungsgrade:** Realistische Auslastung (ca. 75% / 93% / 30% / 42%) zur Demonstration der Ampellogik.
+
+---
+
+## 11. Fehlerberichte und neue Anforderungen (25. Mai 2026)
+
+Dieses Kapitel dokumentiert Fehler und Funktionswünsche, die aus der laufenden Implementierungsphase gemeldet wurden. Alle Einträge sind dem 25. Mai 2026 (Melder: Berthold Maier) zuzuordnen.
+
+---
+
+### 11.1 Fehler-Behebungen
+
+#### [F-01] Reservierungsvorschlag-Suche fehlgeschlagen (SuggestionWizard)
+
+**Symptom:** Im SuggestionWizard schlägt die Suche mit der Fehlermeldung „Suche fehlgeschlagen" fehl. Betroffen sind alle drei Modi: Einzel-, Gruppen- und Familienmodus.
+
+**Ursache:** Das JWT-Token des angemeldeten Benutzers enthält keinen `location_id`-Claim. Da der Frontend-Client diesen Claim ausliest und als `X-Location-Id`-Header an das Backend übergibt, fehlt der Header in der Anfrage vollständig. Das Backend beantwortet jede solche Anfrage mit HTTP 422 (Unprocessable Entity).
+
+**Behebung:**
+* JWT-Token-Generierung in Keycloak prüfen und `location_id` als Pflicht-Claim aufnehmen.
+* Alternativ: Backend-Fallback einbauen, der bei fehlendem Header den Standort aus dem Benutzerprofil ermittelt.
+* Frontend: Aussagekräftige Fehlermeldung anzeigen, wenn `location_id` im Token fehlt, statt generisches „Suche fehlgeschlagen".
+* Regressions-Test: E2E-Testfall für alle drei SuggestionWizard-Modi ergänzen, der das Vorhandensein des Headers sicherstellt.
+
+---
+
+#### [F-02] Labels persistieren nicht bei Personen (Belegung)
+
+**Symptom:** Labels, die einer Person (Belegung) zugeordnet werden, sind beim nächsten Öffnen des Belegungsdialogs nicht mehr sichtbar. Die Labels scheinen gespeichert zu werden, verschwinden aber nach dem Schließen und erneuten Öffnen des Dialogs.
+
+**Ursache:** Nach dem Speichern der Labels wird der `rooms`-State im Frontend nicht aktualisiert. Der Dialog liest beim Öffnen den veralteten State aus dem lokalen Cache, in dem die Labels noch nicht enthalten sind. Es handelt sich um einen UI-Bug in `Drilldown.tsx`.
+
+**Behebung:**
+* In `Drilldown.tsx`: Nach erfolgreichem `PATCH`-Aufruf auf den Labels-Endpoint den `rooms`-State neu laden (re-fetch oder optimistisches State-Update mit den zurückgelieferten Daten).
+* Sicherstellen, dass der `BelegDialog` und der `BedManageDialog` immer mit den aktuellen Serverdaten initialisiert werden und nicht ausschließlich auf dem lokalen State basieren.
+* Unit-Test: Renderverhalten des Dialogs nach Label-Speicherung prüfen.
+
+---
+
+#### [F-03] Neue Reservierungsanfrage schlägt fehl (ReservationCreateDialog)
+
+**Symptom:** Beim Anlegen einer neuen Reservierungsanfrage im `ReservationCreateDialog` erscheint die Fehlermeldung „Unbekannter Fehler", obwohl das Backend eine spezifische Fehlermeldung zurückliefert.
+
+**Ursache:** Der Fehlerparser im Frontend greift nicht korrekt auf die API-Antwort zu. Die tatsächliche Fehlermeldung steckt in der Antwortstruktur des Backends (z. B. `response.data.detail` oder `response.data.message`), wird aber nicht ausgelesen. Stattdessen fällt der Parser auf einen generischen Fallback zurück.
+
+**Behebung:**
+* Fehlerparser im `ReservationCreateDialog` korrigieren: Fehlerstruktur der Backend-API-Antwort exakt auslesen (Pfad: `error.response?.data?.detail ?? error.message`).
+* Zentrale Fehlerbehandlungs-Utility erstellen, die alle FastAPI-Fehlermuster (`detail`, `message`, HTTP-Statustext) einheitlich auflöst und für alle Dialoge nutzbar macht.
+* Integrations-Test: Fehlerpfad im `ReservationCreateDialog` mit Mock-Backend-Fehlerantworten abdecken.
+
+---
+
+### 11.2 Neue Anforderungen
+
+Die folgenden Anforderungen ergänzen den bestehenden Funktionsumfang. Sie sind alle dem Entwicklungsziel **[Ziel 9]** zugeordnet und bauen auf den bestehenden Anforderungen [HF-01] bis [HF-11] auf.
+
+---
+
+#### [HF-12] Labels als Filterkriterium bei Reservierungsanfragen
+
+**Kontext:** Bisher können SBs bei der Suche nach freien Plätzen im SuggestionWizard keine labelbezogenen Einschränkungen angeben. Ein Raum, der als „Rollstuhlgerecht" oder „Familienraum" gekennzeichnet ist, erscheint gleichwertig neben nicht gekennzeichneten Räumen.
+
+**Anforderung:** Im SuggestionWizard können Raumlabels und Bettlabels als optionale Filterkriterien ausgewählt werden.
+
+* Auswahl über Mehrfach-Chips (Multi-Select); kein Pflichtfeld.
+* Ist kein Label ausgewählt, verhält sich die Suche wie bisher.
+* Ist mindestens ein Label ausgewählt, werden nur Räume/Betten zurückgegeben, die alle gewählten Labels besitzen.
+* Ergebnis-Varianten zeigen einen visuellen Hinweis, wenn ein Vorschlag gewählte Label-Einschränkungen nicht vollständig erfüllen konnte (Soft-Match-Indikator).
+* **DSGVO:** Nur Raum- und Bettlabels sind filterbar. Belegungs-Labels (Personen-Hinweise) sind kein Suchkriterium.
+
+---
+
+#### [HF-13] Geschlechts-Zuordnung über Labels statt fester Designation
+
+**Kontext:** Die bisherige `geschlechts_designation`-Spalte am Raum ist ein fester Wert, der unabhängig von der tatsächlichen Belegungssituation gesetzt werden muss. Das erfordert manuelle Pflege und spiegelt den Echtzeit-Zustand nicht wider.
+
+**Anforderung:** Ablösung der festen Geschlechtsdesignation durch ein dynamisches, labelbasiertes Modell.
+
+* Ein leerer Raum (keine aktive Belegung im angefragten Zeitraum) ist für jede Person belegbar.
+* Sobald ein Raum mindestens eine aktive Belegung des Geschlechts M enthält, wird er systemseitig automatisch als Männerraum behandelt (und umgekehrt für F).
+* Explizite Labels (`Männer`, `Frauen`, `Familie/Gemischt`) am Raum können die automatische Zuordnung übersteuern und den Raum fest einem Geschlecht oder dem Familienmodus zuordnen.
+* Die bestehende Familienschutz-Logik ([HF-04]) bleibt unverändert als Hard Constraint erhalten.
+* **Enterprise-Stack:** Langfristige Migration der `geschlechts_designation`-Spalte auf das Label-basierte System. Übergangsweise Dual-Auswertung (Spalte und Labels) zur Wahrung der Abwärtskompatibilität.
+
+---
+
+#### [HF-14] Gruppen-Suche über mehrere Unterkünfte
+
+**Kontext:** Beim heutigen Gruppen-Modus des SuggestionWizard wird ausschließlich innerhalb einer einzelnen Einrichtung gesucht. Kann eine Gruppe dort nicht vollständig untergebracht werden, erhält der SB lediglich eine Fehlermeldung ohne weiterführende Handlungsoptionen.
+
+**Anforderung:** Der SuggestionWizard unterstützt standortübergreifende Gruppenunterbringung.
+
+* Schritt 1: Suche zuerst in der Heimat-Einrichtung des SBs.
+* Schritt 2: Kann die Gruppe dort nicht vollständig untergebracht werden, schlägt das System automatisch eine Aufteilung auf mehrere Einrichtungen vor.
+* Eine Ergebnis-Variante darf mehrere Einrichtungen kombinieren.
+* Der SB erhält für jede Variante eine klare Darstellung: Wer kommt wohin, wie viele Personen verbleiben getrennt.
+* Verbesserte Fehlermeldung wenn keine Variante gefunden werden kann: Angabe, wie viele Plätze im angefragten Zeitraum systemweit verfügbar sind und wo.
+
+---
+
+#### [HF-15] Labels für Einrichtungen
+
+**Kontext:** Bisher existiert das Labels-System ([HF-11]) nur für Räume, Betten und Belegungen. Einrichtungen selbst tragen keine strukturierten Merkmalsinformationen.
+
+**Anforderung:** Einrichtungen können Labels erhalten, die ihre Eignung und ihren Charakter beschreiben.
+
+* Beispiel-Labels: `Erstaufnahme`, `Familiengeeignet`, `Barrierefrei`, `Medizinische Versorgung vor Ort`, `Gesichert (geschlossene Einrichtung)`.
+* Labels werden im Einrichtungs-Edit-Dialog beim Anlegen und Bearbeiten vergeben (gleiche Chip-Auswahl-UX wie bei Räumen).
+* Labels erscheinen im Dashboard (unterhalb des Einrichtungsnamens) und als Tooltip-Information auf der Karte.
+* Labels sind filterfähig: Im Dashboard und auf der Karte kann nach Einrichtungs-Labels gefiltert werden.
+
+---
+
+#### [HF-16] Geo-Lokation für Einrichtungen
+
+**Kontext:** Die Kartenpositionierung von Einrichtungen basiert derzeit ausschließlich auf der hinterlegten Adresse (Geocoding-Fallback). Das ist fehleranfällig bei unvollständigen oder nicht eindeutigen Adressen.
+
+**Anforderung:** Einrichtungen erhalten explizite Geo-Koordinaten als primäre Positionierungsgrundlage.
+
+* Neue Felder `geo_lat` (Breitengrad) und `geo_lng` (Längengrad) im Einrichtungsdatenmodell.
+* Eingabe im Einrichtungs-Edit-Dialog: Dezimalgrad-Eingabefelder mit Validierung (Bereich: Deutschland).
+* Karte zeigt Marker an Geo-Koordinaten, wenn vorhanden; fällt andernfalls auf Adress-Geocoding zurück ([TECH-03]).
+* Koordinaten können auch per Klick auf eine eingebettete Miniaturkarte gesetzt werden (Phase 2, sofern technisch umsetzbar).
+
+---
+
+#### [HF-17] Gültigkeitszeitraum für Einrichtungen
+
+**Kontext:** Einrichtungen werden im BAMF-Grenzverfahren temporär betrieben. Es fehlt bisher eine Möglichkeit, den operativen Zeitraum einer Einrichtung im System zu hinterlegen.
+
+**Anforderung:** Einrichtungen erhalten die Felder `gueltig_ab` und `gueltig_bis` (jeweils `DATE`).
+
+* Außerhalb des Gültigkeitszeitraums sind keine neuen Belegungen und keine neuen Reservierungsanfragen für diese Einrichtung möglich.
+* Das Backend validiert den Gültigkeitszeitraum beim Anlegen von Belegungen und Reservierungen und gibt HTTP 409 zurück, wenn die Einrichtung außerhalb ihres Gültigkeitsfensters liegt.
+* Im Dashboard wird eine Einrichtung, deren `gueltig_bis` in weniger als 30 Tagen liegt, mit einem Warnindikator versehen (Hinweis: „Einrichtung endet in X Tagen").
+* Ein Gültigkeitszeitraum ist optional; Einrichtungen ohne Datumsangabe gelten als unbefristet aktiv.
+
+---
+
+#### [HF-18] Einrichtungs- und Raum-Deaktivierung mit Belegungsschutz
+
+**Kontext:** Derzeit können Einrichtungen und Räume ohne Prüfung deaktiviert oder gelöscht werden, auch wenn noch aktive Belegungen vorhanden sind. Das führt zu inkonsistenten Daten.
+
+**Anforderung:** Deaktivierung nur wenn keine aktiven Belegungen vorliegen.
+
+* Eine Einrichtung darf nur deaktiviert (nicht gelöscht) werden, wenn zum Deaktivierungszeitpunkt keine aktiven Belegungen in ihr vorhanden sind.
+* Gleiches Prinzip gilt für die Raum-Deaktivierung.
+* Das Backend gibt bei Verstoß HTTP 409 zurück mit einem aussagekräftigen Fehlertext: „X aktive Belegungen vorhanden. Erst umbuchen."
+* Das Frontend zeigt diesen Hinweis im Deaktivierungs-Dialog an und unterdrückt den Bestätigen-Button, wenn der Server einen 409-Status meldet.
+* **Wichtig:** Physisches Löschen von Einrichtungen oder Räumen ist im System grundsätzlich nicht vorgesehen (Soft-Delete / Deaktivierung als einziger Weg).
+
+---
+
+#### [HF-19] Kontingent-Änderung mit Belegungs-Prüfung
+
+**Kontext:** Das offizielle Bettenkontingent einer Einrichtung kann aktuell ohne Einschränkung unter die aktuelle Belegungszahl abgesenkt werden, was zu einer rechnerisch unmöglichen Überbuchung führt.
+
+**Anforderung:** Das Kontingent kann nicht unter die aktuelle Belegungszahl abgesenkt werden.
+
+* Beim Speichern einer Kontingentreduktion prüft das Backend: `neues_kontingent >= aktuelle_belegungszahl`.
+* Bei Verletzung: HTTP 409 mit Meldung „Aktuelle Belegung (X) übersteigt neues Kontingent (Y). Erst ausbuchen."
+* Eine Kontingentaufstockung ist jederzeit ohne zusätzliche Prüfung möglich.
+* **Enterprise-Stack:** Kontingentänderungen unterliegen einem Approval-Workflow (4-Augen-Prinzip). Kontingentreduzierungen werden im Audit-Trail mit Antragsteller, Genehmiger und Zeitstempel dokumentiert.
+
+---
+
+#### [HF-20] Zeitbasierte Bett-Deaktivierung
+
+**Kontext:** Betten können heute nur sofort deaktiviert werden. Es gibt keine Möglichkeit, eine zukünftige Deaktivierung zu planen, obwohl die operative Praxis (z. B. geplante Sanierung eines Bettes) das erfordert.
+
+**Anforderung:** Bett-Deaktivierung zu einem definierten zukünftigen Datum.
+
+* Neues Feld `deaktiviert_ab DATE` im Bett-Datenmodell (nullable; `NULL` = Bett aktiv und unbefristet).
+* Beim Setzen von `deaktiviert_ab` für ein Bett: Das Bett ist noch belegbar für Zeiträume, die vollständig vor `deaktiviert_ab` liegen.
+* Der Suggestion-SQL berücksichtigt `deaktiviert_ab`: Ein Bett gilt als nicht verfügbar, wenn `deaktiviert_ab <= period_start`.
+* Wenn eine aktive Belegung über `deaktiviert_ab` hinaus läuft, wird automatisch ein Postkorb-Task erstellt: „Bett [ID] wird ab [Datum] deaktiviert. Belegung von [AZR-ID/Alias] muss bis dahin umgebucht werden."
+* Im Drilldown wird ein Bett mit gesetztem `deaktiviert_ab` visuell markiert (z. B. Strikethrough-Stil oder Warnindikator mit Datum).
+
+---
+
+#### [HF-21] Direkte Bett-Anfrage-Zuordnung aus dem Drilldown
+
+**Kontext:** Der aktuelle Workflow erfordert, dass ein SB den Drilldown verlässt, zur Reservierungsübersicht navigiert, eine Anfrage auswählt, bestätigt und dann manuell zum Drilldown zurücknavigiert. Dieser Kontextverlust ist ineffizient und fehleranfällig.
+
+**Anforderung:** Zuordnung offener Reservierungsanfragen zu freien Betten direkt aus dem Drilldown heraus.
+
+* Im Drilldown: Der orangefarbene Pending-Indikator (vgl. 10.2) ist anklickbar und öffnet eine Liste aller offenen (`PENDING`) Reservierungsanfragen für diesen Raum.
+* Klick auf ein freies Bett im Drilldown öffnet einen Dialog „Anfrage zuordnen" mit einer Liste aller offenen Anfragen, die für dieses Bett passen (Geschlecht, Familienstatus, Zeitraum).
+* Der SB kann direkt aus diesem Dialog eine Anfrage auswählen und bestätigen, ohne den Drilldown zu verlassen.
+* Nach Bestätigung aktualisiert sich der Drilldown sofort (das Bett wechselt in den Status „Belegt", der Pending-Indikator wird angepasst).
+
+---
+
+#### [HF-22] Notbetten-Tracking und -Darstellung
+
+**Kontext:** Notbetten sind laut [HF-01] ein definierter Bettentyp mit einer Maximalverweildauer von einer Nacht. Bisher fehlt jedoch eine strukturierte Darstellung und ein systemseitiges Monitoring der Notbettbelegungen im Tagesverlauf.
+
+**Anforderung:** Eigenständige Erfassung, Darstellung und Verfallsüberwachung von Notbetten.
+
+* **Datenmodell:** `bett_typ = 'NOTBETT'` als eigener Enum-Wert in der Betten-Tabelle (neben `KONTINGENT`).
+* **Drilldown-Darstellung:** Notbetten werden in einem separaten, klar abgegrenzten Bereich unterhalb der Kontingentbetten dargestellt. Für jedes Notbett werden angezeigt: wer belegt es (AZR-ID / Alias), seit wann, wann endet die Belegung.
+* **Technische Validierung:** Das Backend verhindert Belegungen auf Notbetten mit einer Dauer von mehr als 1 Tag (HTTP 400).
+* **Verlängerungsoption:** Eine Einrichtung kann für eine laufende Notbettbelegung einmalig eine Verlängerung um 1 weiteren Tag gewähren. Diese Verlängerung wird im Audit-Log dokumentiert. Eine zweite Verlängerung ist systemseitig nicht möglich; danach ist zwingend eine Verlegung auf ein Kontingentbett oder in eine andere Einrichtung vorzunehmen.
+* **Täglicher Scheduler-Task:** Täglich um 06:00 Uhr erstellt ein Hintergrundprozess (vgl. [TECH-04]) für jede Notbettbelegung, die an diesem Tag endet, automatisch einen Postkorb-Task: „Notbett [ID]: Belegung von [AZR-ID/Alias] endet heute. Verlegung oder Verlängerung erforderlich."
+* **Enterprise-Stack:** Scheduler als Spring `@Scheduled`-Job mit konfigurierbarer Uhrzeit (Default: 06:00 Uhr). Benachrichtigung auch als E-Mail an den zuständigen SB der Einrichtung möglich.
+
+---
+
+### 11.3 Enterprise-Stack-Implikationen (HF-12 bis HF-22)
+
+Die folgenden Umsetzungshinweise gelten spezifisch für den Enterprise Stack (Java/Spring Boot, Angular) und ergänzen die Demo-Stack-Umsetzung der obigen Anforderungen.
+
+| Anforderung | Enterprise-Stack-Besonderheit |
+|---|---|
+| **HF-12 / HF-15 (Labels als Filter)** | Labels-Tabelle statt `TEXT[]`-Array (normalisierte Many-to-Many-Verknüpfung für Filterbarkeit und Datenbankindizierung). |
+| **HF-16 (Geo-Koordinaten)** | Speicherung als PostGIS-`GEOGRAPHY(POINT)`-Typ; ermöglicht native Umkreissuche (`ST_DWithin`) für künftige Standortanalysen. |
+| **HF-17 / HF-18 / HF-19 (Kapazitätsprüfungen)** | Komplexe Prüflogik als dedizierter Domain-Service (`CapacityGuard`) mit pessimistischem Datenbank-Locking (`SELECT ... FOR UPDATE`), um Race Conditions bei parallelen Buchungen zu verhindern. |
+| **HF-19 (Kontingent-Approval)** | Kontingentänderungen unterliegen einem 4-Augen-Approval-Workflow. Antragsteller und Genehmiger werden im Audit-Trail mit Zeitstempel erfasst. |
+| **HF-20 / HF-22 (Scheduler)** | Notbett-Scheduler und Bett-Deaktivierungs-Prüfung als Spring `@Scheduled`-Jobs mit konfigurierbarer Uhrzeit. |
+| **HF-22 (Audit-Trail)** | Alle Kapazitätsänderungen (Kontingent, Bett-Deaktivierung, Notbett-Verlängerung) werden im Write-Only-Audit-Schema ([NF-03]) mit Benutzer, Zeitstempel und Delta-Wert protokolliert. |
+| **HF-13 (Geschlechts-Migration)** | Übergangsweise Dual-Auswertung von `geschlechts_designation`-Spalte und Labels. Datenmigrations-Skript überführt bestehende Designationen in Labels. Spalte wird nach Stabilisierung entfernt (Breaking Change, mit Migrations-Guide). |

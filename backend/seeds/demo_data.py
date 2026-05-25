@@ -22,6 +22,9 @@ LOCATIONS = [
         "adresse": "Flughafenstr. 1, 60547 Frankfurt",
         "kontingent": 20,
         "notbett_kapazitaet": 5,
+        "lat": 50.0264,
+        "lon": 8.5431,
+        "labels": ["Erstaufnahme", "Familiengeeignet"],
     },
     {
         "id": "a1b2c3d4-0002-0002-0002-000000000002",
@@ -29,6 +32,9 @@ LOCATIONS = [
         "adresse": "Nordallee 25, 85356 München",
         "kontingent": 15,
         "notbett_kapazitaet": 4,
+        "lat": 48.3537,
+        "lon": 11.7750,
+        "labels": ["Erstaufnahme"],
     },
     {
         "id": "a1b2c3d4-0003-0003-0003-000000000003",
@@ -36,6 +42,9 @@ LOCATIONS = [
         "adresse": "Innstraße 45, 94032 Passau",
         "kontingent": 10,
         "notbett_kapazitaet": 2,
+        "lat": 48.5667,
+        "lon": 13.4319,
+        "labels": ["Grenzverfahren", "Barrierefrei"],
     },
     {
         "id": "a1b2c3d4-0004-0004-0004-000000000004",
@@ -43,6 +52,9 @@ LOCATIONS = [
         "adresse": "Flughafenstr. 1-3, 22335 Hamburg",
         "kontingent": 12,
         "notbett_kapazitaet": 3,
+        "lat": 53.6304,
+        "lon": 9.9882,
+        "labels": ["Erstaufnahme", "Familiengeeignet"],
     },
 ]
 
@@ -51,37 +63,45 @@ EU_GESAMTQUOTE = 57
 # ─── Räume + Betten pro Standort ─────────────────────────────────────────────
 # geschlechts_designation: M=Männer, W=Frauen, D=Gemischt/Familie
 ROOMS_CONFIG = {
-    "a1b2c3d4-0001-0001-0001-000000000001": [  # Frankfurt: 6+6+4+4=20 Betten
+    "a1b2c3d4-0001-0001-0001-000000000001": [  # Frankfurt: 6+6+4+4=20 Kontingent + 5 Notbetten
         {"name": "Raum A – Männer", "designation": "M", "beds": 6,
-         "labels": ["Erdgeschoss", "Rollstuhlgerecht"]},
+         "labels": ["Erdgeschoss", "Rollstuhlgerecht", "Männer"]},
         {"name": "Raum B – Frauen", "designation": "W", "beds": 6,
-         "labels": ["Erdgeschoss"]},
+         "labels": ["Erdgeschoss", "Frauen"]},
         {"name": "Raum C – Männer 2", "designation": "M", "beds": 4,
-         "labels": ["Ruhig"]},
+         "labels": ["Ruhig", "Männer"]},
         {"name": "Raum D – Familie/Gemischt", "designation": "D", "beds": 4,
-         "labels": ["Familienraum"]},
+         "labels": ["Familienraum", "Familie"]},
+        {"name": "Notbettenraum", "designation": "D", "beds": 5,
+         "labels": ["Notbetten"], "bett_typ": "NOTBETT"},
     ],
-    "a1b2c3d4-0002-0002-0002-000000000002": [  # München: 6+6+3=15 Betten
+    "a1b2c3d4-0002-0002-0002-000000000002": [  # München: 6+6+3=15 Kontingent + 4 Notbetten
         {"name": "Raum A – Männer", "designation": "M", "beds": 6,
-         "labels": ["Klimaanlage"]},
+         "labels": ["Klimaanlage", "Männer"]},
         {"name": "Raum B – Frauen", "designation": "W", "beds": 6,
-         "labels": ["Klimaanlage", "Ruhig"]},
+         "labels": ["Klimaanlage", "Ruhig", "Frauen"]},
         {"name": "Raum C – Frauen 2", "designation": "W", "beds": 3,
-         "labels": []},
+         "labels": ["Frauen"]},
+        {"name": "Notbettenraum", "designation": "D", "beds": 4,
+         "labels": ["Notbetten"], "bett_typ": "NOTBETT"},
     ],
-    "a1b2c3d4-0003-0003-0003-000000000003": [  # Passau: 5+5=10 Betten
+    "a1b2c3d4-0003-0003-0003-000000000003": [  # Passau: 5+5=10 Kontingent + 2 Notbetten
         {"name": "Raum A – Männer", "designation": "M", "beds": 5,
-         "labels": ["Erdgeschoss", "Barrierefreiheit"]},
+         "labels": ["Erdgeschoss", "Barrierefreiheit", "Männer"]},
         {"name": "Raum B – Frauen", "designation": "W", "beds": 5,
-         "labels": ["Erdgeschoss"]},
+         "labels": ["Erdgeschoss", "Frauen"]},
+        {"name": "Notbettenraum", "designation": "D", "beds": 2,
+         "labels": ["Notbetten"], "bett_typ": "NOTBETT"},
     ],
-    "a1b2c3d4-0004-0004-0004-000000000004": [  # Hamburg: 4+4+4=12 Betten
+    "a1b2c3d4-0004-0004-0004-000000000004": [  # Hamburg: 4+4+4=12 Kontingent + 3 Notbetten
         {"name": "Raum A – Männer", "designation": "M", "beds": 4,
-         "labels": []},
+         "labels": ["Männer"]},
         {"name": "Raum B – Frauen", "designation": "W", "beds": 4,
-         "labels": ["Ruhig"]},
+         "labels": ["Ruhig", "Frauen"]},
         {"name": "Raum C – Familie/Gemischt", "designation": "D", "beds": 4,
-         "labels": ["Familienraum"]},
+         "labels": ["Familienraum", "Familie"]},
+        {"name": "Notbettenraum", "designation": "D", "beds": 3,
+         "labels": ["Notbetten"], "bett_typ": "NOTBETT"},
     ],
 }
 
@@ -184,15 +204,19 @@ def main() -> None:
         for loc in LOCATIONS:
             cur.execute("""
                 INSERT INTO capacity.locations
-                    (id, name, adresse, kontingent, notbett_kapazitaet, is_active, created_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, TRUE, NOW(), NOW())
+                    (id, name, adresse, kontingent, notbett_kapazitaet, labels, lat, lon, is_active, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, TRUE, NOW(), NOW())
                 ON CONFLICT (id) DO UPDATE
                   SET kontingent = EXCLUDED.kontingent,
                       notbett_kapazitaet = EXCLUDED.notbett_kapazitaet,
                       adresse = EXCLUDED.adresse,
+                      labels = EXCLUDED.labels,
+                      lat = EXCLUDED.lat,
+                      lon = EXCLUDED.lon,
                       updated_at = NOW()
             """, (loc["id"], loc["name"], loc["adresse"],
-                  loc["kontingent"], loc["notbett_kapazitaet"]))
+                  loc["kontingent"], loc["notbett_kapazitaet"],
+                  loc.get("labels", []), loc.get("lat"), loc.get("lon")))
 
             rooms_cfg = ROOMS_CONFIG[loc["id"]]
             occ_cfg = OCCUPANCY_CONFIG[loc["id"]]
@@ -207,15 +231,18 @@ def main() -> None:
                 """, (room_id, loc["id"], room_def["name"], room_def["designation"], room_labels))
                 n_rooms += 1
 
+                bett_typ_room = room_def.get("bett_typ", "KONTINGENT")
                 for bett_nr in range(1, room_def["beds"] + 1):
                     bed_id = _bed_id(room_id, bett_nr)
-                    # Abwechselnd Unteres/Oberes Bett (gerades Bett = oben)
-                    bed_labels = ["Unteres Bett"] if bett_nr % 2 == 1 else ["Oberes Bett"]
+                    if bett_typ_room == "NOTBETT":
+                        bed_labels: list[str] = ["Notbett"]
+                    else:
+                        bed_labels = ["Unteres Bett"] if bett_nr % 2 == 1 else ["Oberes Bett"]
                     cur.execute("""
                         INSERT INTO capacity.beds
                             (id, room_id, bett_nummer, bett_typ, labels, is_active, created_at, updated_at)
-                        VALUES (%s, %s, %s, 'KONTINGENT', %s, TRUE, NOW(), NOW())
-                    """, (bed_id, room_id, str(bett_nr), bed_labels))
+                        VALUES (%s, %s, %s, %s, %s, TRUE, NOW(), NOW())
+                    """, (bed_id, room_id, str(bett_nr), bett_typ_room, bed_labels))
                     n_beds += 1
 
                 # Belegungen anlegen

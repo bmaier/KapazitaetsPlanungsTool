@@ -30,6 +30,11 @@ class LocationResponse(BaseModel):
     kontingent: int
     notbett_kapazitaet: int
     is_active: bool
+    labels: list[str] = []
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+    valid_from: Optional[date] = None
+    valid_until: Optional[date] = None
 
     model_config = {"from_attributes": True}
 
@@ -131,6 +136,23 @@ class LocationUpdate(BaseModel):
     adresse: Optional[str] = Field(None, max_length=500)
 
 
+class LocationUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    adresse: Optional[str] = None
+    kontingent: Optional[int] = None
+    notbett_kapazitaet: Optional[int] = None
+    labels: Optional[list[str]] = None
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+    valid_from: Optional[date] = None
+    valid_until: Optional[date] = None
+
+
+class BedUpdateRequest(BaseModel):
+    deaktiviert_ab: Optional[date] = None
+    is_active: Optional[bool] = None
+
+
 class LocationSummaryResponse(BaseModel):
     id: UUID
     name: str
@@ -162,6 +184,8 @@ class BedStatusItem(BaseModel):
     room_labels: list[str] = []
     bed_labels: list[str] = []
     occ_labels: list[str] = []
+    deaktiviert_ab: Optional[date] = None
+    is_notbett: bool = False
 
 
 class RoomBedStatus(BaseModel):

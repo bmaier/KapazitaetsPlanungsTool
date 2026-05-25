@@ -19,18 +19,53 @@ from src.api.suggestions.schemas import (
 router = APIRouter(tags=["suggestions"])
 
 _BED_SELECT = """
-    SELECT b.id, b.bett_nummer, b.bett_typ, r.name AS room_name, l.name AS location_name
+    SELECT b.id, b.bett_nummer, b.bett_typ, r.name AS room_name, l.name AS location_name,
+           r.labels AS room_labels
     FROM capacity.beds b
     JOIN capacity.rooms r ON r.id = b.room_id
     JOIN capacity.locations l ON l.id = r.location_id
     WHERE r.is_active = true
       AND b.is_active = true
-      AND (r.geschlechts_designation = :geschlecht OR r.geschlechts_designation = 'D')
+      AND b.bett_typ != 'NOTBETT'
+      AND (b.deaktiviert_ab IS NULL OR b.deaktiviert_ab > :period_start)
       AND NOT EXISTS (
         SELECT 1 FROM persons.occupants o
         WHERE o.bed_id = b.id
           AND o.belegung_start < :period_end
           AND o.belegung_ende > :period_start
+      )
+      AND (
+        /* 1. Explicit gender label on room matches request */
+        (:geschlecht = 'M' AND 'Männer' = ANY(r.labels))
+        OR (:geschlecht = 'W' AND 'Frauen' = ANY(r.labels))
+        OR (:geschlecht = 'D' AND ('Familie' = ANY(r.labels) OR 'Familienraum' = ANY(r.labels) OR 'Gemischt' = ANY(r.labels)))
+        /* 2. Room has no gender label - check current occupants */
+        OR (
+          NOT ('Männer' = ANY(r.labels) OR 'Frauen' = ANY(r.labels) OR 'Familie' = ANY(r.labels) OR 'Familienraum' = ANY(r.labels) OR 'Gemischt' = ANY(r.labels))
+          AND (
+            /* Empty room: any gender welcome */
+            NOT EXISTS (
+              SELECT 1 FROM persons.occupants o2
+              JOIN capacity.beds b2 ON b2.id = o2.bed_id
+              WHERE b2.room_id = r.id
+                AND o2.belegung_start < :period_end
+                AND o2.belegung_ende > :period_start
+            )
+            /* Or room has occupants of same gender */
+            OR EXISTS (
+              SELECT 1 FROM persons.occupants o3
+              JOIN capacity.beds b3 ON b3.id = o3.bed_id
+              WHERE b3.room_id = r.id
+                AND o3.geschlecht = :geschlecht
+                AND o3.belegung_start < :period_end
+                AND o3.belegung_ende > :period_start
+            )
+            /* Divers requests can go anywhere without gender labels */
+            OR :geschlecht = 'D'
+          )
+        )
+        /* 3. Keep backward compat: old geschlechts_designation */
+        OR r.geschlechts_designation = 'D'
       )
 """
 
@@ -70,18 +105,39 @@ async def create_suggestion(
                 room_name=r.room_name,
                 bett_typ=r.bett_typ,
                 location_name=r.location_name,
+                room_labels=list(r.room_labels or []),
             )
             for r in rows
         ]
+
+        # Apply label filter: room must have ALL required labels
+        if body.label_filter:
+            available = [
+                b for b in available
+                if all(lbl in (b.room_labels or []) for lbl in body.label_filter)
+            ]
 
         message = ''
         if body.familien_modus and body.minderjaehrige > 0:
             variants, message = _compute_family_variants(available, body.anzahl)
         elif len(available) < body.anzahl:
-            message = f"Nur {len(available)} Betten verfügbar"
+            if not body.cross_location:
+                message = (
+                    f"Nur {len(available)} Betten verfügbar. "
+                    "Nicht genug Plätze in dieser Einrichtung. Standortübergreifende Suche empfohlen."
+                )
+            else:
+                message = f"Nur {len(available)} Betten verfügbar"
             variants = []
         else:
             variants = _compute_variants(available, body.anzahl)
+            if not body.cross_location and len(variants) > 0 and not any(
+                len(v.beds) >= body.anzahl for v in variants
+            ):
+                message = (
+                    "Nicht genug Plätze in dieser Einrichtung. "
+                    "Standortübergreifende Suche empfohlen."
+                )
 
         event_id = str(uuid.uuid4())
         audit_payload = json.dumps({
