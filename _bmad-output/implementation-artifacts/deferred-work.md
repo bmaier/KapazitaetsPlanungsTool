@@ -140,6 +140,22 @@ Gefunden beim Review von `spec-ziel6b-belegungsvorschlag-erweitert.md`. Nicht kr
 
 ---
 
+## Ziel 8: Labels-System ✅ (implementiert 2026-05-25, spec-ziel8-labels-system.md)
+
+Flexibles Labels-System für Räume, Betten und Belegungen (Personen-Hinweise). Unterstützt die manuelle Bett-Zuweisung durch visuelle Matching-Hints ohne algorithmischen Zwang.
+
+**Technische Umsetzung (Demo Stack):**
+- `TEXT[]`-Spalten auf `capacity.rooms.labels`, `capacity.beds.labels` und `persons.occupants.labels` (Migration 0006)
+- `PATCH /api/rooms/{id}/labels` — Labels einer Einrichtungs-Raumliste setzen/ersetzen
+- `PATCH /api/beds/{id}/labels` — Labels eines Bettes setzen/ersetzen
+- `PATCH /api/occupants/{id}/labels` — Labels einer Belegung setzen/ersetzen
+- `GET /api/labels/catalog` — Vordefinierter Katalog, gruppiert nach Entitätstyp (`room`, `bed`, `occupant`)
+- Frontend: `LabelChips`-Komponente (MUI Chip) — readonly in Listenansichten, editierbar in `BelegDialog` und `BedManageDialog`
+
+**DSGVO:** Belegungs-Labels sind operative Hinweise ohne AZR-Bezug; werden mit der Belegung gelöscht. Keine Freitexteingabe — nur vordefinierter Katalog erlaubt.
+
+---
+
 ## Review-Findings (Ziel 5) — Zurückgestellt
 
 Gefunden beim Review von `spec-ziel5-karte-svg-fallback.md`. Nicht kritisch für Demo-Betrieb.

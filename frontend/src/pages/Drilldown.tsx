@@ -41,6 +41,7 @@ import MeetingRoomIcon from '@mui/icons-material/MeetingRoom'
 import BlockIcon from '@mui/icons-material/Block'
 import { useApiClient } from '../api/client'
 import { useKeycloak } from '../auth/KeycloakProvider'
+import LabelChips, { LabelList } from '../components/LabelChips'
 
 interface Location {
   id: string
@@ -62,6 +63,9 @@ interface BedStatus {
   occ_geschlecht?: string
   belegung_start?: string
   belegung_ende?: string
+  room_labels?: string[]
+  bed_labels?: string[]
+  occ_labels?: string[]
 }
 
 interface RoomStatus {
@@ -70,6 +74,7 @@ interface RoomStatus {
   geschlechts_designation: string
   beds: BedStatus[]
   pending_count: number
+  labels?: string[]
 }
 
 interface RoomMgmt {
@@ -109,7 +114,7 @@ function BedGrid({ room, canEdit, onBedClick }: BedGridProps) {
 
   return (
     <Paper elevation={2} sx={{ p: 2.5, borderRadius: 3, borderTop: `4px solid ${color}`, height: '100%' }}>
-      <Box display="flex" alignItems="center" gap={1} mb={1.5} flexWrap="wrap">
+      <Box display="flex" alignItems="center" gap={1} mb={1} flexWrap="wrap">
         <Box sx={{ color }}>{genderIcon(room.geschlechts_designation)}</Box>
         <Typography fontWeight={700} sx={{ color }}>{room.room_name}</Typography>
         <Chip label={genderLabel(room.geschlechts_designation)} size="small"
@@ -127,6 +132,11 @@ function BedGrid({ room, canEdit, onBedClick }: BedGridProps) {
           />
         )}
       </Box>
+      {(room.labels ?? []).length > 0 && (
+        <Box mb={1}>
+          <LabelList labels={room.labels ?? []} />
+        </Box>
+      )}
 
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
         {room.beds.map((bed) => {
@@ -135,9 +145,14 @@ function BedGrid({ room, canEdit, onBedClick }: BedGridProps) {
             <Tooltip
               key={bed.bed_id}
               title={
-                isBelegt
-                  ? `${bed.azr_id || '–'}${bed.alias_id ? ' · ' + bed.alias_id : ''} · ${bed.belegung_start} – ${bed.belegung_ende}${canEdit ? ' · Klicken zum Verwalten' : ''}`
-                  : canEdit ? 'Bett frei – klicken zum Belegen' : 'Bett frei'
+                <Box>
+                  {isBelegt
+                    ? `${bed.azr_id || '–'}${bed.alias_id ? ' · ' + bed.alias_id : ''} · ${bed.belegung_start} – ${bed.belegung_ende}`
+                    : 'Bett frei'}
+                  {(bed.bed_labels ?? []).length > 0 && ` · ${bed.bed_labels!.join(', ')}`}
+                  {isBelegt && (bed.occ_labels ?? []).length > 0 && ` · ${bed.occ_labels!.join(', ')}`}
+                  {canEdit && (isBelegt ? ' · Klicken zum Verwalten' : ' · Klicken zum Belegen')}
+                </Box>
               }
               arrow
             >
@@ -233,6 +248,7 @@ export default function Drilldown() {
   const [belegGeschlecht, setBelegGeschlecht] = useState('M')
   const [belegStart, setBelegStart] = useState(today)
   const [belegEnde, setBelegEnde] = useState(in14)
+  const [belegLabels, setBelegLabels] = useState<string[]>([])
   const [belegSaving, setBelegSaving] = useState(false)
   const [warn12w, setWarn12w] = useState(false)
 
@@ -388,6 +404,7 @@ export default function Drilldown() {
       setAliasId('')
       setBelegStart(today)
       setBelegEnde(in14)
+      setBelegLabels([])
       setWarn12w(false)
       setBelegBed({ bed, room })
     } else {
@@ -419,7 +436,15 @@ export default function Drilldown() {
         throw new Error((err as { detail?: string })?.detail || 'Fehler')
       }
       const has12w = response.headers.get('X-12W-Warning') === 'true'
+      // Labels für die neue Belegung setzen (wenn angegeben)
+      if (belegLabels.length > 0) {
+        const occupancyData = await response.clone().json().catch(() => null) as { id?: string } | null
+        if (occupancyData?.id) {
+          await patch(`/api/occupancy/${occupancyData.id}/labels`, { labels: belegLabels }).catch(() => {})
+        }
+      }
       setBelegBed(null)
+      setBelegLabels([])
       loadBedStatus()
       setSnackbar({
         open: true,
@@ -618,6 +643,29 @@ export default function Drilldown() {
               onChange={(e) => setBelegEnde(e.target.value)}
               InputLabelProps={{ shrink: true }} inputProps={{ min: belegStart }} fullWidth />
           </Box>
+
+          {/* Labels-Matching-Hinweis: Raum-Labels als Kontext */}
+          {(belegBed?.room.labels ?? belegBed?.bed.room_labels ?? []).length > 0 && (
+            <Alert severity="info" sx={{ py: 0.5 }}>
+              <Typography variant="caption" fontWeight={700}>Raum-Eigenschaften:</Typography>{' '}
+              <LabelList labels={belegBed?.room.labels ?? belegBed?.bed.room_labels ?? []} />
+            </Alert>
+          )}
+
+          {/* Hinweis-Labels für die Person */}
+          <Box>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+              Hinweis-Labels zur Person (optional, nicht verbindlich)
+            </Typography>
+            <LabelChips
+              labels={belegLabels}
+              entityType="OCCUPANCY"
+              entityId="new"
+              readOnly={false}
+              onSaved={(l) => setBelegLabels(l)}
+            />
+          </Box>
+
           {warn12w && (
             <Alert severity="warning">Belegungsdauer überschreitet 12 Wochen.</Alert>
           )}
@@ -641,7 +689,7 @@ export default function Drilldown() {
         <DialogContent sx={{ pt: 2 }}>
           {manageBed && (
             <Paper elevation={0} sx={{ p: 2, bgcolor: '#f8f9fa', borderRadius: 2, mb: 2 }}>
-              <Box display="flex" gap={3} flexWrap="wrap">
+              <Box display="flex" gap={3} flexWrap="wrap" mb={1.5}>
                 <Box>
                   <Typography variant="caption" color="text.secondary">AZR-ID</Typography>
                   <Typography fontWeight={700}>{manageBed.bed.azr_id || '–'}</Typography>
@@ -667,6 +715,24 @@ export default function Drilldown() {
                   <Typography fontWeight={700}>{manageBed.bed.bett_typ}</Typography>
                 </Box>
               </Box>
+              {manageBed.bed.occupancy_id && (
+                <Box>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                    Hinweis-Labels (nicht verbindlich)
+                  </Typography>
+                  <LabelChips
+                    labels={manageBed.bed.occ_labels ?? []}
+                    entityType="OCCUPANCY"
+                    entityId={manageBed.bed.occupancy_id}
+                    onSaved={(newLabels) => {
+                      setManageBed((prev) => prev ? {
+                        ...prev,
+                        bed: { ...prev.bed, occ_labels: newLabels }
+                      } : prev)
+                    }}
+                  />
+                </Box>
+              )}
             </Paper>
           )}
 
@@ -815,6 +881,17 @@ export default function Drilldown() {
                             </>
                           )}
                         </Box>
+                        {room.is_active && (
+                          <Box mb={1}>
+                            <LabelChips
+                              labels={[]}
+                              entityType="ROOM"
+                              entityId={room.id}
+                              compact
+                              onSaved={() => loadMgmtRooms()}
+                            />
+                          </Box>
+                        )}
 
                         {/* Beds */}
                         <Box display="flex" flexWrap="wrap" gap={0.8} mb={addBedRoomId === room.id ? 1.5 : 0}>

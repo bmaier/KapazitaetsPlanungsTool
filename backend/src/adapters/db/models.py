@@ -6,7 +6,7 @@ import uuid
 from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, SmallInteger, String, Text
+from sqlalchemy import ARRAY, Boolean, Date, DateTime, ForeignKey, Integer, SmallInteger, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -51,6 +51,7 @@ class RoomModel(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     geschlechts_designation: Mapped[str] = mapped_column(String(10), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    labels: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
@@ -76,6 +77,7 @@ class BedModel(Base):
         String(20), nullable=False
     )  # KONTINGENT | NOTBETT
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    labels: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
@@ -104,6 +106,7 @@ class OccupantModel(Base):
     family_group_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         PG_UUID(as_uuid=True), nullable=True
     )
+    labels: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )

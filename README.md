@@ -121,11 +121,32 @@ npm run dev          # startet auf http://localhost:3000
 
 ## Demo-Benutzer
 
-| Benutzername | Passwort | Rolle |
-|-------------|---------|-------|
-| `admin_user` | `Admin1234!` | System-Admin (alle Rechte) |
-| `writer_user` | `Writer1234!` | Sachbearbeiter (Lesen + Schreiben) |
-| `reader_user` | `Reader1234!` | Leser (nur Lesen) |
+### Vordefinierte Rollen
+
+| Rolle | Beschreibung |
+|-------|-------------|
+| `system-admin` | Globaler Vollzugriff — alle Einrichtungen, Nutzerverwaltung |
+| `location-admin` | Admin für zugewiesenen Standort — Räume, Betten, Kontingent |
+| `writer` | Sachbearbeiter — Belegung, Reservierungen, Postkorb bearbeiten |
+| `reader` | Lesezugriff — alle Daten einsehen, keine Änderungen |
+
+### Benutzerkonten
+
+| Benutzername | Passwort | Rolle | Standort |
+|-------------|---------|-------|---------|
+| `admin_user` | `Admin1234!` | system-admin | Frankfurt (Default) |
+| `writer_user` | `Writer1234!` | writer | Frankfurt |
+| `reader_user` | `Reader1234!` | reader | Passau |
+| `sb_frankfurt` | `SbFfm2024!` | writer | Frankfurt |
+| `sb_muenchen` | `SbMuc2024!` | writer | München |
+| `sb_passau` | `SbPau2024!` | writer | Passau |
+| `sb_hamburg` | `SbHam2024!` | writer | Hamburg |
+| `loc_admin_ffm` | `LocAdmin2024!` | location-admin | Frankfurt |
+| `leser_bund` | `Leser2024!` | reader | Frankfurt (bundesweit) |
+
+> **Hinweis:** Der `location_id`-Claim im JWT bestimmt, welche Einrichtung im Dashboard hervorgehoben wird.
+> System-Admins sehen alle Einrichtungen mit vollem Zugriff.
+> Nach Keycloak-Neustart (`make down -v && make dev`) werden alle Benutzer automatisch importiert.
 
 ---
 
@@ -133,14 +154,45 @@ npm run dev          # startet auf http://localhost:3000
 
 Nach `python3 backend/seeds/demo_data.py` sind vorhanden:
 
+### Einrichtungen
+
 | Einrichtung | Kontingent | Notbetten | Räume | Betten | Belegung | Ampel |
 |-------------|-----------|-----------|-------|--------|----------|-------|
-| Flughafen Frankfurt | 20 | 5 | 2 | 20 | 15 (75 %) | Gelb |
-| Flughafen München | 15 | 3 | 2 | 20 | 14 (93 %) | Rot |
-| Grenzübergang Passau | 10 | 2 | 2 | 20 | 3 (30 %) | Grün |
-| Flughafen Hamburg | 12 | 3 | 2 | 20 | 4 (33 %) | Grün |
+| Flughafen Frankfurt | 20 | 5 | 4 | 20 | 15 (75 %) | Gelb |
+| Flughafen München | 15 | 3 | 3 | 15 | 14 (93 %) | Rot |
+| Grenzübergang Passau | 10 | 2 | 2 | 10 | 3 (30 %) | Grün |
+| Flughafen Hamburg | 12 | 3 | 3 | 12 | 5 (42 %) | Grün |
 
 EU-Gesamtquote: 55 (wird vom Seed automatisch gesetzt)
+
+### Räume pro Einrichtung
+
+| Einrichtung | Raum | Designation | Betten |
+|-------------|------|------------|--------|
+| Frankfurt | Raum A | Männer | 6 |
+| Frankfurt | Raum B | Frauen | 6 |
+| Frankfurt | Raum C | Männer | 4 |
+| Frankfurt | Raum D | Gemischt (Familie) | 4 |
+| München | Raum A | Männer | 6 |
+| München | Raum B | Frauen | 6 |
+| München | Raum C | Frauen | 3 |
+| Passau | Raum A | Männer | 5 |
+| Passau | Raum B | Frauen | 5 |
+| Hamburg | Raum A | Männer | 4 |
+| Hamburg | Raum B | Frauen | 4 |
+| Hamburg | Raum C | Gemischt (Familie) | 4 |
+
+### Labels-System
+
+Das System unterstützt Hinweis-Labels für Räume, Betten und Belegungen:
+
+- **Raum-Labels:** Rollstuhlgerecht, Erdgeschoss, Ruhig, Familienraum, Klimaanlage, …
+- **Bett-Labels:** Unteres Bett, Oberes Bett, Breites Bett, Kinderbett, …
+- **Belegungs-Labels (nicht verbindlich):** Kind, Arabisch, Farsi/Dari, Türkisch, Halal, Mobilitätseinschränkung, …
+
+> Labels sind operative Hinweise zur Unterstützung der Bett-Zuweisung.
+> Sie sind **nicht AZR-relevant**, **nicht rechtlich bindend** und erscheinen
+> nicht in offiziellen Berichten. DSGVO Art. 9 beachten bei Belegungs-Labels.
 
 ---
 
@@ -188,7 +240,7 @@ KapzitaetsPlanungsTool/
 │   │   │   └── keycloak/     JWT-Validierung
 │   │   ├── jobs/             APScheduler-Hintergrundprozesse
 │   │   └── config.py         Pydantic Settings
-│   ├── alembic/              DB-Migrationen (0001–0005)
+│   ├── alembic/              DB-Migrationen (0001–0006)
 │   └── seeds/                Demo-Daten
 ├── frontend/                 React 18 + MUI 5 + Vite
 │   └── src/

@@ -52,24 +52,36 @@ EU_GESAMTQUOTE = 57
 # geschlechts_designation: M=Männer, W=Frauen, D=Gemischt/Familie
 ROOMS_CONFIG = {
     "a1b2c3d4-0001-0001-0001-000000000001": [  # Frankfurt: 6+6+4+4=20 Betten
-        {"name": "Raum A – Männer", "designation": "M", "beds": 6},
-        {"name": "Raum B – Frauen", "designation": "W", "beds": 6},
-        {"name": "Raum C – Männer 2", "designation": "M", "beds": 4},
-        {"name": "Raum D – Familie/Gemischt", "designation": "D", "beds": 4},
+        {"name": "Raum A – Männer", "designation": "M", "beds": 6,
+         "labels": ["Erdgeschoss", "Rollstuhlgerecht"]},
+        {"name": "Raum B – Frauen", "designation": "W", "beds": 6,
+         "labels": ["Erdgeschoss"]},
+        {"name": "Raum C – Männer 2", "designation": "M", "beds": 4,
+         "labels": ["Ruhig"]},
+        {"name": "Raum D – Familie/Gemischt", "designation": "D", "beds": 4,
+         "labels": ["Familienraum"]},
     ],
     "a1b2c3d4-0002-0002-0002-000000000002": [  # München: 6+6+3=15 Betten
-        {"name": "Raum A – Männer", "designation": "M", "beds": 6},
-        {"name": "Raum B – Frauen", "designation": "W", "beds": 6},
-        {"name": "Raum C – Frauen 2", "designation": "W", "beds": 3},
+        {"name": "Raum A – Männer", "designation": "M", "beds": 6,
+         "labels": ["Klimaanlage"]},
+        {"name": "Raum B – Frauen", "designation": "W", "beds": 6,
+         "labels": ["Klimaanlage", "Ruhig"]},
+        {"name": "Raum C – Frauen 2", "designation": "W", "beds": 3,
+         "labels": []},
     ],
     "a1b2c3d4-0003-0003-0003-000000000003": [  # Passau: 5+5=10 Betten
-        {"name": "Raum A – Männer", "designation": "M", "beds": 5},
-        {"name": "Raum B – Frauen", "designation": "W", "beds": 5},
+        {"name": "Raum A – Männer", "designation": "M", "beds": 5,
+         "labels": ["Erdgeschoss", "Barrierefreiheit"]},
+        {"name": "Raum B – Frauen", "designation": "W", "beds": 5,
+         "labels": ["Erdgeschoss"]},
     ],
     "a1b2c3d4-0004-0004-0004-000000000004": [  # Hamburg: 4+4+4=12 Betten
-        {"name": "Raum A – Männer", "designation": "M", "beds": 4},
-        {"name": "Raum B – Frauen", "designation": "W", "beds": 4},
-        {"name": "Raum C – Familie/Gemischt", "designation": "D", "beds": 4},
+        {"name": "Raum A – Männer", "designation": "M", "beds": 4,
+         "labels": []},
+        {"name": "Raum B – Frauen", "designation": "W", "beds": 4,
+         "labels": ["Ruhig"]},
+        {"name": "Raum C – Familie/Gemischt", "designation": "D", "beds": 4,
+         "labels": ["Familienraum"]},
     ],
 }
 
@@ -187,20 +199,23 @@ def main() -> None:
 
             for room_def in rooms_cfg:
                 room_id = _room_id(loc["id"], room_def["name"])
+                room_labels = room_def.get("labels", [])
                 cur.execute("""
                     INSERT INTO capacity.rooms
-                        (id, location_id, name, geschlechts_designation, is_active, created_at, updated_at)
-                    VALUES (%s, %s, %s, %s, TRUE, NOW(), NOW())
-                """, (room_id, loc["id"], room_def["name"], room_def["designation"]))
+                        (id, location_id, name, geschlechts_designation, labels, is_active, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, TRUE, NOW(), NOW())
+                """, (room_id, loc["id"], room_def["name"], room_def["designation"], room_labels))
                 n_rooms += 1
 
                 for bett_nr in range(1, room_def["beds"] + 1):
                     bed_id = _bed_id(room_id, bett_nr)
+                    # Abwechselnd Unteres/Oberes Bett (gerades Bett = oben)
+                    bed_labels = ["Unteres Bett"] if bett_nr % 2 == 1 else ["Oberes Bett"]
                     cur.execute("""
                         INSERT INTO capacity.beds
-                            (id, room_id, bett_nummer, bett_typ, is_active, created_at, updated_at)
-                        VALUES (%s, %s, %s, 'KONTINGENT', TRUE, NOW(), NOW())
-                    """, (bed_id, room_id, str(bett_nr)))
+                            (id, room_id, bett_nummer, bett_typ, labels, is_active, created_at, updated_at)
+                        VALUES (%s, %s, %s, 'KONTINGENT', %s, TRUE, NOW(), NOW())
+                    """, (bed_id, room_id, str(bett_nr), bed_labels))
                     n_beds += 1
 
                 # Belegungen anlegen

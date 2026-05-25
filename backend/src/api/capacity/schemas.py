@@ -50,6 +50,7 @@ class RoomResponse(BaseModel):
     name: str
     geschlechts_designation: GenderDesignation
     is_active: bool
+    labels: list[str] = []
 
     model_config = {"from_attributes": True}
 
@@ -70,6 +71,7 @@ class BedResponse(BaseModel):
     bett_nummer: str
     bett_typ: BedType
     is_active: bool
+    labels: list[str] = []
 
     model_config = {"from_attributes": True}
 
@@ -157,6 +159,9 @@ class BedStatusItem(BaseModel):
     occ_geschlecht: Optional[str] = None
     belegung_start: Optional[date] = None
     belegung_ende: Optional[date] = None
+    room_labels: list[str] = []
+    bed_labels: list[str] = []
+    occ_labels: list[str] = []
 
 
 class RoomBedStatus(BaseModel):
@@ -165,3 +170,24 @@ class RoomBedStatus(BaseModel):
     geschlechts_designation: str
     beds: list[BedStatusItem]
     pending_count: int = 0  # Offene Reservierungsanfragen für diesen Raum
+    labels: list[str] = []
+
+
+# ---------------------------------------------------------------------------
+# Labels
+# ---------------------------------------------------------------------------
+
+
+class LabelCatalogEntry(BaseModel):
+    name: str
+    category: str
+    entity_types: list[str]  # ROOM, BED, OCCUPANCY
+    color: str
+
+
+class LabelCatalogResponse(BaseModel):
+    items: list[LabelCatalogEntry]
+
+
+class LabelsUpdateRequest(BaseModel):
+    labels: list[str]

@@ -106,6 +106,8 @@
   ],
   "users": [
     {
+      "id": "a0000000-0000-0000-0000-000000000001",
+      "createdTimestamp": 1716400000000,
       "username": "admin_user",
       "email": "admin@bordercap.local",
       "firstName": "Admin",
@@ -126,9 +128,12 @@
       ],
       "realmRoles": [
         "system-admin"
-      ]
+      ],
+      "clientRoles": {}
     },
     {
+      "id": "a0000000-0000-0000-0000-000000000002",
+      "createdTimestamp": 1716400000000,
       "username": "writer_user",
       "email": "writer@bordercap.local",
       "firstName": "Writer",
@@ -149,9 +154,12 @@
       ],
       "realmRoles": [
         "writer"
-      ]
+      ],
+      "clientRoles": {}
     },
     {
+      "id": "a0000000-0000-0000-0000-000000000003",
+      "createdTimestamp": 1716400000000,
       "username": "reader_user",
       "email": "reader@bordercap.local",
       "firstName": "Reader",
@@ -172,7 +180,164 @@
       ],
       "realmRoles": [
         "reader"
-      ]
+      ],
+      "clientRoles": {}
+    },
+    {
+      "id": "b1c2d3e4-0001-0001-0001-000000000001",
+      "createdTimestamp": 1716400000000,
+      "username": "sb_frankfurt",
+      "email": "sb.frankfurt@bordercap.local",
+      "firstName": "Sachbearbeiter",
+      "lastName": "Frankfurt",
+      "enabled": true,
+      "emailVerified": false,
+      "attributes": {
+        "location_id": [
+          "a1b2c3d4-0001-0001-0001-000000000001"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "SbFfm2024!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "writer"
+      ],
+      "clientRoles": {}
+    },
+    {
+      "id": "b1c2d3e4-0002-0002-0002-000000000002",
+      "createdTimestamp": 1716400000000,
+      "username": "sb_muenchen",
+      "email": "sb.muenchen@bordercap.local",
+      "firstName": "Sachbearbeiter",
+      "lastName": "München",
+      "enabled": true,
+      "emailVerified": false,
+      "attributes": {
+        "location_id": [
+          "a1b2c3d4-0002-0002-0002-000000000002"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "SbMuc2024!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "writer"
+      ],
+      "clientRoles": {}
+    },
+    {
+      "id": "b1c2d3e4-0003-0003-0003-000000000003",
+      "createdTimestamp": 1716400000000,
+      "username": "sb_passau",
+      "email": "sb.passau@bordercap.local",
+      "firstName": "Sachbearbeiter",
+      "lastName": "Passau",
+      "enabled": true,
+      "emailVerified": false,
+      "attributes": {
+        "location_id": [
+          "a1b2c3d4-0003-0003-0003-000000000003"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "SbPau2024!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "writer"
+      ],
+      "clientRoles": {}
+    },
+    {
+      "id": "b1c2d3e4-0004-0004-0004-000000000004",
+      "createdTimestamp": 1716400000000,
+      "username": "sb_hamburg",
+      "email": "sb.hamburg@bordercap.local",
+      "firstName": "Sachbearbeiter",
+      "lastName": "Hamburg",
+      "enabled": true,
+      "emailVerified": false,
+      "attributes": {
+        "location_id": [
+          "a1b2c3d4-0004-0004-0004-000000000004"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "SbHam2024!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "writer"
+      ],
+      "clientRoles": {}
+    },
+    {
+      "id": "b1c2d3e4-0005-0005-0005-000000000005",
+      "createdTimestamp": 1716400000000,
+      "username": "loc_admin_ffm",
+      "email": "loc.admin.ffm@bordercap.local",
+      "firstName": "Standort-Admin",
+      "lastName": "Frankfurt",
+      "enabled": true,
+      "emailVerified": false,
+      "attributes": {
+        "location_id": [
+          "a1b2c3d4-0001-0001-0001-000000000001"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "LocAdmin2024!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "location-admin"
+      ],
+      "clientRoles": {}
+    },
+    {
+      "id": "b1c2d3e4-0006-0006-0006-000000000006",
+      "createdTimestamp": 1716400000000,
+      "username": "leser_bund",
+      "email": "leser.bund@bordercap.local",
+      "firstName": "Bundesleser",
+      "lastName": "(Lesezugriff)",
+      "enabled": true,
+      "emailVerified": false,
+      "attributes": {
+        "location_id": [
+          "a1b2c3d4-0001-0001-0001-000000000001"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Leser2024!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "reader"
+      ],
+      "clientRoles": {}
     }
   ],
   "loginTheme": "bordercap"

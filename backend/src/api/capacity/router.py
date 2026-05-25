@@ -30,6 +30,9 @@ from src.api.capacity.schemas import (
     BedResponse,
     BedStatusItem,
     EuQuotaUpdate,
+    LabelCatalogEntry,
+    LabelCatalogResponse,
+    LabelsUpdateRequest,
     LocationCreate,
     LocationResponse,
     LocationSummaryResponse,
@@ -51,6 +54,41 @@ from src.domain.capacity.rules import (
 from src.domain.capacity.value_objects import BedType
 
 router = APIRouter(tags=["capacity"])
+
+# ---------------------------------------------------------------------------
+# Label Catalog (hardcoded — kein DB-Model nötig)
+# ---------------------------------------------------------------------------
+
+LABEL_CATALOG = [
+    # ROOM
+    {"name": "Rollstuhlgerecht", "category": "Ausstattung", "entity_types": ["ROOM"], "color": "#1565c0"},
+    {"name": "Erdgeschoss", "category": "Ausstattung", "entity_types": ["ROOM"], "color": "#1565c0"},
+    {"name": "Barrierefreiheit", "category": "Ausstattung", "entity_types": ["ROOM", "BED"], "color": "#1565c0"},
+    {"name": "Ruhig", "category": "Ausstattung", "entity_types": ["ROOM"], "color": "#2e7d32"},
+    {"name": "Klimaanlage", "category": "Ausstattung", "entity_types": ["ROOM"], "color": "#2e7d32"},
+    {"name": "Familienraum", "category": "Eignung", "entity_types": ["ROOM"], "color": "#6a1b9a"},
+    # BED
+    {"name": "Unteres Bett", "category": "Position", "entity_types": ["BED"], "color": "#e65100"},
+    {"name": "Oberes Bett", "category": "Position", "entity_types": ["BED"], "color": "#e65100"},
+    {"name": "Bodeneben", "category": "Position", "entity_types": ["BED"], "color": "#e65100"},
+    {"name": "Breites Bett", "category": "Typ", "entity_types": ["BED"], "color": "#00695c"},
+    {"name": "Kinderbett", "category": "Typ", "entity_types": ["BED"], "color": "#6a1b9a"},
+    # OCCUPANCY
+    {"name": "Kind", "category": "Schutz", "entity_types": ["OCCUPANCY"], "color": "#6a1b9a"},
+    {"name": "Unbegleitete Minderjährige", "category": "Schutz", "entity_types": ["OCCUPANCY"], "color": "#b71c1c"},
+    {"name": "Pflegebedarf", "category": "Schutz", "entity_types": ["OCCUPANCY"], "color": "#b71c1c"},
+    {"name": "Mobilitätseinschränkung", "category": "Schutz", "entity_types": ["OCCUPANCY", "BED", "ROOM"], "color": "#e65100"},
+    {"name": "Arabisch", "category": "Sprache", "entity_types": ["OCCUPANCY"], "color": "#00796b"},
+    {"name": "Farsi/Dari", "category": "Sprache", "entity_types": ["OCCUPANCY"], "color": "#00796b"},
+    {"name": "Türkisch", "category": "Sprache", "entity_types": ["OCCUPANCY"], "color": "#00796b"},
+    {"name": "Englisch", "category": "Sprache", "entity_types": ["OCCUPANCY"], "color": "#00796b"},
+    {"name": "Französisch", "category": "Sprache", "entity_types": ["OCCUPANCY"], "color": "#00796b"},
+    {"name": "Russisch", "category": "Sprache", "entity_types": ["OCCUPANCY"], "color": "#00796b"},
+    {"name": "Halal", "category": "Hinweis", "entity_types": ["OCCUPANCY"], "color": "#558b2f"},
+    {"name": "Vegetarisch", "category": "Hinweis", "entity_types": ["OCCUPANCY"], "color": "#558b2f"},
+    {"name": "Familienmitglied", "category": "Gruppe", "entity_types": ["OCCUPANCY"], "color": "#6a1b9a"},
+    {"name": "Alleinstehend", "category": "Gruppe", "entity_types": ["OCCUPANCY"], "color": "#455a64"},
+]
 
 
 # ---------------------------------------------------------------------------
@@ -289,9 +327,11 @@ async def get_bed_status(
               r.id        AS room_id,
               r.name      AS room_name,
               r.geschlechts_designation,
+              r.labels    AS room_labels,
               b.id        AS bed_id,
               b.bett_nummer,
               b.bett_typ,
+              b.labels    AS bed_labels,
               CASE WHEN o.id IS NOT NULL THEN 'BELEGT' ELSE 'FREI' END AS status,
               o.id        AS occupancy_id,
               o.azr_id,
@@ -299,6 +339,7 @@ async def get_bed_status(
               o.geschlecht AS occ_geschlecht,
               o.belegung_start,
               o.belegung_ende,
+              o.labels    AS occ_labels,
               (
                 SELECT COUNT(*) FROM reservations.requests req
                 WHERE req.target_location_id = r.location_id
@@ -327,6 +368,7 @@ async def get_bed_status(
                 "room_id": row["room_id"],
                 "room_name": row["room_name"],
                 "geschlechts_designation": row["geschlechts_designation"],
+                "labels": list(row["room_labels"] or []),
                 "beds": [],
                 "pending_count": int(row.get("pending_count") or 0),
             }
@@ -342,6 +384,9 @@ async def get_bed_status(
             occ_geschlecht=row.get("occ_geschlecht"),
             belegung_start=row.get("belegung_start"),
             belegung_ende=row.get("belegung_ende"),
+            room_labels=list(row["room_labels"] or []),
+            bed_labels=list(row["bed_labels"] or []),
+            occ_labels=list(row["occ_labels"] or []),
         ))
     return [RoomBedStatus(**rooms_map[rid]) for rid in rooms_order]
 
@@ -351,17 +396,37 @@ async def search_occupants(
     q: Optional[str] = None,
     azr_id: Optional[str] = None,
     alias_id: Optional[str] = None,
+    labels: Optional[str] = None,
 ):
     """
     Sucht nach Belegungen anhand von AZR-ID, Alias-ID oder freitext (q).
+    Optionale Filterung per ?labels=Label1,Label2 (kommagetrennt, AND-Logik).
     Gibt Bett, Raum, Einrichtung und Belegungszeitraum zurück.
     """
     search_term = q or azr_id or alias_id
-    if not search_term:
+    # At least one of search_term or labels must be provided
+    if not search_term and not labels:
         return []
-    term = f"%{search_term.strip()}%"
+
+    label_list = [lbl.strip() for lbl in labels.split(",") if lbl.strip()] if labels else []
+
+    params: dict = {}
+    where_clauses = ["o.belegung_ende >= CURRENT_DATE"]
+
+    if search_term:
+        term = f"%{search_term.strip()}%"
+        params["term"] = term
+        where_clauses.append("(o.azr_id ILIKE :term OR o.alias_id ILIKE :term)")
+
+    if label_list:
+        # All requested labels must appear in o.labels (AND logic)
+        params["label_filter"] = label_list
+        where_clauses.append("o.labels @> :label_filter")
+
+    where_sql = " AND ".join(where_clauses)
+
     async with AsyncSessionFactory() as session:
-        result = await session.execute(text("""
+        result = await session.execute(text(f"""
             SELECT
               o.id          AS occupancy_id,
               o.azr_id,
@@ -369,23 +434,25 @@ async def search_occupants(
               o.geschlecht,
               o.belegung_start,
               o.belegung_ende,
+              o.labels      AS occ_labels,
               b.id          AS bed_id,
               b.bett_nummer,
               b.bett_typ,
+              b.labels      AS bed_labels,
               r.id          AS room_id,
               r.name        AS room_name,
               r.geschlechts_designation,
+              r.labels      AS room_labels,
               l.id          AS location_id,
               l.name        AS location_name
             FROM persons.occupants o
             JOIN capacity.beds b ON b.id = o.bed_id AND b.is_active = true
             JOIN capacity.rooms r ON r.id = b.room_id AND r.is_active = true
             JOIN capacity.locations l ON l.id = r.location_id AND l.is_active = true
-            WHERE (o.azr_id ILIKE :term OR o.alias_id ILIKE :term)
-              AND o.belegung_ende >= CURRENT_DATE
+            WHERE {where_sql}
             ORDER BY o.belegung_ende ASC
             LIMIT 50
-        """), {"term": term})
+        """), params)
         rows = result.mappings().all()
     return [dict(row) for row in rows]
 
@@ -655,3 +722,96 @@ async def end_occupancy(
         )
     await occ_repo.delete(occupancy_id)
     return {"ended": True}
+
+
+# ---------------------------------------------------------------------------
+# Labels
+# ---------------------------------------------------------------------------
+
+
+@router.get("/labels", response_model=LabelCatalogResponse)
+async def get_labels(session: AsyncSession = Depends(get_session)):
+    """
+    Gibt den vordefinierten Label-Katalog zurück, ergänzt um alle aktuell
+    in der DB verwendeten Labels (rooms, beds, occupants).
+    """
+    result_rooms = await session.execute(
+        text("SELECT DISTINCT unnest(labels) AS label FROM capacity.rooms")
+    )
+    result_beds = await session.execute(
+        text("SELECT DISTINCT unnest(labels) AS label FROM capacity.beds")
+    )
+    result_occ = await session.execute(
+        text("SELECT DISTINCT unnest(labels) AS label FROM persons.occupants")
+    )
+
+    in_use = set()
+    for row in result_rooms.mappings().all():
+        in_use.add(row["label"])
+    for row in result_beds.mappings().all():
+        in_use.add(row["label"])
+    for row in result_occ.mappings().all():
+        in_use.add(row["label"])
+
+    catalog_names = {entry["name"] for entry in LABEL_CATALOG}
+    catalog_entries = [LabelCatalogEntry(**entry) for entry in LABEL_CATALOG]
+
+    # Add any in-use labels not yet in the predefined catalog as generic entries
+    for label in sorted(in_use):
+        if label not in catalog_names:
+            catalog_entries.append(LabelCatalogEntry(
+                name=label,
+                category="Sonstige",
+                entity_types=["ROOM", "BED", "OCCUPANCY"],
+                color="#757575",
+            ))
+
+    return LabelCatalogResponse(items=catalog_entries)
+
+
+@router.patch("/rooms/{room_id}/labels", status_code=200)
+async def set_room_labels(
+    room_id: UUID,
+    body: LabelsUpdateRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Setzt die Labels eines Raums (vollständiges Ersetzen)."""
+    result = await session.execute(
+        text("UPDATE capacity.rooms SET labels = :labels WHERE id = :id RETURNING id"),
+        {"labels": body.labels, "id": room_id},
+    )
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Raum nicht gefunden")
+    return {"labels": body.labels}
+
+
+@router.patch("/beds/{bed_id}/labels", status_code=200)
+async def set_bed_labels(
+    bed_id: UUID,
+    body: LabelsUpdateRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Setzt die Labels eines Betts (vollständiges Ersetzen)."""
+    result = await session.execute(
+        text("UPDATE capacity.beds SET labels = :labels WHERE id = :id RETURNING id"),
+        {"labels": body.labels, "id": bed_id},
+    )
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Bett nicht gefunden")
+    return {"labels": body.labels}
+
+
+@router.patch("/occupancy/{occupancy_id}/labels", status_code=200)
+async def set_occupancy_labels(
+    occupancy_id: UUID,
+    body: LabelsUpdateRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Setzt die Labels einer Belegung (vollständiges Ersetzen)."""
+    result = await session.execute(
+        text("UPDATE persons.occupants SET labels = :labels WHERE id = :id RETURNING id"),
+        {"labels": body.labels, "id": occupancy_id},
+    )
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Belegung nicht gefunden")
+    return {"labels": body.labels}

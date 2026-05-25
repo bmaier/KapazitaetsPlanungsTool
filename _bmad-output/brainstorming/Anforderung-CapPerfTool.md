@@ -276,3 +276,55 @@ Um die Verhaltenskonformität (insb. bei rechtlichen Rahmenbedingungen) sicherzu
 2. **Karten-Geometrie:** Entscheidung über die finale Granularität der `MBTiles` (Gesamt-Deutschland vs. reine Fokussierung auf Grenzregionen zur Speicherplatzoptimierung).
 3. **Infrastruktur-Sizing:** Exakte Analyse der RAM/CPU-Ressourcenanforderungen für den lokalen K3S-Betrieb im Enterprise-Szenario.
 4. **BAMF-Styleguide:** Bereitstellung der konkreten UI-Design-Vorgaben (Farbcodes, spezifische Behörden-Fonts), relevant erst bei Aktivierung des Enterprise-Stacks.
+
+---
+
+## 10. Ergänzungen aus Implementierungsphase (Mai 2026)
+
+### 10.1 Labels-System [HF-11]
+
+**Kontext:** Aus den Implementierungsgesprächen wurde deutlich, dass SBs beim Belegungsvorschlag und bei der manuellen Bett-Zuweisung operative Hinweise zu Räumen, Betten und Personen benötigen, die weder durch das DSGVO-Minimaldatenmodell (AZR-ID, Alias, Geschlecht) noch durch das strukturelle Rollen-/Raummodell abgedeckt werden.
+
+**Anforderung:** Einführung eines flexiblen Labels-Systems für drei Entitätstypen:
+
+* **Raum-Labels:** Ausstattungsmerkmale und Eignungshinweise (Beispiele: `Rollstuhlgerecht`, `Erdgeschoss`, `Ruhige Lage`, `Dusche vorhanden`). Ermöglichen SBs, passende Räume für Personen mit besonderen Anforderungen zu identifizieren.
+* **Bett-Labels:** Positions- und Typinformationen (Beispiele: `Unteres Bett`, `Oberes Bett`, `Einzelbett`, `Barrierefrei`). Unterstützen die Feinauswahl innerhalb eines Raums.
+* **Belegungs-Labels (Personen-Hinweise):** Operative Hinweise zur aktuellen Belegung eines Bettes (Beispiele: `Kind`, `Unbegleitete Minderjährige`, `Sprache: Arabisch`, `Sprache: Farsi`, `Halal`, `Medizinische Einschränkung`).
+
+**DSGVO-Klarstellung:** Labels auf Belegungsebene sind ausschließlich operative Hinweise für den laufenden Belegungszeitraum. Sie sind nicht AZR-relevant, nicht personenbezogen im Sinne einer dauerhaften Profilerstellung und werden gemeinsam mit der Belegung gelöscht. Labels dürfen keine gesundheitlichen Diagnosen oder biometrischen Merkmale erfassen.
+
+**UX-Prinzip (Human-in-the-loop):** Das System zeigt Labels als visuelle Matching-Hints (farbige Chips) an. Es gibt keinen Algorithmus, der Belegungen erzwingt oder ablehnt — die Entscheidung liegt immer beim SB.
+
+**Prädefinierter Katalog:** Labels werden aus einem vordefinierten Katalog gewählt (kein Freitext). Der Katalog ist wartbar (DB-Tabelle oder hardcodierte Enum-Liste), jedoch nicht über eine Admin-GUI in Phase 1.
+
+**Technischer Ansatz (Demo Stack):**
+* `TEXT[]`-Spalten auf `capacity.rooms`, `capacity.beds` und `persons.occupants`
+* `PATCH`-Endpoints zum Setzen/Ersetzen der Labels-Liste
+* `GET /api/labels/catalog` liefert den vordefinierten Katalog (gruppiert nach Entitätstyp)
+* Frontend: `LabelChips`-Komponente zeigt Labels als MUI-Chips; im Bett-Dialog editierbar
+
+**Roadmap-Einordnung:** [HF-11] ergänzt [HF-04] (Raum-Bett-Modell), [HF-05] (Belegungsvorschlag) und [HF-08] (DSGVO-Minimaldaten). Es handelt sich um ein optionales Feature, das den Nutzen des Belegungsvorschlags und der manuellen Belegung deutlich erhöht, ohne das Datenschutzprinzip zu kompromittieren.
+
+### 10.2 UI/UX-Verfeinerungen (Dashboard & Drilldown)
+
+Aus der Implementierungsphase wurden folgende Interaktionsverbesserungen identifiziert und realisiert:
+
+* **Dashboard — Direktbelegung:** Klick auf ein Bett im Dashboard öffnet einen BelegDialog mit vorausgefüllten Daten (Einrichtung, Raum), sodass SBs ohne Umweg über den Drilldown belegen können.
+* **Dashboard — Reservierungs-Chips:** Die letzten 5 eigenen Reservierungen werden als Chips unterhalb des Dashboards angezeigt; Klick navigiert zur `/reservations`-Ansicht.
+* **Dashboard — Admin-Shortcut:** Admins sehen direkt im Dashboard einen "Neue Einrichtung anlegen"-Button.
+* **Drilldown — Freies Bett:** Klick auf ein freies Bett öffnet den `BelegDialog` (AZR-ID + Alias + Datumsfeld).
+* **Drilldown — Belegtes Bett:** Klick auf ein belegtes Bett öffnet den `BedManageDialog` mit Optionen: Ausbuchen, Intern verlegen, Verlegen zu anderer Einrichtung (löst Reservierungsanfrage aus).
+* **Drilldown — Pending-Indikator:** Offene Reservierungsanfragen pro Raum werden als oranges Chip sichtbar gemacht.
+* **Drilldown — Admin-Tab:** Im Edit-Dialog der Einrichtung gibt es einen Tab "Räume & Betten" (Räume anlegen, Betten hinzufügen, Betten deaktivieren).
+* **Postkorb — ReservierungsID:** Die ReservierungsID (#XXXXXXXX, kopierbar) wird auf allen Reservierungsansichten immer angezeigt.
+* **Postkorb — Ablehnungsgrund:** Beim Ablehnen einer Anfrage ist ein Pflichtfeld für den Ablehnungsgrund vorhanden.
+* **Postkorb — Jump-to-Bed:** Tasks mit AZR-ID im Body erhalten einen "Zum Bett springen"-Button, der direkt zum Drilldown der betroffenen Einrichtung navigiert.
+* **Globale AZR-Suche:** Ein Suchsymbol in der NavBar öffnet einen Dialog zur Suche nach AZR-ID oder Alias. Ergebnisse zeigen Einrichtung, Raum, Bett und Zeitraum; Klick navigiert zum entsprechenden Drilldown.
+
+### 10.3 Demo-Daten (Benutzer & Einrichtungen)
+
+Für die Demo wurden realistische Testdaten angelegt:
+
+* **Benutzer:** Mehrere SBs und Admins mit verschiedenen Rollen und Standortzugehörigkeiten.
+* **Einrichtungen:** Mindestens 4 Einrichtungen mit je mehreren Räumen und unterschiedlichen Geschlechtsdesignationen.
+* **Belegungsgrade:** Realistische Auslastung (ca. 75% / 93% / 30% / 42%) zur Demonstration der Ampellogik.
