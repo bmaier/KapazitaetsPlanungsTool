@@ -12,6 +12,7 @@ from typing import List, Optional
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Response
+from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -419,11 +420,14 @@ async def get_bed_status(
               r.name      AS room_name,
               r.geschlechts_designation,
               r.labels    AS room_labels,
+              r.valid_from AS room_valid_from,
+              r.valid_until AS room_valid_until,
               b.id        AS bed_id,
               b.bett_nummer,
               b.bett_typ,
               b.labels    AS bed_labels,
               b.deaktiviert_ab,
+              b.valid_from AS bed_valid_from,
               CASE WHEN o.id IS NOT NULL THEN 'BELEGT' ELSE 'FREI' END AS status,
               o.id        AS occupancy_id,
               o.azr_id,
@@ -463,6 +467,8 @@ async def get_bed_status(
                 "labels": list(row["room_labels"] or []),
                 "beds": [],
                 "pending_count": int(row.get("pending_count") or 0),
+                "valid_from": row.get("room_valid_from"),
+                "valid_until": row.get("room_valid_until"),
             }
             rooms_order.append(rid)
         rooms_map[rid]["beds"].append(BedStatusItem(
@@ -480,6 +486,7 @@ async def get_bed_status(
             bed_labels=list(row["bed_labels"] or []),
             occ_labels=list(row["occ_labels"] or []),
             deaktiviert_ab=row.get("deaktiviert_ab"),
+            bed_valid_from=row.get("bed_valid_from"),
             is_notbett=(row["bett_typ"] == "NOTBETT"),
         ))
     return [RoomBedStatus(**rooms_map[rid]) for rid in rooms_order]
@@ -691,6 +698,59 @@ async def deactivate_room(
         raise HTTPException(status_code=404, detail="Raum nicht gefunden")
     await repo.deactivate(room_id)
     return {"deactivated": True}
+
+
+class RoomActivateRequest(BaseModel):
+    valid_from: Optional[date] = None
+    valid_until: Optional[date] = None
+
+
+@router.post("/rooms/{room_id}/activate", status_code=200)
+async def activate_room(
+    room_id: UUID,
+    body: RoomActivateRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Reaktiviert einen inaktiven Raum, optional mit Gültigkeitsdaten."""
+    updates: dict = {"is_active": True}
+    if body.valid_from is not None:
+        updates["valid_from"] = body.valid_from
+    if body.valid_until is not None:
+        updates["valid_until"] = body.valid_until
+    set_parts = ", ".join(f"{k} = :{k}" for k in updates if k != "id")
+    updates["id"] = str(room_id)
+    result = await session.execute(
+        text(f"UPDATE capacity.rooms SET {set_parts} WHERE id = :id RETURNING id"),
+        updates,
+    )
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Raum nicht gefunden")
+    return {"activated": True}
+
+
+@router.patch("/rooms/{room_id}/validity", status_code=200)
+async def update_room_validity(
+    room_id: UUID,
+    body: RoomActivateRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Setzt Gültigkeitsdaten (valid_from / valid_until) für einen Raum."""
+    updates: dict = {}
+    if body.valid_from is not None:
+        updates["valid_from"] = body.valid_from
+    if body.valid_until is not None:
+        updates["valid_until"] = body.valid_until
+    if not updates:
+        return {"message": "Keine Änderungen"}
+    set_parts = ", ".join(f"{k} = :{k}" for k in updates)
+    updates["id"] = str(room_id)
+    result = await session.execute(
+        text(f"UPDATE capacity.rooms SET {set_parts} WHERE id = :id RETURNING id"),
+        updates,
+    )
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Raum nicht gefunden")
+    return {"updated": True}
 
 
 # ---------------------------------------------------------------------------

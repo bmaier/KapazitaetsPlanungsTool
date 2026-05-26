@@ -56,6 +56,8 @@ class RoomResponse(BaseModel):
     geschlechts_designation: GenderDesignation
     is_active: bool
     labels: list[str] = []
+    valid_from: Optional[date] = None
+    valid_until: Optional[date] = None
 
     model_config = {"from_attributes": True}
 
@@ -78,6 +80,7 @@ class BedResponse(BaseModel):
     is_active: bool
     labels: list[str] = []
     deaktiviert_ab: Optional[date] = None
+    valid_from: Optional[date] = None
 
     model_config = {"from_attributes": True}
 
@@ -188,6 +191,7 @@ class BedStatusItem(BaseModel):
     bed_labels: list[str] = []
     occ_labels: list[str] = []
     deaktiviert_ab: Optional[date] = None
+    bed_valid_from: Optional[date] = None
     is_notbett: bool = False
 
 
@@ -198,6 +202,8 @@ class RoomBedStatus(BaseModel):
     beds: list[BedStatusItem]
     pending_count: int = 0  # Offene Reservierungsanfragen für diesen Raum
     labels: list[str] = []
+    valid_from: Optional[date] = None
+    valid_until: Optional[date] = None
 
 
 # ---------------------------------------------------------------------------

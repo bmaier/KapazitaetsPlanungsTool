@@ -57,6 +57,8 @@ class RoomModel(Base):
     geschlechts_designation: Mapped[str] = mapped_column(String(10), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     labels: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    valid_from: Mapped[Optional[date]] = mapped_column(nullable=True)
+    valid_until: Mapped[Optional[date]] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
@@ -84,6 +86,7 @@ class BedModel(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     labels: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
     deaktiviert_ab: Mapped[Optional[date]] = mapped_column(nullable=True)
+    valid_from: Mapped[Optional[date]] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )

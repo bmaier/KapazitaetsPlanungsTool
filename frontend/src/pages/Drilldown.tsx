@@ -83,6 +83,7 @@ interface BedStatus {
   occ_labels?: string[]
   is_notbett?: boolean
   deaktiviert_ab?: string | null
+  bed_valid_from?: string | null
 }
 
 interface RoomStatus {
@@ -92,6 +93,8 @@ interface RoomStatus {
   beds: BedStatus[]
   pending_count: number
   labels?: string[]
+  valid_from?: string | null
+  valid_until?: string | null
 }
 
 interface RoomMgmt {
@@ -132,20 +135,35 @@ function deriveRoomGender(room: RoomStatus): string {
   return genders.length === 1 ? genders[0] : 'D'
 }
 
+function roomDateStatus(room: RoomStatus, refDate: string): 'geplant' | 'abgelaufen' | 'aktiv' {
+  if (room.valid_from && refDate < room.valid_from) return 'geplant'
+  if (room.valid_until && refDate > room.valid_until) return 'abgelaufen'
+  return 'aktiv'
+}
+
+function bedIsActive(bed: BedStatus, refDate: string): boolean {
+  if (bed.bed_valid_from && refDate < bed.bed_valid_from) return false
+  if (bed.deaktiviert_ab && refDate >= bed.deaktiviert_ab) return false
+  return true
+}
+
 interface BedGridProps {
   room: RoomStatus
   canEdit: boolean
   onBedClick: (bed: BedStatus, room: RoomStatus) => void
+  refDate: string
 }
 
-function BedGrid({ room, canEdit, onBedClick }: BedGridProps) {
+function BedGrid({ room, canEdit, onBedClick, refDate }: BedGridProps) {
   const frei = room.beds.filter((b) => b.status === 'FREI').length
   const belegt = room.beds.filter((b) => b.status === 'BELEGT').length
   const effectiveGender = deriveRoomGender(room)
   const color = genderColor(effectiveGender)
+  const dateStatus = roomDateStatus(room, refDate)
+  const isOutOfRange = dateStatus !== 'aktiv'
 
   return (
-    <Paper elevation={2} sx={{ p: 2.5, borderRadius: 3, borderTop: `4px solid ${color}`, height: '100%' }}>
+    <Paper elevation={2} sx={{ p: 2.5, borderRadius: 3, borderTop: `4px solid ${isOutOfRange ? '#bdbdbd' : color}`, height: '100%', opacity: isOutOfRange ? 0.65 : 1 }}>
       <Box display="flex" alignItems="center" gap={1} mb={1} flexWrap="wrap">
         <Box sx={{ color }}>{genderIcon(effectiveGender)}</Box>
         <Typography fontWeight={700} sx={{ color }}>{room.room_name}</Typography>
@@ -155,6 +173,10 @@ function BedGrid({ room, canEdit, onBedClick }: BedGridProps) {
         <Typography variant="caption" color="text.secondary">
           {frei} frei · {belegt} belegt
         </Typography>
+        {isOutOfRange && (
+          <Chip label={dateStatus === 'geplant' ? `ab ${room.valid_from}` : `bis ${room.valid_until}`}
+            size="small" sx={{ bgcolor: '#eeeeee', color: '#616161', fontWeight: 600, height: 20 }} />
+        )}
         {room.pending_count > 0 && (
           <Chip
             icon={<WarningAmberIcon sx={{ fontSize: 14 }} />}
@@ -173,23 +195,26 @@ function BedGrid({ room, canEdit, onBedClick }: BedGridProps) {
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
         {room.beds.map((bed) => {
           const isBelegt = bed.status === 'BELEGT'
+          const bedActive = bedIsActive(bed, refDate)
           return (
             <Tooltip
               key={bed.bed_id}
               title={
                 <Box>
-                  {isBelegt
+                  {!bedActive
+                    ? (bed.bed_valid_from && refDate < bed.bed_valid_from ? `Verfügbar ab ${bed.bed_valid_from}` : `Deaktiviert ab ${bed.deaktiviert_ab}`)
+                    : isBelegt
                     ? `${bed.azr_id || '–'}${bed.alias_id ? ' · ' + bed.alias_id : ''} · ${bed.belegung_start} – ${bed.belegung_ende}`
                     : 'Bett frei'}
                   {(bed.bed_labels ?? []).length > 0 && ` · ${bed.bed_labels!.join(', ')}`}
                   {isBelegt && (bed.occ_labels ?? []).length > 0 && ` · ${bed.occ_labels!.join(', ')}`}
-                  {canEdit && (isBelegt ? ' · Klicken zum Verwalten' : ' · Klicken zum Belegen')}
+                  {canEdit && bedActive && (isBelegt ? ' · Klicken zum Verwalten' : ' · Klicken zum Belegen')}
                 </Box>
               }
               arrow
             >
               <Box
-                onClick={() => canEdit && onBedClick(bed, room)}
+                onClick={() => canEdit && bedActive && onBedClick(bed, room)}
                 sx={{
                   width: 58,
                   height: 58,
@@ -198,16 +223,17 @@ function BedGrid({ room, canEdit, onBedClick }: BedGridProps) {
                   flexDirection: 'column',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  bgcolor: isBelegt ? '#ffebee' : '#e8f5e9',
-                  border: `2px solid ${isBelegt ? '#e53935' : '#43a047'}`,
-                  cursor: canEdit ? 'pointer' : 'default',
+                  bgcolor: !bedActive ? '#f5f5f5' : isBelegt ? '#ffebee' : '#e8f5e9',
+                  border: `2px solid ${!bedActive ? '#bdbdbd' : isBelegt ? '#e53935' : '#43a047'}`,
+                  cursor: canEdit && bedActive ? 'pointer' : 'default',
+                  opacity: bedActive ? 1 : 0.5,
                   transition: 'all 0.15s',
-                  '&:hover': canEdit ? { transform: 'scale(1.1)', boxShadow: 3 } : {},
+                  '&:hover': canEdit && bedActive ? { transform: 'scale(1.1)', boxShadow: 3 } : {},
                 }}
               >
-                <BedIcon sx={{ fontSize: 16, color: isBelegt ? '#c62828' : '#2e7d32', mb: 0.2 }} />
+                <BedIcon sx={{ fontSize: 16, color: !bedActive ? '#9e9e9e' : isBelegt ? '#c62828' : '#2e7d32', mb: 0.2 }} />
                 <Typography variant="caption" fontWeight={700}
-                  sx={{ color: isBelegt ? '#c62828' : '#2e7d32', lineHeight: 1, fontSize: 10 }}>
+                  sx={{ color: !bedActive ? '#9e9e9e' : isBelegt ? '#c62828' : '#2e7d32', lineHeight: 1, fontSize: 10 }}>
                   {bed.bett_nummer}
                 </Typography>
                 {isBelegt && bed.azr_id && (
@@ -310,6 +336,9 @@ export default function Drilldown() {
   const [deaktBedId, setDeaktBedId] = useState<string | null>(null)
   const [deaktDate, setDeaktDate] = useState('')
   const [deaktSaving, setDeaktSaving] = useState(false)
+  const [reactivateRoomId, setReactivateRoomId] = useState<string | null>(null)
+  const [reactivateDate, setReactivateDate] = useState('')
+  const [reactivateSaving, setReactivateSaving] = useState(false)
 
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'warning' }>({
     open: false, message: '', severity: 'success',
@@ -434,6 +463,25 @@ export default function Drilldown() {
       setSnackbar({ open: true, message: 'Raum anlegen fehlgeschlagen.', severity: 'error' })
     } finally {
       setAddingRoom(false)
+    }
+  }
+
+  async function handleReactivateRoom() {
+    if (!reactivateRoomId) return
+    setReactivateSaving(true)
+    try {
+      await post(`/api/rooms/${reactivateRoomId}/activate`, {
+        valid_from: reactivateDate || undefined,
+      })
+      setReactivateRoomId(null)
+      setReactivateDate('')
+      await loadMgmtRooms()
+      loadBedStatus()
+      setSnackbar({ open: true, message: 'Raum reaktiviert.', severity: 'success' })
+    } catch {
+      setSnackbar({ open: true, message: 'Reaktivierung fehlgeschlagen.', severity: 'error' })
+    } finally {
+      setReactivateSaving(false)
     }
   }
 
@@ -705,7 +753,7 @@ export default function Drilldown() {
             <Grid container spacing={3}>
               {kontingentRooms.map((room) => (
                 <Grid item xs={12} md={6} key={room.room_id}>
-                  <BedGrid room={room} canEdit={canEdit} onBedClick={handleBedClick} />
+                  <BedGrid room={room} canEdit={canEdit} onBedClick={handleBedClick} refDate={dateFrom} />
                 </Grid>
               ))}
             </Grid>
@@ -1099,6 +1147,12 @@ export default function Drilldown() {
                             sx={{ bgcolor: genderColor(room.geschlechts_designation) + '15', color: genderColor(room.geschlechts_designation) }} />
                           {!room.is_active && <Chip label="Inaktiv" size="small" sx={{ bgcolor: '#f5f5f5', color: '#888' }} />}
                           <Box sx={{ flexGrow: 1 }} />
+                          {!room.is_active && (
+                            <Button size="small" variant="outlined" color="success"
+                              onClick={() => { setReactivateRoomId(room.id); setReactivateDate('') }}>
+                              Reaktivieren
+                            </Button>
+                          )}
                           {room.is_active && (
                             <>
                               <Button size="small" startIcon={<AddIcon />}
@@ -1243,6 +1297,30 @@ export default function Drilldown() {
             onClick={handleDeaktiviereBedTimed}
           >
             {deaktSaving ? <CircularProgress size={18} /> : 'Datum setzen'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Raum Reaktivieren Dialog ── */}
+      <Dialog open={!!reactivateRoomId} onClose={() => setReactivateRoomId(null)} maxWidth="xs" fullWidth>
+        <DialogTitle fontWeight={700}>Raum reaktivieren</DialogTitle>
+        <DialogContent sx={{ pt: 2 }}>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Raum wird wieder aktiv. Optional können Sie angeben, ab wann der Raum verfügbar ist.
+          </Alert>
+          <TextField
+            label="Verfügbar ab (optional)"
+            type="date"
+            value={reactivateDate}
+            onChange={(e) => setReactivateDate(e.target.value)}
+            InputLabelProps={{ shrink: true }}
+            fullWidth
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setReactivateRoomId(null)}>Abbrechen</Button>
+          <Button variant="contained" color="success" disabled={reactivateSaving} onClick={handleReactivateRoom}>
+            {reactivateSaving ? <CircularProgress size={18} /> : 'Reaktivieren'}
           </Button>
         </DialogActions>
       </Dialog>
