@@ -11,6 +11,7 @@ import {
   Typography,
 } from '@mui/material'
 import LocalOfferIcon from '@mui/icons-material/LocalOffer'
+import LockIcon from '@mui/icons-material/Lock'
 import AddIcon from '@mui/icons-material/Add'
 import CheckIcon from '@mui/icons-material/Check'
 import CloseIcon from '@mui/icons-material/Close'
@@ -30,6 +31,9 @@ interface Props {
   readOnly?: boolean
   compact?: boolean
   onSaved?: (labels: string[]) => void
+  /** Labels that cannot be removed (shown with lock icon + tooltip) */
+  lockedLabels?: string[]
+  lockedTooltip?: string
 }
 
 // Farben pro Kategorie (Fallback wenn kein Catalog-Entry vorhanden)
@@ -55,7 +59,7 @@ function getLabelBg(color: string): string {
   return color + '18'
 }
 
-export default function LabelChips({ labels, entityType, entityId, readOnly = false, compact = false, onSaved }: Props) {
+export default function LabelChips({ labels, entityType, entityId, readOnly = false, compact = false, onSaved, lockedLabels = [], lockedTooltip }: Props) {
   const { get, patch } = useApiClient()
   const [catalog, setCatalog] = useState<LabelCatalogEntry[]>([])
   const [editing, setEditing] = useState(false)
@@ -184,15 +188,22 @@ export default function LabelChips({ labels, entityType, entityId, readOnly = fa
       <Box display="flex" flexWrap="wrap" gap={0.5} mb={current.length > 0 ? 1.5 : 0}>
         {current.map((label) => {
           const color = getLabelColor(label, catalog)
-          return (
+          const isLocked = lockedLabels.includes(label)
+          const chip = (
             <Chip
               key={label}
               label={label}
               size="small"
-              onDelete={() => removeLabel(label)}
-              sx={{ bgcolor: getLabelBg(color), color, height: 24, fontWeight: 600, fontSize: 11 }}
+              icon={isLocked ? <LockIcon sx={{ fontSize: '12px !important', color: `${color} !important` }} /> : undefined}
+              onDelete={isLocked ? undefined : () => removeLabel(label)}
+              sx={{ bgcolor: getLabelBg(color), color, height: 24, fontWeight: 600, fontSize: 11, opacity: isLocked ? 0.75 : 1 }}
             />
           )
+          return isLocked ? (
+            <Tooltip key={label} title={lockedTooltip ?? 'Label kann nicht entfernt werden'} arrow>
+              <span>{chip}</span>
+            </Tooltip>
+          ) : chip
         })}
       </Box>
 

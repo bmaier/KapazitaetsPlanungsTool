@@ -130,8 +130,10 @@ function deriveGenderFromLabels(labels: string[]): string {
   return 'D'
 }
 
+const GENDER_LABELS = ['Männer', 'Frauen', 'Familie', 'Familienraum', 'Gemischt']
+
 function hasGenderLabel(labels: string[]): boolean {
-  return labels.some((l) => ['Männer', 'Frauen', 'Familie', 'Familienraum', 'Gemischt'].includes(l))
+  return labels.some((l) => GENDER_LABELS.includes(l))
 }
 
 // Leiter das angezeigte Geschlecht eines Raums aus Labels und aktuellen Belegungen ab.
@@ -1244,13 +1246,25 @@ export default function Drilldown() {
                         </Box>
                         {room.is_active && (
                           <Box mb={1}>
-                            <LabelChips
-                              labels={room.labels ?? []}
-                              entityType="ROOM"
-                              entityId={room.id}
-                              compact
-                              onSaved={() => loadMgmtRooms()}
-                            />
+                            {(() => {
+                              // Gender labels are locked as long as the room has active occupancies
+                              const liveRoom = rooms.find((r) => r.room_id === room.id)
+                              const isOccupied = liveRoom?.beds.some((b) => b.status === 'BELEGT') ?? false
+                              const locked = isOccupied
+                                ? (room.labels ?? []).filter((l) => GENDER_LABELS.includes(l))
+                                : []
+                              return (
+                                <LabelChips
+                                  labels={room.labels ?? []}
+                                  entityType="ROOM"
+                                  entityId={room.id}
+                                  compact
+                                  onSaved={() => loadMgmtRooms()}
+                                  lockedLabels={locked}
+                                  lockedTooltip="Geschlechts-Label kann erst entfernt werden, wenn der Raum vollständig leer ist."
+                                />
+                              )
+                            })()}
                           </Box>
                         )}
 

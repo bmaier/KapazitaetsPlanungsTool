@@ -114,11 +114,6 @@
       "lastName": "User",
       "enabled": true,
       "emailVerified": true,
-      "attributes": {
-        "location_id": [
-          "a1b2c3d4-0001-0001-0001-000000000001"
-        ]
-      },
       "credentials": [
         {
           "type": "password",
@@ -316,10 +311,88 @@
     {
       "id": "b1c2d3e4-0006-0006-0006-000000000006",
       "createdTimestamp": 1716400000000,
+      "username": "loc_admin_muenchen",
+      "email": "loc.admin.muc@bordercap.local",
+      "firstName": "Standort-Admin",
+      "lastName": "München",
+      "enabled": true,
+      "emailVerified": false,
+      "attributes": {
+        "location_id": [
+          "a1b2c3d4-0002-0002-0002-000000000002"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "LocAdmin2024!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "location-admin"
+      ],
+      "clientRoles": {}
+    },
+    {
+      "id": "b1c2d3e4-0007-0007-0007-000000000007",
+      "createdTimestamp": 1716400000000,
+      "username": "loc_admin_passau",
+      "email": "loc.admin.pau@bordercap.local",
+      "firstName": "Standort-Admin",
+      "lastName": "Passau",
+      "enabled": true,
+      "emailVerified": false,
+      "attributes": {
+        "location_id": [
+          "a1b2c3d4-0003-0003-0003-000000000003"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "LocAdmin2024!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "location-admin"
+      ],
+      "clientRoles": {}
+    },
+    {
+      "id": "b1c2d3e4-0008-0008-0008-000000000008",
+      "createdTimestamp": 1716400000000,
+      "username": "loc_admin_hamburg",
+      "email": "loc.admin.ham@bordercap.local",
+      "firstName": "Standort-Admin",
+      "lastName": "Hamburg",
+      "enabled": true,
+      "emailVerified": false,
+      "attributes": {
+        "location_id": [
+          "a1b2c3d4-0004-0004-0004-000000000004"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "LocAdmin2024!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "location-admin"
+      ],
+      "clientRoles": {}
+    },
+    {
+      "id": "b1c2d3e4-0009-0009-0009-000000000009",
+      "createdTimestamp": 1716400000000,
       "username": "leser_bund",
       "email": "leser.bund@bordercap.local",
-      "firstName": "Bundesleser",
-      "lastName": "(Lesezugriff)",
+      "firstName": "Leser",
+      "lastName": "Bund",
       "enabled": true,
       "emailVerified": false,
       "attributes": {

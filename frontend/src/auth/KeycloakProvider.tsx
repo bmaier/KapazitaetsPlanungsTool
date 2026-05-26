@@ -36,8 +36,13 @@ export function KeycloakProvider({ children }: { children: React.ReactNode }) {
       .init({ onLoad: 'login-required', pkceMethod: 'S256' })
       .then((authenticated) => {
         if (authenticated) {
-          const lid = (keycloakInstance.tokenParsed as Record<string, unknown>)?.location_id as string | undefined
-          setLocationId(lid ?? null)
+          const parsed = keycloakInstance.tokenParsed as Record<string, unknown> | undefined
+          const roles = (parsed?.realm_access as { roles?: string[] } | undefined)?.roles ?? []
+          // system-admin has no location binding — ignore location_id claim even if present
+          const lid = roles.includes('system-admin')
+            ? null
+            : (parsed?.location_id as string | undefined) ?? null
+          setLocationId(lid)
         }
         setInitialized(true)
       })
