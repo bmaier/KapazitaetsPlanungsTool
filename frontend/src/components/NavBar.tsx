@@ -67,15 +67,16 @@ export default function NavBar() {
     }
   }
 
-  function openLocation(locationId: string) {
+  function openLocation(locationId: string, bedId?: string) {
     setSearchOpen(false)
     setSearchQ('')
     setSearchResults([])
     setSearched(false)
-    navigate(`/locations/${locationId}`)
+    const url = bedId ? `/locations/${locationId}?highlight_bed=${bedId}` : `/locations/${locationId}`
+    navigate(url)
   }
 
-  const gLabel = (g: string) => g === 'M' ? 'Männlich' : g === 'W' ? 'Weiblich' : 'Divers'
+  const gLabel = (g: string) => g === 'M' ? 'Männer' : g === 'W' ? 'Frauen' : 'Divers'
   const gColor = (g: string) => g === 'M' ? '#1565c0' : g === 'W' ? '#880e4f' : '#4a148c'
 
   return (
@@ -180,7 +181,7 @@ export default function NavBar() {
             <Box display="flex" flexDirection="column" gap={1.5}>
               {searchResults.map((r) => (
                 <Paper key={r.occupancy_id} elevation={1} sx={{ p: 2, borderRadius: 2, cursor: 'pointer', '&:hover': { bgcolor: '#f5f8ff' }, borderLeft: `4px solid ${gColor(r.geschlecht)}` }}
-                  onClick={() => openLocation(r.location_id)}>
+                  onClick={() => openLocation(r.location_id, r.bed_id)}>
                   <Box display="flex" alignItems="center" gap={1} mb={0.5} flexWrap="wrap">
                     <BedIcon sx={{ fontSize: 18, color: '#003366' }} />
                     <Typography fontWeight={700} fontFamily="monospace">{r.azr_id}</Typography>

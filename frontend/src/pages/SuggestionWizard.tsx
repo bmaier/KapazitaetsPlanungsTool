@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Alert,
   Box,
@@ -59,7 +59,7 @@ interface SuggestionResponse {
 type Modus = 'einzeln' | 'gruppe' | 'familie'
 
 export default function SuggestionWizard() {
-  const { post } = useApiClient()
+  const { post, get } = useApiClient()
   const navigate = useNavigate()
   const { locationId } = useKeycloak()
   const [searchParams] = useSearchParams()
@@ -91,6 +91,16 @@ export default function SuggestionWizard() {
   const [crossLocation, setCrossLocation] = useState(false)
   const [ignoreGender, setIgnoreGender] = useState(false)
   const [labelFilter, setLabelFilter] = useState<string[]>([])
+  const [roomLabelCatalog, setRoomLabelCatalog] = useState<string[]>([])
+
+  useEffect(() => {
+    get<{ items: Array<{ name: string; entity_types: string[] }> }>('/api/labels')
+      .then((res) => setRoomLabelCatalog(
+        res.items.filter((e: { name: string; entity_types: string[] }) => e.entity_types.includes('ROOM'))
+          .map((e: { name: string; entity_types: string[] }) => e.name)
+      ))
+      .catch(() => {/* ignore */})
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const [activeStep, setActiveStep] = useState(0)
   const [loading, setLoading] = useState(false)
@@ -429,7 +439,7 @@ export default function SuggestionWizard() {
               RAUM-FILTER (OPTIONAL)
             </Typography>
             <Box display="flex" gap={1} flexWrap="wrap">
-              {['Barrierefreiheit', 'Familiengeeignet', 'Erstaufnahme', 'Langzeitunterkunft', 'Männer', 'Frauen', 'Familie'].map((lbl) => {
+              {roomLabelCatalog.map((lbl) => {
                 const active = labelFilter.includes(lbl)
                 return (
                   <Chip

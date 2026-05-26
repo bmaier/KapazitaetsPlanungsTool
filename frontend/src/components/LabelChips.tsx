@@ -75,6 +75,9 @@ export default function LabelChips({ labels, entityType, entityId, readOnly = fa
     } catch { /* ignore */ }
   }
 
+  // Load catalog on mount so chip colors are correct even before user starts editing
+  useEffect(() => { loadCatalog() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   function startEdit() {
     loadCatalog()
     setEditing(true)
@@ -91,6 +94,8 @@ export default function LabelChips({ labels, entityType, entityId, readOnly = fa
     setCurrent((prev) => prev.filter((l) => l !== label))
   }
 
+  const [saveError, setSaveError] = useState('')
+
   async function save() {
     // entityId="new" → nur lokal speichern, kein API-Call
     if (entityId === 'new') {
@@ -99,6 +104,7 @@ export default function LabelChips({ labels, entityType, entityId, readOnly = fa
       return
     }
     setSaving(true)
+    setSaveError('')
     try {
       const pathMap: Record<string, string> = {
         ROOM: `/api/rooms/${entityId}/labels`,
@@ -108,8 +114,9 @@ export default function LabelChips({ labels, entityType, entityId, readOnly = fa
       await patch(pathMap[entityType], { labels: current })
       onSaved?.(current)
       setEditing(false)
-    } catch {
-      /* snackbar handled by parent */
+    } catch (e: unknown) {
+      const msg = (e as { detail?: { detail?: string } })?.detail?.detail ?? 'Labels konnten nicht gespeichert werden.'
+      setSaveError(msg)
     } finally {
       setSaving(false)
     }
@@ -256,7 +263,7 @@ export default function LabelChips({ labels, entityType, entityId, readOnly = fa
       )}
 
       {/* Speichern / Abbrechen */}
-      <Box display="flex" gap={1}>
+      <Box display="flex" gap={1} alignItems="center">
         <Tooltip title="Speichern">
           <IconButton size="small" color="primary" onClick={save} disabled={saving}>
             {saving ? <CircularProgress size={16} /> : <CheckIcon sx={{ fontSize: 18 }} />}
@@ -267,9 +274,10 @@ export default function LabelChips({ labels, entityType, entityId, readOnly = fa
             <CloseIcon sx={{ fontSize: 18 }} />
           </IconButton>
         </Tooltip>
-        <Typography variant="caption" color="text.secondary" sx={{ ml: 0.5, lineHeight: '30px' }}>
-          Enter oder Klick zum Hinzufügen
-        </Typography>
+        {saveError
+          ? <Typography variant="caption" color="error" sx={{ ml: 0.5 }}>{saveError}</Typography>
+          : <Typography variant="caption" color="text.secondary" sx={{ ml: 0.5, lineHeight: '30px' }}>Enter oder Klick zum Hinzufügen</Typography>
+        }
       </Box>
     </Paper>
   )

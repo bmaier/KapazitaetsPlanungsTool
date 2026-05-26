@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Alert,
   Box,
@@ -120,6 +120,17 @@ function genderColor(g: string): string {
   if (g === 'M') return '#1565c0'
   if (g === 'W') return '#880e4f'
   return '#4a148c'
+}
+
+function deriveGenderFromLabels(labels: string[]): string {
+  if (labels.includes('Männer')) return 'M'
+  if (labels.includes('Frauen')) return 'W'
+  if (labels.includes('Familie') || labels.includes('Familienraum')) return 'D'
+  return 'D'
+}
+
+function hasGenderLabel(labels: string[]): boolean {
+  return labels.some((l) => ['Männer', 'Frauen', 'Familie', 'Familienraum', 'Gemischt'].includes(l))
 }
 
 // Leiter das angezeigte Geschlecht eines Raums aus Labels und aktuellen Belegungen ab.
@@ -264,6 +275,8 @@ function BedGrid({ room, canEdit, onBedClick, refDate }: BedGridProps) {
 export default function Drilldown() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const highlightBedId = searchParams.get('highlight_bed')
   const { get, post, patch, del } = useApiClient()
   const { keycloak } = useKeycloak()
 
@@ -313,6 +326,7 @@ export default function Drilldown() {
   const [manageBed, setManageBed] = useState<{ bed: BedStatus; room: RoomStatus } | null>(null)
   const [checkoutConfirm, setCheckoutConfirm] = useState(false)
   const [checkoutSaving, setCheckoutSaving] = useState(false)
+  const [checkoutGrund, setCheckoutGrund] = useState('')
 
   // Intern verlegen Dialog
   const [verlegenOpen, setVerlegenOpen] = useState(false)
@@ -359,6 +373,19 @@ export default function Drilldown() {
   }, [id, dateFrom, dateTo, get])
 
   useEffect(() => { loadBedStatus() }, [loadBedStatus])
+
+  // When navigated from person search: auto-open the bed management dialog
+  useEffect(() => {
+    if (!highlightBedId || rooms.length === 0) return
+    for (const room of rooms) {
+      const bed = room.beds.find((b) => b.bed_id === highlightBedId)
+      if (bed) {
+        setCheckoutConfirm(false)
+        setManageBed({ bed, room })
+        break
+      }
+    }
+  }, [highlightBedId, rooms]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const totalFrei = rooms.flatMap((r) => r.beds).filter((b) => b.status === 'FREI').length
   const totalBelegt = rooms.flatMap((r) => r.beds).filter((b) => b.status === 'BELEGT').length
@@ -612,11 +639,14 @@ export default function Drilldown() {
   }
 
   async function handleAusbuchen() {
-    if (!manageBed?.bed.occupancy_id) return
+    if (!manageBed?.bed.occupancy_id || !checkoutGrund.trim()) return
     setCheckoutSaving(true)
     try {
-      await del(`/api/beds/${manageBed.bed.bed_id}/occupancy/${manageBed.bed.occupancy_id}`)
+      const groundParam = encodeURIComponent(checkoutGrund.trim())
+      await del(`/api/beds/${manageBed.bed.bed_id}/occupancy/${manageBed.bed.occupancy_id}?grund=${groundParam}`)
       setManageBed(null)
+      setCheckoutConfirm(false)
+      setCheckoutGrund('')
       loadBedStatus()
       setSnackbar({ open: true, message: 'Person erfolgreich ausgebucht.', severity: 'success' })
     } catch {
@@ -990,16 +1020,30 @@ export default function Drilldown() {
               </Button>
             </Box>
           ) : (
-            <Alert severity="warning" sx={{ mb: 1 }}>
-              Belegung für <strong>{manageBed?.bed.azr_id}</strong> wirklich beenden?
-              <Box mt={1} display="flex" gap={1}>
-                <Button size="small" color="error" variant="contained" disabled={checkoutSaving}
+            <Box display="flex" flexDirection="column" gap={1.5}>
+              <Alert severity="warning">
+                Belegung für <strong>{manageBed?.bed.azr_id}</strong> wirklich beenden?
+              </Alert>
+              <TextField
+                label="Grund für Ausbuchen *"
+                value={checkoutGrund}
+                onChange={(e) => setCheckoutGrund(e.target.value)}
+                fullWidth
+                size="small"
+                multiline
+                rows={2}
+                placeholder="z.B. Freiwillige Ausreise, Weiterverlegung extern, …"
+                required
+              />
+              <Box display="flex" gap={1}>
+                <Button size="small" color="error" variant="contained"
+                  disabled={checkoutSaving || !checkoutGrund.trim()}
                   onClick={handleAusbuchen}>
-                  {checkoutSaving ? <CircularProgress size={16} /> : 'Ja, ausbuchen'}
+                  {checkoutSaving ? <CircularProgress size={16} /> : 'Ausbuchen'}
                 </Button>
-                <Button size="small" onClick={() => setCheckoutConfirm(false)}>Abbrechen</Button>
+                <Button size="small" onClick={() => { setCheckoutConfirm(false); setCheckoutGrund('') }}>Abbrechen</Button>
               </Box>
-            </Alert>
+            </Box>
           )}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
@@ -1137,14 +1181,16 @@ export default function Drilldown() {
                     {mgmtRooms.map((room) => (
                       <Paper key={room.id} elevation={1} sx={{
                         p: 2, borderRadius: 2,
-                        borderLeft: `4px solid ${room.is_active ? genderColor(room.geschlechts_designation) : '#bdbdbd'}`,
+                        borderLeft: `4px solid ${room.is_active ? (hasGenderLabel(room.labels ?? []) ? genderColor(deriveGenderFromLabels(room.labels ?? [])) : '#bdbdbd') : '#bdbdbd'}`,
                         opacity: room.is_active ? 1 : 0.55,
                       }}>
                         <Box display="flex" alignItems="center" gap={1} mb={1} flexWrap="wrap">
                           <MeetingRoomIcon sx={{ fontSize: 18, color: room.is_active ? '#003366' : '#888' }} />
                           <Typography fontWeight={700}>{room.name}</Typography>
-                          <Chip label={genderLabel(room.geschlechts_designation)} size="small"
-                            sx={{ bgcolor: genderColor(room.geschlechts_designation) + '15', color: genderColor(room.geschlechts_designation) }} />
+                          {hasGenderLabel(room.labels ?? []) && (
+                            <Chip label={genderLabel(deriveGenderFromLabels(room.labels ?? []))} size="small"
+                              sx={{ bgcolor: genderColor(deriveGenderFromLabels(room.labels ?? [])) + '15', color: genderColor(deriveGenderFromLabels(room.labels ?? [])) }} />
+                          )}
                           {!room.is_active && <Chip label="Inaktiv" size="small" sx={{ bgcolor: '#f5f5f5', color: '#888' }} />}
                           <Box sx={{ flexGrow: 1 }} />
                           {!room.is_active && (

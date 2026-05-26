@@ -58,6 +58,7 @@ interface Location {
 
 interface OccupantResult {
   location_id: string
+  bed_id: string
 }
 
 const PRIORITY_META: Record<string, { color: string; bg: string; label: string }> = {
@@ -334,7 +335,7 @@ export default function TaskInbox() {
     try {
       const results = await get<OccupantResult[]>(`/api/occupants/search?q=${encodeURIComponent(azrId)}`)
       if (results.length > 0) {
-        navigate(`/locations/${results[0].location_id}`)
+        navigate(`/locations/${results[0].location_id}?highlight_bed=${results[0].bed_id}`)
       } else {
         setSnackbar({ open: true, message: `Keine aktive Belegung für ${azrId} gefunden.`, severity: 'error' })
       }
