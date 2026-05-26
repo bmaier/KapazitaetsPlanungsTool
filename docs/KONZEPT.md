@@ -390,12 +390,15 @@ podman exec kapzitaetsplanungstool_backend_1 sh -c "cd /home/appuser/app && pyth
 3. **Keycloak-Konfiguration für system-admin**: `system-admin`-Nutzer in Keycloak dürfen KEINEN `location_id` User-Attribut-Eintrag haben (oder Wert leer lassen). Das Frontend sendet dann keinen `X-Location-Id`-Header. Das Backend erkennt system-admin via JWT-Rolle und erlaubt Zugriff auf alle Einrichtungen.
 4. **AZR-Suchformat**: Die Demo-Datengenerierung verwendet Format `AZR-2024-xxxx-xxx`. Produktionsdaten müssen dasselbe Format verwenden; andernfalls ILIKE-Treffer leer.
 
-**Implementiert:**
+**Alle Punkte implementiert:**
 - ✓ SSE-Refresh in Drilldown (live Bett-Grid), Dashboard, TaskInbox
 - ✓ SuggestionWizard: manueller "Ergebnisse aktualisieren"-Button (kein Auto-Refresh, um Wizard-Flow nicht zu unterbrechen)
 - ✓ Bed valid_from UI (+ Button an jedem Bett-Chip in Raum-Verwaltung → Dialog → PATCH /beds/{id}/validity)
 - ✓ system-admin: X-Location-Id optional, Zugriff auf alle Reservierungen, Stornieren/Bestätigen/Ablehnen überall
 - ✓ Stornieren nur für Requester (nicht mehr für Target-Einrichtung)
+- ✓ Geschlechts-Label-Sperre: Schloss-Icon + Tooltip wenn Raum belegt; LabelChips.lockedLabels-Prop
+- ✓ Keycloak: admin_user hat kein location_id-Attribut; loc_admin für alle 4 Standorte vorhanden
+- ✓ KeycloakProvider: Code-seitige Garantie — system-admin erzwingt locationId=null unabhängig vom JWT-Claim
 
 ---
 
@@ -426,3 +429,4 @@ Beim Aufbau mit Java/Spring Boot + Angular sind folgende Punkte besonders zu bea
 | 2026-05-26 | 1.0 | Initiales Konzeptdokument |
 | 2026-05-26 | 1.1 | Rollen-Matrix, Reservierungsautorisierung, asyncpg CAST-Fix, AZR-Suche-Spec, Einschränkungen erweitert |
 | 2026-05-27 | 1.2 | system-admin Reservierungs-Vollzugriff, bed valid_from API+UI, SSE-Refresh Drilldown, Einschränkungen bereinigt |
+| 2026-05-27 | 1.3 | Geschlechts-Label-Sperre implementiert, Keycloak system-admin ohne location_id, loc_admin für alle 4 Standorte |
