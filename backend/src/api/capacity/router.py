@@ -56,6 +56,17 @@ from src.domain.capacity.value_objects import BedType
 
 router = APIRouter(tags=["capacity"])
 
+
+def _to_pg_array(lst: list[str]) -> str:
+    """Converts a Python list to a PostgreSQL TEXT[] literal string.
+    Using a string literal avoids asyncpg type-encoding issues with raw text() queries.
+    """
+    if not lst:
+        return '{}'
+    escaped = ('"' + s.replace('\\', '\\\\').replace('"', '\\"') + '"' for s in lst)
+    return '{' + ','.join(escaped) + '}'
+
+
 # ---------------------------------------------------------------------------
 # Label Catalog (hardcoded — kein DB-Model nötig)
 # ---------------------------------------------------------------------------
@@ -332,7 +343,7 @@ async def update_location(
     if body.notbett_kapazitaet is not None:
         updates["notbett_kapazitaet"] = body.notbett_kapazitaet
     if body.labels is not None:
-        updates["labels"] = body.labels
+        updates["labels"] = _to_pg_array(body.labels)
     if body.lat is not None:
         updates["lat"] = body.lat
     if body.lon is not None:
@@ -371,6 +382,7 @@ async def update_location(
     set_parts = []
     for k in (k for k in updates if k != "id"):
         if k == "labels":
+            # labels is already a PostgreSQL array literal string from _to_pg_array
             set_parts.append("labels = :labels::TEXT[]")
         else:
             set_parts.append(f"{k} = :{k}")
@@ -521,8 +533,9 @@ async def search_occupants(
 
     if label_list:
         # All requested labels must appear in o.labels (AND logic)
-        params["label_filter"] = label_list
-        where_clauses.append("o.labels @> :label_filter")
+        # Use PostgreSQL array literal to avoid asyncpg type-encoding issues
+        params["label_filter"] = _to_pg_array(label_list)
+        where_clauses.append("o.labels @> :label_filter::TEXT[]")
 
     where_sql = " AND ".join(where_clauses)
 
@@ -681,6 +694,9 @@ async def list_rooms(
             name=r.name,
             geschlechts_designation=r.geschlechts_designation,
             is_active=r.is_active,
+            labels=list(r.labels or []),
+            valid_from=r.valid_from,
+            valid_until=r.valid_until,
         )
         for r in rooms
     ]
@@ -966,11 +982,12 @@ async def create_occupancy(
 async def end_occupancy(
     bed_id: UUID,
     occupancy_id: UUID,
+    grund: Optional[str] = None,
     session: AsyncSession = Depends(get_session),
 ):
     """
     Beendet eine aktive Belegung — physisches Löschen aus persons.occupants.
-    Erzeugt Audit-Eintrag occupancy.ended.
+    `grund` wird als Pflichtfeld aus der UI übergeben und geloggt.
     """
     occ_repo = SqlOccupancyRepo(session)
     occupancy = await occ_repo.get_by_id(occupancy_id)
@@ -983,8 +1000,13 @@ async def end_occupancy(
             status_code=404,
             detail="Belegung gehört nicht zu diesem Bett",
         )
+    if grund:
+        import logging as _logging
+        _logging.getLogger("capacity").info(
+            "Ausbuchen: occ=%s azr_id=%s grund=%s", occupancy_id, occupancy.azr_id, grund
+        )
     await occ_repo.delete(occupancy_id)
-    return {"ended": True}
+    return {"ended": True, "grund": grund}
 
 
 # ---------------------------------------------------------------------------
@@ -1041,7 +1063,7 @@ async def set_room_labels(
     """Setzt die Labels eines Raums (vollständiges Ersetzen)."""
     result = await session.execute(
         text("UPDATE capacity.rooms SET labels = :labels::TEXT[] WHERE id = :id RETURNING id"),
-        {"labels": body.labels, "id": room_id},
+        {"labels": _to_pg_array(body.labels), "id": room_id},
     )
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Raum nicht gefunden")
@@ -1057,7 +1079,7 @@ async def set_bed_labels(
     """Setzt die Labels eines Betts (vollständiges Ersetzen)."""
     result = await session.execute(
         text("UPDATE capacity.beds SET labels = :labels::TEXT[] WHERE id = :id RETURNING id"),
-        {"labels": body.labels, "id": bed_id},
+        {"labels": _to_pg_array(body.labels), "id": bed_id},
     )
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Bett nicht gefunden")
@@ -1073,7 +1095,7 @@ async def set_occupancy_labels(
     """Setzt die Labels einer Belegung (vollständiges Ersetzen)."""
     result = await session.execute(
         text("UPDATE persons.occupants SET labels = :labels::TEXT[] WHERE id = :id RETURNING id"),
-        {"labels": body.labels, "id": occupancy_id},
+        {"labels": _to_pg_array(body.labels), "id": occupancy_id},
     )
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Belegung nicht gefunden")
