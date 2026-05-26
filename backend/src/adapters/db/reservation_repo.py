@@ -95,11 +95,21 @@ class SqlReservationRepo(AbstractReservationRepo):
         model = result.scalar_one_or_none()
         return _to_entity(model) if model else None
 
+    async def list_all(self, status_filter: Optional[str] = None) -> List[ReservationRequest]:
+        """Alle Reservierungen aller Einrichtungen — nur für system-admin."""
+        q = select(ReservationRequestModel)
+        if status_filter:
+            q = q.where(ReservationRequestModel.status == status_filter)
+        q = q.order_by(ReservationRequestModel.created_at.asc())
+        result = await self._session.execute(q)
+        return [_to_entity(m) for m in result.scalars().all()]
+
     async def update_status(
         self,
         reservation_id: UUID,
         new_status: str,
-        location_id: UUID,
+        location_id: Optional[UUID] = None,
+        is_system_admin: bool = False,
     ) -> ReservationRequest:
         """
         SELECT FOR UPDATE verhindert gleichzeitige Doppel-Bestätigungen.
@@ -117,7 +127,7 @@ class SqlReservationRepo(AbstractReservationRepo):
         # Für CANCELLED: Retraktionsberechtigung prüfen
         if new_status == "CANCELLED":
             entity = _to_entity(model)
-            check_retraction_allowed(location_id, entity)
+            check_retraction_allowed(location_id, entity, is_system_admin=is_system_admin)
 
         check_state_transition(model.status, new_status)
 

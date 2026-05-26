@@ -3,7 +3,7 @@ Domain-Regeln für Reservierungsanfragen.
 Reine Funktionen — kein I/O, kein FastAPI-Import, kein SQLAlchemy-Import.
 """
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from src.domain.capacity.rules import DomainError
 
@@ -27,16 +27,20 @@ VALID_TRANSITIONS: dict[str, set[str]] = {
 
 
 def check_retraction_allowed(
-    location_id: uuid.UUID, req: "ReservationRequest"
+    location_id: Optional[uuid.UUID],
+    req: "ReservationRequest",
+    is_system_admin: bool = False,
 ) -> None:
     """
     Prüft ob die anfragende Einrichtung berechtigt ist, die Reservierung abzubrechen.
-    Nur requester_location_id oder target_location_id dürfen abbrechen.
-    Raises RetractionForbiddenError wenn nicht berechtigt.
+    system-admin darf immer abbrechen.
+    Sonst: nur requester_location_id (nicht target_location_id).
     """
-    if location_id not in (req.requester_location_id, req.target_location_id):
+    if is_system_admin:
+        return
+    if location_id is None or location_id != req.requester_location_id:
         raise RetractionForbiddenError(
-            "Nur beteiligte Einrichtungen dürfen Reservierungen abbrechen"
+            "Nur die anfragende Einrichtung oder ein System-Admin darf Reservierungen stornieren"
         )
 
 

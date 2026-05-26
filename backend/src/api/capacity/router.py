@@ -851,6 +851,25 @@ async def deactivate_bed(
     return {"deactivated": True}
 
 
+@router.patch("/beds/{bed_id}/validity", status_code=200)
+async def update_bed_validity(
+    bed_id: UUID,
+    body: BedUpdateRequest,
+    session: AsyncSession = Depends(get_session),
+    _: UserContext = Depends(get_current_user),
+):
+    """Setzt valid_from für ein Bett (geplante Verfügbarkeit ab Datum)."""
+    if body.valid_from is None:
+        return {"message": "Keine Änderungen"}
+    result = await session.execute(
+        text("UPDATE capacity.beds SET valid_from = :valid_from WHERE id = :id RETURNING id"),
+        {"valid_from": body.valid_from, "id": str(bed_id)},
+    )
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Bett nicht gefunden")
+    return {"updated": True, "valid_from": str(body.valid_from)}
+
+
 @router.patch("/beds/{bed_id}/deactivate", status_code=200)
 async def deactivate_bed_timed(
     bed_id: UUID,
