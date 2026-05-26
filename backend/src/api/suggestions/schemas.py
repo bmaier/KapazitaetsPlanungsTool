@@ -4,8 +4,8 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class SuggestionRequest(BaseModel):
-    geschlecht: Literal['M', 'W', 'D']
-    anzahl: int = Field(ge=1, le=50)
+    geschlecht: Literal['M', 'W', 'D'] = 'M'
+    anzahl: int = Field(ge=1, le=200, default=1)
     belegung_start: date
     belegung_ende: date
     cross_location: bool = False
@@ -13,6 +13,10 @@ class SuggestionRequest(BaseModel):
     minderjaehrige: int = Field(default=0, ge=0)
     label_filter: list[str] = []
     include_notbetten: bool = False
+    # Multi-gender group / family split
+    maenner_anzahl: int = Field(default=0, ge=0)
+    frauen_anzahl: int = Field(default=0, ge=0)
+    divers_anzahl: int = Field(default=0, ge=0)
 
     @model_validator(mode='after')
     def check_dates_and_family(self):
@@ -31,11 +35,15 @@ class BedOption(BaseModel):
     room_name: str
     bett_typ: str
     location_name: str = ''
+    location_id: str = ''
     room_labels: list[str] = []
 
 
 class Variant(BaseModel):
     beds: list[BedOption]
+    location_name: str = ''
+    is_own: bool = False
+    description: str = ''
 
 
 class SuggestionResponse(BaseModel):

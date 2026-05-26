@@ -236,6 +236,8 @@ async def get_locations_summary() -> List[LocationSummaryResponse]:
                     l.kontingent,
                     l.notbett_kapazitaet,
                     l.is_active,
+                    l.lat,
+                    l.lon,
                     COUNT(o.id) FILTER (
                         WHERE o.belegung_ende >= CURRENT_DATE
                     ) AS belegt,
@@ -254,7 +256,7 @@ async def get_locations_summary() -> List[LocationSummaryResponse]:
                 LEFT JOIN capacity.beds b ON b.room_id = r.id AND b.is_active = true
                 LEFT JOIN persons.occupants o ON o.bed_id = b.id
                 WHERE l.is_active = true
-                GROUP BY l.id, l.name, l.kontingent, l.notbett_kapazitaet, l.is_active
+                GROUP BY l.id, l.name, l.kontingent, l.notbett_kapazitaet, l.is_active, l.lat, l.lon
                 ORDER BY l.name
             """)
         )
@@ -268,6 +270,8 @@ async def get_locations_summary() -> List[LocationSummaryResponse]:
             belegt=int(row["belegt"]),
             belegungsgrad_pct=float(row["belegungsgrad_pct"]),
             is_active=row["is_active"],
+            lat=row["lat"],
+            lon=row["lon"],
         )
         for row in rows
     ]
@@ -337,8 +341,36 @@ async def update_location(
     if not updates:
         raise HTTPException(status_code=422, detail="Keine Felder zum Aktualisieren")
 
+    # Kontingent-Schutz: nicht unter aktuelle Belegung
+    if body.kontingent is not None:
+        result = await session.execute(
+            text("""
+                SELECT COUNT(o.id) AS belegt
+                FROM persons.occupants o
+                JOIN capacity.beds b ON b.id = o.bed_id AND b.bett_typ = 'KONTINGENT'
+                JOIN capacity.rooms r ON r.id = b.room_id
+                WHERE r.location_id = :lid
+                  AND o.belegung_start <= CURRENT_DATE
+                  AND o.belegung_ende > CURRENT_DATE
+            """),
+            {"lid": str(location_id)}
+        )
+        row = result.fetchone()
+        belegt = int(row.belegt) if row else 0
+        if body.kontingent < belegt:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Aktuelle Belegung ({belegt} Plätze) übersteigt das neue Kontingent ({body.kontingent}). Erst ausbuchen oder verlegen."
+            )
+
     updates["id"] = str(location_id)
-    set_clause = ", ".join(f"{k} = :{k}" for k in updates if k != "id")
+    set_parts = []
+    for k in (k for k in updates if k != "id"):
+        if k == "labels":
+            set_parts.append("labels = :labels::TEXT[]")
+        else:
+            set_parts.append(f"{k} = :{k}")
+    set_clause = ", ".join(set_parts)
     result = await session.execute(
         text(
             f"UPDATE capacity.locations SET {set_clause}, updated_at = NOW() "
@@ -405,7 +437,7 @@ async def get_bed_status(
                        OR r.geschlechts_designation = 'D')
               ) AS pending_count
             FROM capacity.rooms r
-            JOIN capacity.beds b ON b.room_id = r.id AND b.is_active = true
+            JOIN capacity.beds b ON b.room_id = r.id AND b.is_active = true AND b.bett_typ != 'DOPPEL'
             LEFT JOIN persons.occupants o
               ON o.bed_id = b.id
               AND o.belegung_start < :date_to
@@ -719,6 +751,7 @@ async def list_beds(
             bett_nummer=b.bett_nummer,
             bett_typ=b.bett_typ,
             is_active=b.is_active,
+            deaktiviert_ab=b.deaktiviert_ab,
         )
         for b in beds
     ]
@@ -736,6 +769,66 @@ async def deactivate_bed(
         raise HTTPException(status_code=404, detail="Bett nicht gefunden")
     await repo.deactivate(bed_id)
     return {"deactivated": True}
+
+
+@router.patch("/beds/{bed_id}/deactivate", status_code=200)
+async def deactivate_bed_timed(
+    bed_id: UUID,
+    body: BedUpdateRequest,
+    session: AsyncSession = Depends(get_session),
+    _: UserContext = Depends(get_current_user),
+):
+    """Deaktiviert ein Bett sofort oder setzt ein zukünftiges Deaktivierungsdatum."""
+    from datetime import date as date_type
+    today = date_type.today()
+
+    deakt_ab = body.deaktiviert_ab
+
+    if deakt_ab and deakt_ab > today:
+        # Future deactivation: check for occupancies overlapping with deakt_ab
+        conflict = await session.execute(
+            text("""
+                SELECT o.azr_id, o.belegung_ende
+                FROM persons.occupants o
+                WHERE o.bed_id = :bid
+                  AND o.belegung_ende > :deakt_ab
+                LIMIT 1
+            """),
+            {"bid": str(bed_id), "deakt_ab": deakt_ab}
+        )
+        row = conflict.fetchone()
+        if row:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Belegung {row.azr_id} endet {row.belegung_ende} — nach dem Deaktivierungsdatum {deakt_ab}. Erst umbuchen."
+            )
+        await session.execute(
+            text("UPDATE capacity.beds SET deaktiviert_ab = :d WHERE id = :id"),
+            {"d": deakt_ab, "id": str(bed_id)}
+        )
+        return {"status": "scheduled", "deaktiviert_ab": str(deakt_ab)}
+    else:
+        # Immediate deactivation
+        conflict = await session.execute(
+            text("""
+                SELECT o.azr_id FROM persons.occupants o
+                WHERE o.bed_id = :bid
+                  AND o.belegung_ende > CURRENT_DATE
+                LIMIT 1
+            """),
+            {"bid": str(bed_id)}
+        )
+        row = conflict.fetchone()
+        if row:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Belegung {row.azr_id} ist noch aktiv. Erst ausbuchen, dann deaktivieren."
+            )
+        await session.execute(
+            text("UPDATE capacity.beds SET is_active = false, updated_at = NOW() WHERE id = :id"),
+            {"id": str(bed_id)}
+        )
+        return {"status": "deactivated"}
 
 
 # ---------------------------------------------------------------------------

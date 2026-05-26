@@ -77,6 +77,7 @@ class BedResponse(BaseModel):
     bett_typ: BedType
     is_active: bool
     labels: list[str] = []
+    deaktiviert_ab: Optional[date] = None
 
     model_config = {"from_attributes": True}
 
@@ -161,6 +162,8 @@ class LocationSummaryResponse(BaseModel):
     belegt: int
     belegungsgrad_pct: float
     is_active: bool
+    lat: Optional[float] = None
+    lon: Optional[float] = None
 
     model_config = ConfigDict(from_attributes=True)
 

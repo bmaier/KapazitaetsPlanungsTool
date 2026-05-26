@@ -23,6 +23,8 @@ export interface LocationSummary {
   is_active: boolean
   belegt?: number
   notbett_kapazitaet?: number
+  lat?: number | null
+  lon?: number | null
 }
 
 interface MapViewProps {
@@ -30,16 +32,17 @@ interface MapViewProps {
   visible?: boolean
 }
 
-const LOCATION_COORDS: Record<string, [number, number]> = {
+const LOCATION_COORDS_FALLBACK: Record<string, [number, number]> = {
   Frankfurt: [50.037, 8.562],
   München:   [48.354, 11.786],
   Passau:    [48.566, 13.467],
   Hamburg:   [53.630, 10.006],
 }
 
-function getCoords(name: string): [number, number] {
-  const key = Object.keys(LOCATION_COORDS).find((k) => name.includes(k))
-  return key ? LOCATION_COORDS[key] : [51.1, 10.4]
+function getCoords(loc: LocationSummary): [number, number] {
+  if (loc.lat != null && loc.lon != null) return [loc.lat, loc.lon]
+  const key = Object.keys(LOCATION_COORDS_FALLBACK).find((k) => loc.name.includes(k))
+  return key ? LOCATION_COORDS_FALLBACK[key] : [51.1, 10.4]
 }
 
 interface AmpelCfg {
@@ -82,7 +85,7 @@ function MapController({ locations, visible }: { locations: LocationSummary[]; v
     const t = setTimeout(() => {
       map.invalidateSize()
       if (justBecameVisible || !fitted.current) {
-        const points = locations.filter((l) => l.is_active).map((l) => getCoords(l.name))
+        const points = locations.filter((l) => l.is_active).map((l) => getCoords(l))
         if (points.length > 0) {
           map.fitBounds(points as L.LatLngBoundsExpression, { padding: [60, 60], maxZoom: 9 })
           fitted.current = true
@@ -120,7 +123,7 @@ export default function MapView({ locations, visible = true }: MapViewProps) {
         <MapController locations={active} visible={visible} />
 
         {active.map((loc) => {
-          const coords = getCoords(loc.name)
+          const coords = getCoords(loc)
           const cfg = ampelCfg(loc.belegungsgrad_pct)
           const belegt = loc.belegt ?? Math.round((loc.belegungsgrad_pct / 100) * loc.kontingent)
           const AmpelIcon = cfg.Icon

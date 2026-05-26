@@ -42,6 +42,8 @@ interface LocationSummary {
   belegt: number
   belegungsgrad_pct: number
   is_active: boolean
+  lat?: number | null
+  lon?: number | null
 }
 
 interface Reservation {
@@ -140,8 +142,10 @@ export default function Dashboard() {
       setNewName(''); setNewAdresse(''); setNewKontingent('10'); setNewNotbett('0')
       setSnackbar({ open: true, message: 'Einrichtung angelegt.', severity: 'success' })
       loadData()
-    } catch {
-      setSnackbar({ open: true, message: 'Anlegen fehlgeschlagen.', severity: 'error' })
+    } catch (err: unknown) {
+      const detail = (err as { detail?: { detail?: string; message?: string } }).detail
+      const msg = (typeof detail === 'string' ? detail : detail?.detail ?? detail?.message) ?? 'Anlegen fehlgeschlagen.'
+      setSnackbar({ open: true, message: msg, severity: 'error' })
     } finally {
       setNewLocSaving(false)
     }

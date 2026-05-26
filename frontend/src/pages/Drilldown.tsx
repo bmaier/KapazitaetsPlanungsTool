@@ -53,6 +53,8 @@ interface Location {
   labels?: string[]
   lat?: number | null
   lon?: number | null
+  valid_from?: string | null
+  valid_until?: string | null
 }
 
 interface PendingReservation {
@@ -97,7 +99,7 @@ interface RoomMgmt {
   name: string
   geschlechts_designation: string
   is_active: boolean
-  beds: { id: string; bett_nummer: string; bett_typ: string; is_active: boolean }[]
+  beds: { id: string; bett_nummer: string; bett_typ: string; is_active: boolean; deaktiviert_ab?: string | null }[]
 }
 
 function genderIcon(g: string) {
@@ -116,6 +118,19 @@ function genderColor(g: string): string {
   return '#4a148c'
 }
 
+// Leiter das angezeigte Geschlecht eines Raums aus Labels und aktuellen Belegungen ab.
+// Leerer Raum ohne Geschlechts-Label → Gemischt (D).
+function deriveRoomGender(room: RoomStatus): string {
+  const labels = room.labels ?? []
+  if (labels.includes('Männer')) return 'M'
+  if (labels.includes('Frauen')) return 'W'
+  if (labels.includes('Familie') || labels.includes('Familienraum')) return 'D'
+  const occupied = room.beds.filter((b) => b.status === 'BELEGT' && b.occ_geschlecht)
+  if (occupied.length === 0) return 'D'
+  const genders = [...new Set(occupied.map((b) => b.occ_geschlecht!))]
+  return genders.length === 1 ? genders[0] : 'D'
+}
+
 interface BedGridProps {
   room: RoomStatus
   canEdit: boolean
@@ -125,14 +140,15 @@ interface BedGridProps {
 function BedGrid({ room, canEdit, onBedClick }: BedGridProps) {
   const frei = room.beds.filter((b) => b.status === 'FREI').length
   const belegt = room.beds.filter((b) => b.status === 'BELEGT').length
-  const color = genderColor(room.geschlechts_designation)
+  const effectiveGender = deriveRoomGender(room)
+  const color = genderColor(effectiveGender)
 
   return (
     <Paper elevation={2} sx={{ p: 2.5, borderRadius: 3, borderTop: `4px solid ${color}`, height: '100%' }}>
       <Box display="flex" alignItems="center" gap={1} mb={1} flexWrap="wrap">
-        <Box sx={{ color }}>{genderIcon(room.geschlechts_designation)}</Box>
+        <Box sx={{ color }}>{genderIcon(effectiveGender)}</Box>
         <Typography fontWeight={700} sx={{ color }}>{room.room_name}</Typography>
-        <Chip label={genderLabel(room.geschlechts_designation)} size="small"
+        <Chip label={genderLabel(effectiveGender)} size="small"
           sx={{ bgcolor: color + '15', color, fontWeight: 600, ml: 0.5 }} />
         <Box sx={{ flexGrow: 1 }} />
         <Typography variant="caption" color="text.secondary">
@@ -253,7 +269,7 @@ export default function Drilldown() {
   const [addingRoom, setAddingRoom] = useState(false)
   const [addBedRoomId, setAddBedRoomId] = useState<string | null>(null)
   const [newBedNummer, setNewBedNummer] = useState('')
-  const [newBedTyp, setNewBedTyp] = useState('STANDARD')
+  const [newBedTyp, setNewBedTyp] = useState('KONTINGENT')
   const [addingBed, setAddingBed] = useState(false)
 
   // Bett belegen Dialog (freies Bett klicken)
@@ -287,6 +303,13 @@ export default function Drilldown() {
   const [editLat, setEditLat] = useState('')
   const [editLon, setEditLon] = useState('')
   const [editLocLabels, setEditLocLabels] = useState<string[]>([])
+  const [editValidFrom, setEditValidFrom] = useState('')
+  const [editValidUntil, setEditValidUntil] = useState('')
+
+  // Bed timed deactivation
+  const [deaktBedId, setDeaktBedId] = useState<string | null>(null)
+  const [deaktDate, setDeaktDate] = useState('')
+  const [deaktSaving, setDeaktSaving] = useState(false)
 
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'warning' }>({
     open: false, message: '', severity: 'success',
@@ -347,6 +370,8 @@ export default function Drilldown() {
     setEditLat(location?.lat != null ? String(location.lat) : '')
     setEditLon(location?.lon != null ? String(location.lon) : '')
     setEditLocLabels(location?.labels ?? [])
+    setEditValidFrom(location?.valid_from ?? '')
+    setEditValidUntil(location?.valid_until ?? '')
     setEditTab(0)
     setEditOpen(true)
     if (isAdmin) loadMgmtRooms()
@@ -382,6 +407,8 @@ export default function Drilldown() {
       }
       if (editLat !== '') body.lat = parseFloat(editLat)
       if (editLon !== '') body.lon = parseFloat(editLon)
+      if (editValidFrom !== '') body.valid_from = editValidFrom
+      if (editValidUntil !== '') body.valid_until = editValidUntil
       const updated = await patch<Location>(`/api/locations/${id}`, body)
       setLocation(updated)
       setEditOpen(false)
@@ -428,7 +455,7 @@ export default function Drilldown() {
       await post(`/api/rooms/${roomId}/beds`, { bett_nummer: newBedNummer, bett_typ: newBedTyp })
       setAddBedRoomId(null)
       setNewBedNummer('')
-      setNewBedTyp('STANDARD')
+      setNewBedTyp('KONTINGENT')
       await loadMgmtRooms()
       loadBedStatus()
     } catch {
@@ -449,9 +476,28 @@ export default function Drilldown() {
     }
   }
 
+  async function handleDeaktiviereBedTimed() {
+    if (!deaktBedId || !deaktDate) return
+    setDeaktSaving(true)
+    try {
+      await patch(`/api/beds/${deaktBedId}/deactivate`, { deaktiviert_ab: deaktDate })
+      setDeaktBedId(null)
+      setDeaktDate('')
+      await loadMgmtRooms()
+      loadBedStatus()
+      setSnackbar({ open: true, message: `Bett-Deaktivierung ab ${deaktDate} gesetzt.`, severity: 'success' })
+    } catch (err: unknown) {
+      const detail = (err as { detail?: { detail?: string } }).detail?.detail ?? 'Fehler beim Setzen des Deaktivierungsdatums.'
+      setSnackbar({ open: true, message: detail, severity: 'error' })
+    } finally {
+      setDeaktSaving(false)
+    }
+  }
+
   function handleBedClick(bed: BedStatus, room: RoomStatus) {
     if (bed.status === 'FREI') {
-      setBelegGeschlecht(room.geschlechts_designation === 'D' ? 'M' : room.geschlechts_designation)
+      const roomGender = deriveRoomGender(room)
+      setBelegGeschlecht(roomGender === 'D' ? 'M' : roomGender)
       setAzrId('')
       setAliasId('')
       setBelegStart(today)
@@ -748,7 +794,7 @@ export default function Drilldown() {
             placeholder="z.B. AL-M-001"
             fullWidth
           />
-          {belegBed?.room.geschlechts_designation === 'D' && (
+          {belegBed && deriveRoomGender(belegBed.room) === 'D' && (
             <FormControl size="small" fullWidth>
               <InputLabel>Geschlecht</InputLabel>
               <Select value={belegGeschlecht} label="Geschlecht" onChange={(e) => setBelegGeschlecht(e.target.value)}>
@@ -984,6 +1030,26 @@ export default function Drilldown() {
                   placeholder="z.B. 8.5431" fullWidth
                   helperText="Für Kartenansicht" />
               </Box>
+              <Box display="flex" gap={2}>
+                <TextField
+                  label="Gültig ab"
+                  type="date"
+                  value={editValidFrom}
+                  onChange={(e) => setEditValidFrom(e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                  fullWidth
+                  helperText="Einrichtung aktiv ab diesem Datum"
+                />
+                <TextField
+                  label="Gültig bis"
+                  type="date"
+                  value={editValidUntil}
+                  onChange={(e) => setEditValidUntil(e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                  fullWidth
+                  helperText="Einrichtung inaktiv ab diesem Datum"
+                />
+              </Box>
               <Box>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
                   Einrichtungs-Labels
@@ -1026,7 +1092,7 @@ export default function Drilldown() {
                           {room.is_active && (
                             <>
                               <Button size="small" startIcon={<AddIcon />}
-                                onClick={() => { setAddBedRoomId(room.id); setNewBedNummer(''); setNewBedTyp('STANDARD') }}>
+                                onClick={() => { setAddBedRoomId(room.id); setNewBedNummer(''); setNewBedTyp('KONTINGENT') }}>
                                 Bett
                               </Button>
                               <Tooltip title="Raum deaktivieren">
@@ -1053,18 +1119,32 @@ export default function Drilldown() {
                         {/* Beds */}
                         <Box display="flex" flexWrap="wrap" gap={0.8} mb={addBedRoomId === room.id ? 1.5 : 0}>
                           {room.beds.map((bed) => (
-                            <Chip
-                              key={bed.id}
-                              icon={<BedIcon sx={{ fontSize: '14px !important' }} />}
-                              label={bed.bett_nummer}
-                              size="small"
-                              onDelete={bed.is_active && room.is_active ? () => handleDeactivateBed(bed.id, bed.bett_nummer) : undefined}
-                              sx={{
-                                bgcolor: bed.is_active ? '#e8f5e9' : '#f5f5f5',
-                                color: bed.is_active ? '#2e7d32' : '#888',
-                                opacity: bed.is_active ? 1 : 0.6,
-                              }}
-                            />
+                            <Box key={bed.id} display="flex" alignItems="center" gap={0.5}>
+                              <Tooltip title={
+                                bed.deaktiviert_ab
+                                  ? `Deaktivierung geplant: ${bed.deaktiviert_ab}`
+                                  : bed.is_active ? 'Aktiv · Klicken für zeitliche Deaktivierung' : 'Inaktiv'
+                              }>
+                                <Chip
+                                  icon={<BedIcon sx={{ fontSize: '14px !important' }} />}
+                                  label={
+                                    bed.deaktiviert_ab
+                                      ? `${bed.bett_nummer} (ab ${bed.deaktiviert_ab})`
+                                      : bed.bett_nummer
+                                  }
+                                  size="small"
+                                  onClick={bed.is_active && room.is_active && !bed.deaktiviert_ab
+                                    ? () => { setDeaktBedId(bed.id); setDeaktDate('') }
+                                    : undefined}
+                                  onDelete={bed.is_active && room.is_active ? () => handleDeactivateBed(bed.id, bed.bett_nummer) : undefined}
+                                  sx={{
+                                    bgcolor: bed.deaktiviert_ab ? '#fff3e0' : bed.is_active ? '#e8f5e9' : '#f5f5f5',
+                                    color: bed.deaktiviert_ab ? '#e65100' : bed.is_active ? '#2e7d32' : '#888',
+                                    opacity: bed.is_active ? 1 : 0.6,
+                                  }}
+                                />
+                              </Tooltip>
+                            </Box>
                           ))}
                           {room.beds.length === 0 && (
                             <Typography variant="caption" color="text.secondary">Keine Betten</Typography>
@@ -1080,9 +1160,8 @@ export default function Drilldown() {
                             <FormControl size="small" sx={{ width: 130 }}>
                               <InputLabel>Typ</InputLabel>
                               <Select value={newBedTyp} label="Typ" onChange={(e) => setNewBedTyp(e.target.value)}>
-                                <MenuItem value="STANDARD">Standard</MenuItem>
+                                <MenuItem value="KONTINGENT">Standard</MenuItem>
                                 <MenuItem value="NOTBETT">Notbett</MenuItem>
-                                <MenuItem value="DOPPEL">Doppel</MenuItem>
                               </Select>
                             </FormControl>
                             <Button size="small" variant="contained" disabled={!newBedNummer.trim() || addingBed}
@@ -1134,6 +1213,36 @@ export default function Drilldown() {
               {saving ? <CircularProgress size={18} /> : 'Stammdaten speichern'}
             </Button>
           )}
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Bett-Deaktivierung planen Dialog ── */}
+      <Dialog open={!!deaktBedId} onClose={() => setDeaktBedId(null)} maxWidth="xs" fullWidth>
+        <DialogTitle fontWeight={700}>Bett-Deaktivierung planen</DialogTitle>
+        <DialogContent sx={{ pt: 2 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Geben Sie das Datum ein, ab dem das Bett nicht mehr belegt werden soll. Bestehende Belegungen bis zu diesem Datum bleiben erhalten.
+          </Typography>
+          <TextField
+            label="Deaktivierung ab"
+            type="date"
+            value={deaktDate}
+            onChange={(e) => setDeaktDate(e.target.value)}
+            InputLabelProps={{ shrink: true }}
+            fullWidth
+            inputProps={{ min: today }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setDeaktBedId(null)}>Abbrechen</Button>
+          <Button
+            variant="contained"
+            color="warning"
+            disabled={!deaktDate || deaktSaving}
+            onClick={handleDeaktiviereBedTimed}
+          >
+            {deaktSaving ? <CircularProgress size={18} /> : 'Datum setzen'}
+          </Button>
         </DialogActions>
       </Dialog>
 
