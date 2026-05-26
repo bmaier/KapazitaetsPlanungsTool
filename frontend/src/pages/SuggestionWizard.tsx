@@ -89,6 +89,7 @@ export default function SuggestionWizard() {
   const [start, setStart] = useState(today)
   const [ende, setEnde] = useState(in14)
   const [crossLocation, setCrossLocation] = useState(false)
+  const [ignoreGender, setIgnoreGender] = useState(false)
   const [labelFilter, setLabelFilter] = useState<string[]>([])
 
   const [activeStep, setActiveStep] = useState(0)
@@ -163,6 +164,7 @@ export default function SuggestionWizard() {
         maenner_anzahl: maennerAnzahl,
         frauen_anzahl: frauenAnzahl,
         divers_anzahl: diversAnzahl,
+        ignore_gender: ignoreGender,
       })
       setSuggestion(res)
       setSelectedVariant(null)
@@ -409,6 +411,18 @@ export default function SuggestionWizard() {
             <input type="checkbox" checked={crossLocation} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCrossLocation(e.target.checked)} style={{ width: 20, height: 20, cursor: 'pointer' }} />
           </Box>
 
+          {/* Ignore gender toggle */}
+          <Box display="flex" alignItems="center" justifyContent="space-between"
+            sx={{ p: 1.5, border: '1px solid #e0e0e0', borderRadius: 2 }}>
+            <Box>
+              <Typography variant="body2" fontWeight={600}>Geschlechtertrennung ignorieren</Typography>
+              <Typography variant="caption" color="text.secondary">
+                Zeigt alle freien Betten unabhängig vom Raum-Geschlecht — nur bei explizitem Bedarf
+              </Typography>
+            </Box>
+            <input type="checkbox" checked={ignoreGender} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setIgnoreGender(e.target.checked)} style={{ width: 20, height: 20, cursor: 'pointer' }} />
+          </Box>
+
           {/* Room label filter */}
           <Paper elevation={0} sx={{ p: 2, border: '1px solid #e0e0e0', borderRadius: 2 }}>
             <Typography variant="caption" fontWeight={600} color="text.secondary" sx={{ mb: 1, display: 'block' }}>
@@ -467,6 +481,7 @@ export default function SuggestionWizard() {
             <Chip label={`${start} – ${ende}`} size="small" />
             {crossLocation && <Chip label="Standortübergreifend" size="small" color="info" />}
             {multiGender && <Chip label="Gemischte Gruppe" size="small" color="secondary" />}
+            {ignoreGender && <Chip label="Geschlecht ignoriert" size="small" color="warning" />}
           </Paper>
 
           {suggestion.message && (

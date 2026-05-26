@@ -17,6 +17,7 @@ class SuggestionRequest(BaseModel):
     maenner_anzahl: int = Field(default=0, ge=0)
     frauen_anzahl: int = Field(default=0, ge=0)
     divers_anzahl: int = Field(default=0, ge=0)
+    ignore_gender: bool = False
 
     @model_validator(mode='after')
     def check_dates_and_family(self):

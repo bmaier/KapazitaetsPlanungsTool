@@ -89,6 +89,39 @@ SQL_CROSS = _BED_SELECT + """
     ORDER BY l.name, r.name, b.bett_nummer
 """
 
+# Variants without gender filter (ignore_gender=True)
+_BED_SELECT_NO_GENDER = """
+    SELECT b.id, b.bett_nummer, b.bett_typ,
+           r.name AS room_name, r.labels AS room_labels,
+           l.name AS location_name, l.id AS location_id
+    FROM capacity.beds b
+    JOIN capacity.rooms r ON r.id = b.room_id
+    JOIN capacity.locations l ON l.id = r.location_id
+    WHERE r.is_active = true
+      AND b.is_active = true
+      AND b.bett_typ != 'NOTBETT'
+      AND b.bett_typ != 'DOPPEL'
+      AND (b.deaktiviert_ab IS NULL OR b.deaktiviert_ab > :period_start)
+      AND (l.valid_from IS NULL OR l.valid_from <= :period_start)
+      AND (l.valid_until IS NULL OR l.valid_until > :period_start)
+      AND NOT EXISTS (
+        SELECT 1 FROM persons.occupants o
+        WHERE o.bed_id = b.id
+          AND o.belegung_start < :period_end
+          AND o.belegung_ende > :period_start
+      )
+"""
+
+SQL_SCOPED_NO_GENDER = _BED_SELECT_NO_GENDER + """
+      AND r.location_id = :loc_id
+    ORDER BY r.name, b.bett_nummer
+"""
+
+SQL_CROSS_NO_GENDER = _BED_SELECT_NO_GENDER + """
+      AND l.is_active = true
+    ORDER BY l.name, r.name, b.bett_nummer
+"""
+
 
 # ---------------------------------------------------------------------------
 # Helper: fetch available beds for a gender
@@ -96,12 +129,19 @@ SQL_CROSS = _BED_SELECT + """
 
 
 async def _fetch_beds(session, geschlecht: str, body: SuggestionRequest, loc_id=None) -> list[BedOption]:
-    sql = SQL_SCOPED if loc_id else SQL_CROSS
-    params: dict = {
-        "geschlecht": geschlecht,
-        "period_start": body.belegung_start,
-        "period_end": body.belegung_ende,
-    }
+    if body.ignore_gender:
+        sql = SQL_SCOPED_NO_GENDER if loc_id else SQL_CROSS_NO_GENDER
+        params: dict = {
+            "period_start": body.belegung_start,
+            "period_end": body.belegung_ende,
+        }
+    else:
+        sql = SQL_SCOPED if loc_id else SQL_CROSS
+        params = {
+            "geschlecht": geschlecht,
+            "period_start": body.belegung_start,
+            "period_end": body.belegung_ende,
+        }
     if loc_id:
         params["loc_id"] = str(loc_id)
     result = await session.execute(text(sql), params)
