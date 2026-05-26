@@ -387,11 +387,15 @@ podman exec kapzitaetsplanungstool_backend_1 sh -c "cd /home/appuser/app && pyth
 
 1. **Doppelbetten**: Aktuell deaktiviert (kein `DOPPEL` BedType in der Enum)
 2. **Geschlechts-Label löschen**: Nur wenn Raum komplett leer — Prüfung im Frontend noch nicht implementiert
-3. **Bed valid_from setzen**: DB + Backend vorhanden, aber kein UI (noch zu implementieren)
-4. **Nutzer/Rollen-Konsistenz**: Nicht alle Einrichtungen haben alle Nutzer-Rollen in Keycloak konfiguriert — Keycloak-Admin muss sicherstellen, dass `system-admin`-Nutzer für alle Einrichtungen zugreifbar sind (keine `location_id`-Bindung)
-5. **Backend Stornieren-Autorisierung**: Aktuell prüft Backend nur ob Location requester oder target ist — `system-admin`-übergreifender Zugriff ohne `location_id` noch nicht implementiert
-6. **SSE-Refresh**: Server-Side-Events für Live-Refresh nur im Dashboard und TaskInbox — fehlt in Drilldown und SuggestionWizard
-7. **AZR-Suchformat**: Die Demo-Datengenerierung verwendet Format `AZR-2024-xxxx-xxx`. Produktionsdaten müssen dasselbe Format verwenden; andernfalls ILIKE-Treffer leer.
+3. **Keycloak-Konfiguration für system-admin**: `system-admin`-Nutzer in Keycloak dürfen KEINEN `location_id` User-Attribut-Eintrag haben (oder Wert leer lassen). Das Frontend sendet dann keinen `X-Location-Id`-Header. Das Backend erkennt system-admin via JWT-Rolle und erlaubt Zugriff auf alle Einrichtungen.
+4. **AZR-Suchformat**: Die Demo-Datengenerierung verwendet Format `AZR-2024-xxxx-xxx`. Produktionsdaten müssen dasselbe Format verwenden; andernfalls ILIKE-Treffer leer.
+
+**Implementiert:**
+- ✓ SSE-Refresh in Drilldown (live Bett-Grid), Dashboard, TaskInbox
+- ✓ SuggestionWizard: manueller "Ergebnisse aktualisieren"-Button (kein Auto-Refresh, um Wizard-Flow nicht zu unterbrechen)
+- ✓ Bed valid_from UI (+ Button an jedem Bett-Chip in Raum-Verwaltung → Dialog → PATCH /beds/{id}/validity)
+- ✓ system-admin: X-Location-Id optional, Zugriff auf alle Reservierungen, Stornieren/Bestätigen/Ablehnen überall
+- ✓ Stornieren nur für Requester (nicht mehr für Target-Einrichtung)
 
 ---
 
@@ -421,3 +425,4 @@ Beim Aufbau mit Java/Spring Boot + Angular sind folgende Punkte besonders zu bea
 |-------|---------|--------|
 | 2026-05-26 | 1.0 | Initiales Konzeptdokument |
 | 2026-05-26 | 1.1 | Rollen-Matrix, Reservierungsautorisierung, asyncpg CAST-Fix, AZR-Suche-Spec, Einschränkungen erweitert |
+| 2026-05-27 | 1.2 | system-admin Reservierungs-Vollzugriff, bed valid_from API+UI, SSE-Refresh Drilldown, Einschränkungen bereinigt |
