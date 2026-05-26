@@ -26,6 +26,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import HotelIcon from '@mui/icons-material/Hotel'
 import { useApiClient } from '../api/client'
 import { useSseNotifications } from '../hooks/useSseNotifications'
+import { useKeycloak } from '../auth/KeycloakProvider'
 
 interface Task {
   id: string
@@ -259,9 +260,14 @@ export default function TaskInbox() {
   const navigate = useNavigate()
   const { get, post, patch, del } = useApiClient()
   const { resetCount } = useSseNotifications()
+  const { keycloak, locationId: myLocationId } = useKeycloak()
+  const tokenParsed = keycloak?.tokenParsed as Record<string, unknown> | undefined
+  const roles = ((tokenParsed?.realm_access as { roles?: string[] } | undefined)?.roles ?? [])
+  const isSystemAdmin = roles.includes('system-admin')
+
   const [tab, setTab] = useState(0)
   const [tasks, setTasks] = useState<Task[]>([])
-  const [pendingReservations, setPendingReservations] = useState<Reservation[]>([])
+  const [allReservations, setAllReservations] = useState<Reservation[]>([])
   const [locations, setLocations] = useState<Location[]>([])
   const [loading, setLoading] = useState(true)
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
@@ -275,11 +281,11 @@ export default function TaskInbox() {
     try {
       const [t, r, l] = await Promise.all([
         get<Task[]>('/api/tasks'),
-        get<Reservation[]>('/api/reservations?target=mine'),
+        get<Reservation[]>('/api/reservations'),
         get<Location[]>('/api/locations'),
       ])
       setTasks(t)
-      setPendingReservations(r)
+      setAllReservations(r)
       setLocations(l)
     } catch {
       setSnackbar({ open: true, message: 'Postkorb konnte nicht geladen werden.', severity: 'error' })
@@ -291,6 +297,14 @@ export default function TaskInbox() {
   useEffect(() => { load() }, [load])
 
   const locName = (id: string) => locations.find((l) => l.id === id)?.name ?? id.slice(0, 8) + '…'
+
+  // Split reservations by direction
+  const incomingReservations = allReservations.filter(
+    (r) => r.target_location_id === myLocationId && r.status === 'PENDING'
+  )
+  const outgoingReservations = allReservations.filter(
+    (r) => r.requester_location_id === myLocationId
+  )
 
   async function handleConfirm(resId: string) {
     try {
@@ -346,7 +360,8 @@ export default function TaskInbox() {
 
   const openTasks = tasks.filter((t) => t.status === 'OPEN' || t.status === 'IN_PROGRESS')
   const doneTasks = tasks.filter((t) => !['OPEN', 'IN_PROGRESS'].includes(t.status))
-  const totalPending = openTasks.length + pendingReservations.length
+  const pendingReservations = isSystemAdmin ? allReservations.filter((r) => r.status === 'PENDING') : incomingReservations
+  const totalPending = openTasks.length + incomingReservations.length
 
   return (
     <Box sx={{ p: 3, maxWidth: 900, mx: 'auto' }}>
@@ -367,8 +382,16 @@ export default function TaskInbox() {
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 3, borderBottom: '1px solid #e0e0e0' }}>
         <Tab label={
           <Box display="flex" alignItems="center" gap={1}>
-            Offen
+            {isSystemAdmin ? 'Alle Anfragen' : 'Zu beantworten'}
             {totalPending > 0 && <Chip label={totalPending} size="small" color="error" sx={{ height: 18, fontSize: 10 }} />}
+          </Box>
+        } />
+        <Tab label={
+          <Box display="flex" alignItems="center" gap={1}>
+            Meine Anfragen
+            {outgoingReservations.filter((r) => r.status === 'PENDING').length > 0 && (
+              <Chip label={outgoingReservations.filter((r) => r.status === 'PENDING').length} size="small" color="warning" sx={{ height: 18, fontSize: 10 }} />
+            )}
           </Box>
         } />
         <Tab label="Erledigt / Archiv" />
@@ -377,17 +400,20 @@ export default function TaskInbox() {
       {loading ? (
         <Box display="flex" justifyContent="center" mt={8}><CircularProgress /></Box>
       ) : tab === 0 ? (
+        /* TAB 0: Eingehend / Zu beantworten */
         <Box>
-          {/* Eingehende Reservierungsanfragen */}
           {pendingReservations.length > 0 && (
             <Box mb={3}>
               <Typography variant="caption" fontWeight={700} color="text.secondary"
                 sx={{ display: 'block', mb: 1.5, letterSpacing: 1 }}>
-                EINGEHENDE RESERVIERUNGSANFRAGEN ({pendingReservations.length})
+                {isSystemAdmin
+                  ? `ALLE OFFENEN ANFRAGEN (${pendingReservations.length})`
+                  : `EINGEHENDE ANFRAGEN — ZU BEANTWORTEN (${pendingReservations.length})`}
               </Typography>
               <Box display="flex" flexDirection="column" gap={2}>
                 {pendingReservations.map((res) => {
                   const linkedTask = tasks.find((t) => t.related_reservation_id === res.id)
+                  const isIncoming = res.target_location_id === myLocationId
                   return (
                     <TaskCard
                       key={res.id}
@@ -396,16 +422,17 @@ export default function TaskInbox() {
                         task_type: 'RESERVATION_RECEIVED',
                         priority: 'HIGH',
                         status: 'OPEN',
-                        title: 'Eingehende Reservierungsanfrage',
-                        body: `Von ${locName(res.requester_location_id)} für ${res.azr_id}`,
+                        title: isIncoming || isSystemAdmin ? `Anfrage von ${locName(res.requester_location_id)}` : 'Eigene Anfrage',
+                        body: `${res.azr_id} · ${locName(res.requester_location_id)} → ${locName(res.target_location_id)}`,
                         created_at: '',
                         related_reservation_id: res.id,
                       }}
                       reservation={res}
-                      locationName={locName(res.requester_location_id)}
-                      onConfirm={handleConfirm}
-                      onReject={handleReject}
-                      onCancel={handleCancel}
+                      locationName={isSystemAdmin
+                        ? `${locName(res.requester_location_id)} → ${locName(res.target_location_id)}`
+                        : locName(res.requester_location_id)}
+                      onConfirm={(isIncoming || isSystemAdmin) ? handleConfirm : undefined}
+                      onReject={(isIncoming || isSystemAdmin) ? handleReject : undefined}
                       onDismiss={handleDismiss}
                     />
                   )
@@ -415,14 +442,13 @@ export default function TaskInbox() {
           )}
 
           {pendingReservations.length > 0 &&
-            openTasks.filter((t) => !pendingReservations.some((r) => r.id === t.related_reservation_id)).length > 0 && (
+            openTasks.filter((t) => !allReservations.some((r) => r.id === t.related_reservation_id)).length > 0 && (
               <Divider sx={{ my: 3 }} />
             )}
 
-          {/* Weitere Aufgaben */}
           {(() => {
             const standalone = openTasks.filter(
-              (t) => !pendingReservations.some((r) => r.id === t.related_reservation_id)
+              (t) => !allReservations.some((r) => r.id === t.related_reservation_id)
             )
             return standalone.length > 0 ? (
               <Box>
@@ -432,19 +458,14 @@ export default function TaskInbox() {
                 </Typography>
                 <Box display="flex" flexDirection="column" gap={2}>
                   {standalone.map((task) => (
-                    <TaskCard
-                      key={task.id}
-                      task={task}
-                      onDismiss={handleDismiss}
-                      onJumpToBed={handleJumpToBed}
-                    />
+                    <TaskCard key={task.id} task={task} onDismiss={handleDismiss} onJumpToBed={handleJumpToBed} />
                   ))}
                 </Box>
               </Box>
             ) : null
           })()}
 
-          {totalPending === 0 && (
+          {totalPending === 0 && openTasks.length === 0 && (
             <Box textAlign="center" py={6}>
               <CheckCircleIcon sx={{ fontSize: 56, color: '#a5d6a7', mb: 1.5 }} />
               <Typography variant="h6" color="text.secondary">Alles erledigt</Typography>
@@ -452,7 +473,43 @@ export default function TaskInbox() {
             </Box>
           )}
         </Box>
+      ) : tab === 1 ? (
+        /* TAB 1: Meine Anfragen (ausgehend) */
+        <Box>
+          {outgoingReservations.length === 0 ? (
+            <Typography color="text.secondary">Keine eigenen Reservierungsanfragen vorhanden.</Typography>
+          ) : (
+            <>
+              <Typography variant="caption" fontWeight={700} color="text.secondary"
+                sx={{ display: 'block', mb: 1.5, letterSpacing: 1 }}>
+                MEINE ANFRAGEN ({outgoingReservations.length})
+              </Typography>
+              <Box display="flex" flexDirection="column" gap={2}>
+                {outgoingReservations.map((res) => (
+                  <TaskCard
+                    key={res.id}
+                    task={{
+                      id: `out-${res.id}`,
+                      task_type: 'RESERVATION_SENT',
+                      priority: res.status === 'PENDING' ? 'MEDIUM' : 'LOW',
+                      status: ['CONFIRMED', 'CANCELLED', 'REJECTED', 'TRANSFERRED'].includes(res.status) ? 'DONE' : 'OPEN',
+                      title: `Anfrage an ${locName(res.target_location_id)}`,
+                      body: `${res.azr_id} · Status: ${res.status}`,
+                      created_at: '',
+                      related_reservation_id: res.id,
+                    }}
+                    reservation={res}
+                    locationName={locName(res.target_location_id)}
+                    onCancel={res.status === 'PENDING' ? handleCancel : undefined}
+                    onDismiss={handleDismiss}
+                  />
+                ))}
+              </Box>
+            </>
+          )}
+        </Box>
       ) : (
+        /* TAB 2: Erledigt / Archiv */
         <Box>
           {doneTasks.length === 0 ? (
             <Typography color="text.secondary">Keine archivierten Aufgaben.</Typography>

@@ -383,7 +383,8 @@ async def update_location(
     for k in (k for k in updates if k != "id"):
         if k == "labels":
             # labels is already a PostgreSQL array literal string from _to_pg_array
-            set_parts.append("labels = :labels::TEXT[]")
+            # CAST() avoids asyncpg treating :: as a second named-parameter prefix
+            set_parts.append("labels = CAST(:labels AS TEXT[])")
         else:
             set_parts.append(f"{k} = :{k}")
     set_clause = ", ".join(set_parts)
@@ -535,7 +536,7 @@ async def search_occupants(
         # All requested labels must appear in o.labels (AND logic)
         # Use PostgreSQL array literal to avoid asyncpg type-encoding issues
         params["label_filter"] = _to_pg_array(label_list)
-        where_clauses.append("o.labels @> :label_filter::TEXT[]")
+        where_clauses.append("o.labels @> CAST(:label_filter AS TEXT[])")
 
     where_sql = " AND ".join(where_clauses)
 
@@ -580,8 +581,8 @@ async def set_location_labels(
 ):
     """Setzt die Labels einer Einrichtung (vollständiges Ersetzen)."""
     result = await session.execute(
-        text("UPDATE capacity.locations SET labels = :labels, updated_at = NOW() WHERE id = :id RETURNING id"),
-        {"labels": body.labels, "id": str(location_id)},
+        text("UPDATE capacity.locations SET labels = CAST(:labels AS TEXT[]), updated_at = NOW() WHERE id = :id RETURNING id"),
+        {"labels": _to_pg_array(body.labels), "id": str(location_id)},
     )
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Einrichtung nicht gefunden")
@@ -1062,7 +1063,7 @@ async def set_room_labels(
 ):
     """Setzt die Labels eines Raums (vollständiges Ersetzen)."""
     result = await session.execute(
-        text("UPDATE capacity.rooms SET labels = :labels::TEXT[] WHERE id = :id RETURNING id"),
+        text("UPDATE capacity.rooms SET labels = CAST(:labels AS TEXT[]) WHERE id = :id RETURNING id"),
         {"labels": _to_pg_array(body.labels), "id": room_id},
     )
     if result.rowcount == 0:
@@ -1078,7 +1079,7 @@ async def set_bed_labels(
 ):
     """Setzt die Labels eines Betts (vollständiges Ersetzen)."""
     result = await session.execute(
-        text("UPDATE capacity.beds SET labels = :labels::TEXT[] WHERE id = :id RETURNING id"),
+        text("UPDATE capacity.beds SET labels = CAST(:labels AS TEXT[]) WHERE id = :id RETURNING id"),
         {"labels": _to_pg_array(body.labels), "id": bed_id},
     )
     if result.rowcount == 0:
@@ -1094,7 +1095,7 @@ async def set_occupancy_labels(
 ):
     """Setzt die Labels einer Belegung (vollständiges Ersetzen)."""
     result = await session.execute(
-        text("UPDATE persons.occupants SET labels = :labels::TEXT[] WHERE id = :id RETURNING id"),
+        text("UPDATE persons.occupants SET labels = CAST(:labels AS TEXT[]) WHERE id = :id RETURNING id"),
         {"labels": _to_pg_array(body.labels), "id": occupancy_id},
     )
     if result.rowcount == 0:

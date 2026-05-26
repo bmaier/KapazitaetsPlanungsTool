@@ -38,13 +38,30 @@ interface OccupantResult {
   location_name: string
 }
 
+const ROLE_LABELS: Record<string, string> = {
+  'system-admin': 'System-Admin',
+  'location-admin': 'Standort-Admin',
+  'writer': 'Schreiber',
+  'reader': 'Leser',
+}
+
+function getRoleLabel(roles: string[]): string {
+  for (const key of ['system-admin', 'location-admin', 'writer', 'reader']) {
+    if (roles.includes(key)) return ROLE_LABELS[key]
+  }
+  return roles[0] ?? 'Nutzer'
+}
+
 export default function NavBar() {
   const navigate = useNavigate()
   const location = useLocation()
-  const { keycloak } = useKeycloak()
+  const { keycloak, locationId } = useKeycloak()
   const { count } = useSseNotifications()
   const { get } = useApiClient()
-  const username = (keycloak?.tokenParsed as Record<string, unknown>)?.preferred_username as string | undefined
+  const tokenParsed = keycloak?.tokenParsed as Record<string, unknown> | undefined
+  const username = tokenParsed?.preferred_username as string | undefined
+  const roles = ((tokenParsed?.realm_access as { roles?: string[] } | undefined)?.roles ?? [])
+  const roleLabel = getRoleLabel(roles)
 
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQ, setSearchQ] = useState('')
@@ -129,9 +146,17 @@ export default function NavBar() {
           </Tooltip>
 
           {username && (
-            <Typography variant="caption" sx={{ mx: 1.5, opacity: 0.7, display: { xs: 'none', md: 'block' } }}>
-              {username}
-            </Typography>
+            <Tooltip title={`${username} · ${roleLabel}${locationId ? ` · Standort ${locationId.slice(0, 8)}…` : ''}`}
+              arrow>
+              <Box sx={{ display: { xs: 'none', md: 'flex' }, flexDirection: 'column', alignItems: 'flex-end', mx: 1.5, cursor: 'default' }}>
+                <Typography variant="caption" sx={{ opacity: 0.9, fontWeight: 600, lineHeight: 1.2 }}>
+                  {username}
+                </Typography>
+                <Typography variant="caption" sx={{ opacity: 0.55, fontSize: 10, lineHeight: 1.2 }}>
+                  {roleLabel}{locationId ? ` · ${locationId.slice(0, 8)}…` : ''}
+                </Typography>
+              </Box>
+            </Tooltip>
           )}
 
           <Tooltip title="Abmelden">

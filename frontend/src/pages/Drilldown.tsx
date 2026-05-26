@@ -275,7 +275,7 @@ function BedGrid({ room, canEdit, onBedClick, refDate }: BedGridProps) {
 export default function Drilldown() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const highlightBedId = searchParams.get('highlight_bed')
   const { get, post, patch, del } = useApiClient()
   const { keycloak } = useKeycloak()
@@ -747,12 +747,12 @@ export default function Drilldown() {
       <Paper elevation={0} sx={{ p: 2, mb: 3, borderRadius: 2, border: '1px solid #e0e0e0', display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
         <Typography variant="body2" fontWeight={600} color="text.secondary">Belegung für:</Typography>
         <TextField label="Von" type="date" size="small" value={dateFrom}
-          onChange={(e) => { setDateFrom(e.target.value); if (e.target.value >= dateTo) setDateTo(e.target.value) }}
+          onChange={(e) => { setDateFrom(e.target.value); if (e.target.value >= dateTo) setDateTo(e.target.value); if (highlightBedId) setSearchParams({}) }}
           InputLabelProps={{ shrink: true }} sx={{ width: 160 }} />
         <TextField label="Bis" type="date" size="small" value={dateTo}
-          onChange={(e) => setDateTo(e.target.value)}
+          onChange={(e) => { setDateTo(e.target.value); if (highlightBedId) setSearchParams({}) }}
           InputLabelProps={{ shrink: true }} inputProps={{ min: dateFrom }} sx={{ width: 160 }} />
-        <Button variant="outlined" size="small" onClick={() => { setDateFrom(today); setDateTo(in14) }}>
+        <Button variant="outlined" size="small" onClick={() => { setDateFrom(today); setDateTo(in14); if (highlightBedId) setSearchParams({}) }}>
           Heute · +14 Tage
         </Button>
         <Button variant="outlined" size="small" onClick={() => {
