@@ -46,7 +46,7 @@ class LocationResponse(BaseModel):
 
 class RoomCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
-    geschlechts_designation: GenderDesignation
+    geschlechts_designation: GenderDesignation = GenderDesignation.D
 
 
 class RoomResponse(BaseModel):

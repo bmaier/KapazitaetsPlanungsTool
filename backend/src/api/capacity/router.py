@@ -980,7 +980,7 @@ async def set_room_labels(
 ):
     """Setzt die Labels eines Raums (vollständiges Ersetzen)."""
     result = await session.execute(
-        text("UPDATE capacity.rooms SET labels = :labels WHERE id = :id RETURNING id"),
+        text("UPDATE capacity.rooms SET labels = :labels::TEXT[] WHERE id = :id RETURNING id"),
         {"labels": body.labels, "id": room_id},
     )
     if result.rowcount == 0:
@@ -996,7 +996,7 @@ async def set_bed_labels(
 ):
     """Setzt die Labels eines Betts (vollständiges Ersetzen)."""
     result = await session.execute(
-        text("UPDATE capacity.beds SET labels = :labels WHERE id = :id RETURNING id"),
+        text("UPDATE capacity.beds SET labels = :labels::TEXT[] WHERE id = :id RETURNING id"),
         {"labels": body.labels, "id": bed_id},
     )
     if result.rowcount == 0:
@@ -1012,7 +1012,7 @@ async def set_occupancy_labels(
 ):
     """Setzt die Labels einer Belegung (vollständiges Ersetzen)."""
     result = await session.execute(
-        text("UPDATE persons.occupants SET labels = :labels WHERE id = :id RETURNING id"),
+        text("UPDATE persons.occupants SET labels = :labels::TEXT[] WHERE id = :id RETURNING id"),
         {"labels": body.labels, "id": occupancy_id},
     )
     if result.rowcount == 0:

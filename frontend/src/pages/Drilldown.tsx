@@ -266,7 +266,6 @@ export default function Drilldown() {
   const [mgmtRooms, setMgmtRooms] = useState<RoomMgmt[]>([])
   const [mgmtLoading, setMgmtLoading] = useState(false)
   const [newRoomName, setNewRoomName] = useState('')
-  const [newRoomGeschlecht, setNewRoomGeschlecht] = useState('M')
   const [addingRoom, setAddingRoom] = useState(false)
   const [addBedRoomId, setAddBedRoomId] = useState<string | null>(null)
   const [newBedNummer, setNewBedNummer] = useState('')
@@ -426,7 +425,7 @@ export default function Drilldown() {
     if (!id || !newRoomName.trim()) return
     setAddingRoom(true)
     try {
-      await post(`/api/locations/${id}/rooms`, { name: newRoomName, geschlechts_designation: newRoomGeschlecht })
+      await post(`/api/locations/${id}/rooms`, { name: newRoomName, geschlechts_designation: 'D' })
       setNewRoomName('')
       await loadMgmtRooms()
       loadBedStatus()
@@ -535,12 +534,18 @@ export default function Drilldown() {
         throw new Error((err as { detail?: string })?.detail || 'Fehler')
       }
       const has12w = response.headers.get('X-12W-Warning') === 'true'
+      const occupancyData = await response.clone().json().catch(() => null) as { id?: string } | null
       // Labels für die neue Belegung setzen (wenn angegeben)
-      if (belegLabels.length > 0) {
-        const occupancyData = await response.clone().json().catch(() => null) as { id?: string } | null
-        if (occupancyData?.id) {
-          await patch(`/api/occupancy/${occupancyData.id}/labels`, { labels: belegLabels }).catch(() => {})
-        }
+      if (belegLabels.length > 0 && occupancyData?.id) {
+        await patch(`/api/occupancy/${occupancyData.id}/labels`, { labels: belegLabels }).catch(() => {})
+      }
+      // Geschlechts-Label am Raum automatisch setzen, wenn noch keins vorhanden
+      const roomId = belegBed.room.room_id
+      const existingLabels = belegBed.room.labels ?? []
+      const hasGenderLabel = existingLabels.some((l) => ['Männer', 'Frauen', 'Gemischt'].includes(l))
+      if (!hasGenderLabel && (belegGeschlecht === 'M' || belegGeschlecht === 'W')) {
+        const genderLabel = belegGeschlecht === 'M' ? 'Männer' : 'Frauen'
+        await patch(`/api/rooms/${roomId}/labels`, { labels: [...existingLabels, genderLabel] }).catch(() => {})
       }
       setBelegBed(null)
       setBelegLabels([])
@@ -1190,15 +1195,6 @@ export default function Drilldown() {
                     <TextField label="Raumname *" size="small" value={newRoomName}
                       onChange={(e) => setNewRoomName(e.target.value)}
                       placeholder="z.B. Raum E" sx={{ flex: 1, minWidth: 150 }} />
-                    <FormControl size="small" sx={{ width: 150 }}>
-                      <InputLabel>Belegung</InputLabel>
-                      <Select value={newRoomGeschlecht} label="Belegung"
-                        onChange={(e) => setNewRoomGeschlecht(e.target.value)}>
-                        <MenuItem value="M">Männer</MenuItem>
-                        <MenuItem value="W">Frauen</MenuItem>
-                        <MenuItem value="D">Gemischt</MenuItem>
-                      </Select>
-                    </FormControl>
                     <Button variant="contained" startIcon={<AddIcon />}
                       disabled={!newRoomName.trim() || addingRoom}
                       onClick={handleAddRoom}>
