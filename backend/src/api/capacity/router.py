@@ -67,6 +67,9 @@ LABEL_CATALOG = [
     {"name": "Ruhig", "category": "Ausstattung", "entity_types": ["ROOM"], "color": "#2e7d32"},
     {"name": "Klimaanlage", "category": "Ausstattung", "entity_types": ["ROOM"], "color": "#2e7d32"},
     {"name": "Familienraum", "category": "Eignung", "entity_types": ["ROOM"], "color": "#6a1b9a"},
+    {"name": "Männer", "category": "Geschlecht", "entity_types": ["ROOM"], "color": "#1565c0"},
+    {"name": "Frauen", "category": "Geschlecht", "entity_types": ["ROOM"], "color": "#880e4f"},
+    {"name": "Gemischt", "category": "Geschlecht", "entity_types": ["ROOM"], "color": "#4a148c"},
     # BED
     {"name": "Unteres Bett", "category": "Position", "entity_types": ["BED"], "color": "#e65100"},
     {"name": "Oberes Bett", "category": "Position", "entity_types": ["BED"], "color": "#e65100"},

@@ -99,6 +99,7 @@ interface RoomMgmt {
   name: string
   geschlechts_designation: string
   is_active: boolean
+  labels: string[]
   beds: { id: string; bett_nummer: string; bett_typ: string; is_active: boolean; deaktiviert_ab?: string | null }[]
 }
 
@@ -344,12 +345,12 @@ export default function Drilldown() {
     if (!id) return
     setMgmtLoading(true)
     try {
-      const roomList = await get<{ id: string; name: string; geschlechts_designation: string; is_active: boolean }[]>(
+      const roomList = await get<{ id: string; name: string; geschlechts_designation: string; is_active: boolean; labels: string[] }[]>(
         `/api/locations/${id}/rooms?include_inactive=true`
       )
       const withBeds = await Promise.all(
         roomList.map(async (r) => {
-          const beds = await get<{ id: string; bett_nummer: string; bett_typ: string; is_active: boolean }[]>(
+          const beds = await get<{ id: string; bett_nummer: string; bett_typ: string; is_active: boolean; deaktiviert_ab?: string | null }[]>(
             `/api/rooms/${r.id}/beds?include_inactive=true`
           ).catch(() => [])
           return { ...r, beds }
@@ -875,9 +876,13 @@ export default function Drilldown() {
                 )}
                 <Box>
                   <Typography variant="caption" color="text.secondary">Geschlecht</Typography>
-                  <Typography fontWeight={700}>
-                    {manageBed.bed.occ_geschlecht === 'M' ? 'Männlich' : manageBed.bed.occ_geschlecht === 'W' ? 'Weiblich' : 'Divers'}
-                  </Typography>
+                  <Box mt={0.5}>
+                    <Chip
+                      label={manageBed.bed.occ_geschlecht === 'M' ? 'Männer' : manageBed.bed.occ_geschlecht === 'W' ? 'Frauen' : 'Divers'}
+                      size="small"
+                      sx={{ bgcolor: genderColor(manageBed.bed.occ_geschlecht ?? 'D') + '20', color: genderColor(manageBed.bed.occ_geschlecht ?? 'D'), fontWeight: 600 }}
+                    />
+                  </Box>
                 </Box>
                 <Box>
                   <Typography variant="caption" color="text.secondary">Belegungszeitraum</Typography>
@@ -1057,7 +1062,7 @@ export default function Drilldown() {
                 <LabelChips
                   labels={editLocLabels}
                   entityType="ROOM"
-                  entityId={id ?? 'new'}
+                  entityId="new"
                   onSaved={(l) => setEditLocLabels(l)}
                 />
               </Box>
@@ -1107,7 +1112,7 @@ export default function Drilldown() {
                         {room.is_active && (
                           <Box mb={1}>
                             <LabelChips
-                              labels={[]}
+                              labels={room.labels ?? []}
                               entityType="ROOM"
                               entityId={room.id}
                               compact
@@ -1274,9 +1279,15 @@ export default function Drilldown() {
                   }}>
                     <Box display="flex" alignItems="center" gap={2} flexWrap="wrap">
                       <Box sx={{ flex: 1 }}>
-                        <Typography fontWeight={700}>{req.azr_id}</Typography>
+                        <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                          <Typography fontWeight={700}>{req.azr_id}</Typography>
+                          <Chip
+                            label={req.geschlecht === 'M' ? 'Männer' : req.geschlecht === 'W' ? 'Frauen' : 'Divers'}
+                            size="small"
+                            sx={{ bgcolor: genderColor(req.geschlecht) + '20', color: genderColor(req.geschlecht), fontWeight: 600, height: 20 }}
+                          />
+                        </Box>
                         <Typography variant="caption" color="text.secondary">
-                          {req.geschlecht === 'M' ? 'Männlich' : req.geschlecht === 'W' ? 'Weiblich' : 'Divers'} ·{' '}
                           {req.herkunftsland} · {req.belegung_start} – {req.belegung_ende}
                         </Typography>
                       </Box>

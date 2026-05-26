@@ -42,6 +42,7 @@ interface BedOption {
   room_name: string
   bett_typ: string
   location_name: string
+  room_labels: string[]
 }
 interface Variant {
   beds: BedOption[]
@@ -547,6 +548,10 @@ export default function SuggestionWizard() {
                                 <Typography variant="caption" fontWeight={600} color="#1b5e20">
                                   {b.room_name} · {b.bett_nummer}
                                 </Typography>
+                                {(b.room_labels ?? []).map((lbl) => (
+                                  <Chip key={lbl} label={lbl} size="small"
+                                    sx={{ height: 16, fontSize: 10, px: 0.3, bgcolor: '#c8e6c9', color: '#1b5e20' }} />
+                                ))}
                               </Box>
                             ))}
                           </Box>

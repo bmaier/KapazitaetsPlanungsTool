@@ -171,9 +171,18 @@ function TaskCard({
                   </Box>
                   <Box>
                     <Typography variant="caption" color="text.secondary">Person</Typography>
-                    <Typography variant="body2" fontWeight={600}>
-                      {reservation.geschlecht === 'M' ? 'Männlich' : reservation.geschlecht === 'W' ? 'Weiblich' : 'Divers'} · *{reservation.geburtsjahr} · {reservation.herkunftsland}
-                    </Typography>
+                    <Box display="flex" alignItems="center" gap={0.8} flexWrap="wrap" mt={0.3}>
+                      <Chip
+                        label={reservation.geschlecht === 'M' ? 'Männer' : reservation.geschlecht === 'W' ? 'Frauen' : 'Divers'}
+                        size="small"
+                        sx={{
+                          bgcolor: reservation.geschlecht === 'M' ? '#1565c020' : reservation.geschlecht === 'W' ? '#880e4f20' : '#4a148c20',
+                          color: reservation.geschlecht === 'M' ? '#1565c0' : reservation.geschlecht === 'W' ? '#880e4f' : '#4a148c',
+                          fontWeight: 600, height: 20,
+                        }}
+                      />
+                      <Typography variant="body2" fontWeight={600}>*{reservation.geburtsjahr} · {reservation.herkunftsland}</Typography>
+                    </Box>
                   </Box>
                   <Box>
                     <Typography variant="caption" color="text.secondary">Zeitraum</Typography>
