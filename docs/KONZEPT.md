@@ -123,6 +123,53 @@ Wenn eine Person (M/W) einem Bett in einem Raum ohne Geschlechts-Label zugewiese
 
 ---
 
+## 4b. Rollen & Berechtigungsmatrix
+
+### Rollen (Keycloak Realm-Roles)
+
+| Rolle | Keycloak-Key | Beschreibung |
+|-------|-------------|-------------|
+| System-Admin | `system-admin` | Voller Zugriff auf ALLE Einrichtungen; nicht an eine Location gebunden |
+| Standort-Admin | `location-admin` | Admin-Zugriff auf eigene Einrichtung |
+| Schreiber | `writer` | Kann Belegen/Ausbuchen/Reservierungen stellen |
+| Leser | `reader` | Lesezugriff, kein Schreiben |
+
+### Berechtigungsregeln
+
+| Aktion | reader | writer | location-admin | system-admin |
+|--------|--------|--------|---------------|-------------|
+| Dashboard anzeigen | ✓ | ✓ | ✓ | ✓ |
+| Belegungsansicht anzeigen | ✓ | ✓ | ✓ | ✓ |
+| Bett belegen / ausbuchen | — | ✓ | ✓ | ✓ |
+| Reservierungsanfrage stellen | — | ✓ | ✓ | ✓ |
+| Reservierung stornieren | — | Nur eigene | Eigene + Eingehende | Alle |
+| Reservierung bestätigen/ablehnen | — | — | ✓ (nur eingehende) | ✓ (alle) |
+| Stammdaten bearbeiten | — | — | ✓ | ✓ |
+| Räume anlegen / Labels setzen | — | — | ✓ | ✓ |
+| Einrichtung anlegen | — | — | — | ✓ |
+
+### Reservierungssicht nach Rolle
+
+| Rolle | Tab "Zu beantworten" | Tab "Meine Anfragen" |
+|-------|---------------------|---------------------|
+| writer | Eingehende PENDING | Eigene ausgehende |
+| location-admin | Eingehende PENDING | Eigene ausgehende |
+| system-admin | ALLE PENDING aller Locations | Alle ausgehenden |
+
+### JWT-Kontext
+- `location_id`: User-Attribut in Keycloak → wird als `X-Location-Id`-Header gesendet
+- `realm_access.roles`: Array der Realm-Rollen
+- Für `system-admin`: `location_id` kann fehlen oder leer sein (systemweit)
+- **Frontend-Prüfung:** `roles.includes('system-admin')`, `roles.includes('location-admin')`
+
+### Stornieren-Autorisierung
+- Nur wer `requester_location_id === myLocationId` (eigene Anfrage) darf stornieren
+- `location-admin` der Ziel-Einrichtung darf NICHT stornieren (nur ablehnen)
+- `system-admin` darf alles stornieren
+- Backend prüft: `requester_location_id == location_id` OR `system-admin`-Flag (noch zu implementieren im Backend)
+
+---
+
 ## 5. Reservierungssystem
 
 ### Ablauf
@@ -279,15 +326,29 @@ function deriveRoomGender(room: RoomStatus): string {
 
 ## 9. Technische Besonderheiten & Fallstricke
 
-### TEXT[] Cast in asyncpg
-Bei dynamisch gebauten `text()`-SQL-Queries in SQLAlchemy mit asyncpg:
-```python
-# FALSCH — funktioniert nicht ohne Cast:
-text("UPDATE t SET labels = :labels WHERE id = :id")
+### TEXT[] Cast in asyncpg — KRITISCH
+Bei `text()`-SQL-Queries in SQLAlchemy/asyncpg:
+- asyncpg **kann Python-Listen nicht direkt** als PostgreSQL-Array übergeben
+- `::TEXT[]` nach einem Named-Parameter (`:param::TEXT[]`) bricht asyncpg, weil `::` als zweiter Parameterstart interpretiert wird
 
-# RICHTIG:
+**Korrekte Lösung:**
+```python
+def _to_pg_array(lst: list[str]) -> str:
+    """Konvertiert Python-Liste zu PostgreSQL-Array-Literal-String."""
+    if not lst:
+        return '{}'
+    escaped = ('"' + s.replace('\\', '\\\\').replace('"', '\\"') + '"' for s in lst)
+    return '{' + ','.join(escaped) + '}'
+
+# Verwendung:
+text("UPDATE t SET labels = CAST(:labels AS TEXT[]) WHERE id = :id"),
+{"labels": _to_pg_array(body.labels), "id": str(entity_id)}
+
+# FALSCH — asyncpg-Syntaxfehler:
 text("UPDATE t SET labels = :labels::TEXT[] WHERE id = :id")
 ```
+
+**Gilt für alle Endpunkte:** `PATCH /rooms/{id}/labels`, `PATCH /beds/{id}/labels`, `PATCH /occupancy/{id}/labels`, `PATCH /locations/{id}/labels`, `PATCH /locations/{id}` (wenn labels enthalten), Suche mit label_filter.
 
 ### BedType Enum
 Nur `KONTINGENT` und `NOTBETT` sind gültige Bett-Typen. `STANDARD` und `DOPPEL` existieren nicht.
@@ -306,12 +367,31 @@ podman exec kapzitaetsplanungstool_backend_1 sh -c "cd /home/appuser/app && pyth
 
 ---
 
-## 10. Bekannte Einschränkungen
+## 5b. Person-Suche (AZR-Suche)
 
-1. Doppelbetten: Aktuell deaktiviert (kein `DOPPEL` BedType in der Enum)
-2. Geschlechts-Label löschbar nur wenn Raum komplett leer (prüfung im Frontend noch nicht implementiert)
-3. Bed valid_from: Bereits in DB + Backend, aber kein UI zum Setzen (noch zu implementieren)
-4. Room valid_from/valid_until: Backend + DB vorhanden, aber nur Anzeige im Bed-Grid; kein UI zum Bearbeiten im Raum-Management (noch zu implementieren)
+### Suche in NavBar
+- Endpoint: `GET /api/occupants/search?q={term}`
+- ILIKE-Suche auf `azr_id` und `alias_id`: `%{term}%` (Substring-Match)
+- Nur aktive Belegungen (`belegung_ende >= CURRENT_DATE`)
+- **Exakte AZR-ID erforderlich**: Bei Eingabe von `AZR-2024-HAM-W55` muss dieser exakte String in `azr_id` enthalten sein. Kürzere Teilstrings wie `AZR-2024` matchen alle AZR-IDs mit diesem Prefix.
+- Ergebnis enthält `bed_id` → NavBar navigiert zu `/locations/{location_id}?highlight_bed={bed_id}`
+- **highlight_bed**: Drilldown öffnet Bett-Management-Dialog automatisch und schließt ihn, wenn der User das Datum ändert (URL-Param wird gelöscht)
+
+### Label-Filter in Suche
+- Optionaler Parameter `?labels=Label1,Label2` (kommagetrennt, AND-Logik)
+- Nur wenn `label_filter` nicht leer: asyncpg `CAST(:label_filter AS TEXT[])` verwenden
+
+---
+
+## 10. Bekannte Einschränkungen & offene Punkte
+
+1. **Doppelbetten**: Aktuell deaktiviert (kein `DOPPEL` BedType in der Enum)
+2. **Geschlechts-Label löschen**: Nur wenn Raum komplett leer — Prüfung im Frontend noch nicht implementiert
+3. **Bed valid_from setzen**: DB + Backend vorhanden, aber kein UI (noch zu implementieren)
+4. **Nutzer/Rollen-Konsistenz**: Nicht alle Einrichtungen haben alle Nutzer-Rollen in Keycloak konfiguriert — Keycloak-Admin muss sicherstellen, dass `system-admin`-Nutzer für alle Einrichtungen zugreifbar sind (keine `location_id`-Bindung)
+5. **Backend Stornieren-Autorisierung**: Aktuell prüft Backend nur ob Location requester oder target ist — `system-admin`-übergreifender Zugriff ohne `location_id` noch nicht implementiert
+6. **SSE-Refresh**: Server-Side-Events für Live-Refresh nur im Dashboard und TaskInbox — fehlt in Drilldown und SuggestionWizard
+7. **AZR-Suchformat**: Die Demo-Datengenerierung verwendet Format `AZR-2024-xxxx-xxx`. Produktionsdaten müssen dasselbe Format verwenden; andernfalls ILIKE-Treffer leer.
 
 ---
 
@@ -320,12 +400,24 @@ podman exec kapzitaetsplanungstool_backend_1 sh -c "cd /home/appuser/app && pyth
 Beim Aufbau mit Java/Spring Boot + Angular sind folgende Punkte besonders zu beachten:
 
 1. **Geschlecht als Label** — nicht als Pflichtfeld, automatisch aus erster Belegung
-2. **TEXT[] als PostgreSQL-Array** — bei Hibernate/JPA: `@Type(type = "list-array")` oder JPA 2.1 `@Convert`
+2. **TEXT[] als PostgreSQL-Array** — bei Hibernate/JPA: `@Type(type = "list-array")` oder JPA 2.1 `@Convert`; KEIN PostgreSQL-Cast nach Named-Parameters
 3. **Zeitraumüberschneidung** — halboffenes Intervall: `start < date_to AND end > date_from`
 4. **EU-Quota** — Singleton in `system_settings`-Tabelle, `eu_gesamtquote = 0` = unbegrenzt
 5. **12-Wochen-Header** — Response-Header `X-12W-Warning: true` für lange Belegungen
 6. **DSGVO** — Kein `name` in Occupancy; nur `azr_id` (technisch) + `alias_id` (optional)
 7. **Gültigkeitsdaten** — `valid_from IS NULL` = immer gültig; `valid_until IS NULL` = kein Ablauf
-8. **Keycloak-Attribute** — `location_id` als User-Attribut, wird per JWT-Claim übertragen
-9. **asyncpg → JDBC**: TEXT[]-Spalten erfordern expliziten Type-Mapping
+8. **Keycloak-Attribute** — `location_id` als User-Attribut, wird per JWT-Claim übertragen; `system-admin` hat keine Standort-Bindung
+9. **Rollen-aware API**: Endpunkte müssen Rolle aus JWT auslesen, nicht nur Location-Header. `system-admin` darf auf alle Einrichtungen zugreifen.
 10. **Suggestions-Algorithmus** — Varianten-Berechnung mit Greedy-Raum-Packing (Betten aus gleichen Räumen bevorzugen)
+11. **Reservierungsautorisierung** — Stornieren: nur Requester oder system-admin. Bestätigen/Ablehnen: nur Target. Sicht: Requester sieht eigene, Target sieht eingehende, system-admin sieht alle.
+12. **AZR-Suche** — ILIKE-Substring-Suche auf azr_id UND alias_id; Ergebnis enthält bed_id für Direktnavigation
+13. **highlight_bed URL-Param** — Wenn `?highlight_bed={bed_id}` im URL, Bett-Dialog automatisch öffnen. Bei Datumswechsel URL-Param löschen.
+
+---
+
+## 12. Änderungshistorie
+
+| Datum | Version | Inhalt |
+|-------|---------|--------|
+| 2026-05-26 | 1.0 | Initiales Konzeptdokument |
+| 2026-05-26 | 1.1 | Rollen-Matrix, Reservierungsautorisierung, asyncpg CAST-Fix, AZR-Suche-Spec, Einschränkungen erweitert |
