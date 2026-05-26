@@ -41,6 +41,7 @@ import MeetingRoomIcon from '@mui/icons-material/MeetingRoom'
 import BlockIcon from '@mui/icons-material/Block'
 import { useApiClient } from '../api/client'
 import { useKeycloak } from '../auth/KeycloakProvider'
+import { useSseNotifications } from '../hooks/useSseNotifications'
 import LabelChips, { LabelList } from '../components/LabelChips'
 
 interface Location {
@@ -279,6 +280,7 @@ export default function Drilldown() {
   const highlightBedId = searchParams.get('highlight_bed')
   const { get, post, patch, del } = useApiClient()
   const { keycloak } = useKeycloak()
+  const { count: sseCount } = useSseNotifications()
 
   const roles = ((keycloak?.tokenParsed as Record<string, unknown>)?.realm_access as { roles?: string[] } | undefined)?.roles ?? []
   const canEdit = roles.some((r) => ['location-admin', 'system-admin', 'writer'].includes(r))
@@ -350,6 +352,9 @@ export default function Drilldown() {
   const [deaktBedId, setDeaktBedId] = useState<string | null>(null)
   const [deaktDate, setDeaktDate] = useState('')
   const [deaktSaving, setDeaktSaving] = useState(false)
+  const [validFromBedId, setValidFromBedId] = useState<string | null>(null)
+  const [validFromDate, setValidFromDate] = useState('')
+  const [validFromSaving, setValidFromSaving] = useState(false)
   const [reactivateRoomId, setReactivateRoomId] = useState<string | null>(null)
   const [reactivateDate, setReactivateDate] = useState('')
   const [reactivateSaving, setReactivateSaving] = useState(false)
@@ -373,6 +378,11 @@ export default function Drilldown() {
   }, [id, dateFrom, dateTo, get])
 
   useEffect(() => { loadBedStatus() }, [loadBedStatus])
+
+  // SSE-triggered refresh: reload bed status when a server notification arrives
+  useEffect(() => {
+    if (sseCount > 0) loadBedStatus()
+  }, [sseCount]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // When navigated from person search: auto-open the bed management dialog
   useEffect(() => {
@@ -566,6 +576,24 @@ export default function Drilldown() {
       setSnackbar({ open: true, message: detail, severity: 'error' })
     } finally {
       setDeaktSaving(false)
+    }
+  }
+
+  async function handleSetBedValidFrom() {
+    if (!validFromBedId || !validFromDate) return
+    setValidFromSaving(true)
+    try {
+      await patch(`/api/beds/${validFromBedId}/validity`, { valid_from: validFromDate })
+      setValidFromBedId(null)
+      setValidFromDate('')
+      await loadMgmtRooms()
+      loadBedStatus()
+      setSnackbar({ open: true, message: `Bett verfügbar ab ${validFromDate} gesetzt.`, severity: 'success' })
+    } catch (err: unknown) {
+      const detail = (err as { detail?: { detail?: string } }).detail?.detail ?? 'Fehler beim Setzen des Verfügbarkeitsdatums.'
+      setSnackbar({ open: true, message: detail, severity: 'error' })
+    } finally {
+      setValidFromSaving(false)
     }
   }
 
@@ -1228,34 +1256,44 @@ export default function Drilldown() {
 
                         {/* Beds */}
                         <Box display="flex" flexWrap="wrap" gap={0.8} mb={addBedRoomId === room.id ? 1.5 : 0}>
-                          {room.beds.map((bed) => (
-                            <Box key={bed.id} display="flex" alignItems="center" gap={0.5}>
-                              <Tooltip title={
-                                bed.deaktiviert_ab
-                                  ? `Deaktivierung geplant: ${bed.deaktiviert_ab}`
-                                  : bed.is_active ? 'Aktiv · Klicken für zeitliche Deaktivierung' : 'Inaktiv'
-                              }>
-                                <Chip
-                                  icon={<BedIcon sx={{ fontSize: '14px !important' }} />}
-                                  label={
-                                    bed.deaktiviert_ab
-                                      ? `${bed.bett_nummer} (ab ${bed.deaktiviert_ab})`
-                                      : bed.bett_nummer
-                                  }
-                                  size="small"
-                                  onClick={bed.is_active && room.is_active && !bed.deaktiviert_ab
-                                    ? () => { setDeaktBedId(bed.id); setDeaktDate('') }
-                                    : undefined}
-                                  onDelete={bed.is_active && room.is_active ? () => handleDeactivateBed(bed.id, bed.bett_nummer) : undefined}
-                                  sx={{
-                                    bgcolor: bed.deaktiviert_ab ? '#fff3e0' : bed.is_active ? '#e8f5e9' : '#f5f5f5',
-                                    color: bed.deaktiviert_ab ? '#e65100' : bed.is_active ? '#2e7d32' : '#888',
-                                    opacity: bed.is_active ? 1 : 0.6,
-                                  }}
-                                />
-                              </Tooltip>
-                            </Box>
-                          ))}
+                          {room.beds.map((bed) => {
+                            return (
+                              <Box key={bed.id} display="flex" alignItems="center" gap={0.5}>
+                                <Tooltip title={
+                                  bed.deaktiviert_ab
+                                    ? `Deaktivierung geplant: ${bed.deaktiviert_ab} · Klicken: Verfügbarkeit ab setzen`
+                                    : bed.is_active ? 'Aktiv · Klicken: Deaktivierung planen | Rechtsklick: Verfügbar-ab setzen' : 'Inaktiv'
+                                }>
+                                  <Chip
+                                    icon={<BedIcon sx={{ fontSize: '14px !important' }} />}
+                                    label={
+                                      bed.deaktiviert_ab
+                                        ? `${bed.bett_nummer} (deakt. ab ${bed.deaktiviert_ab})`
+                                        : bed.bett_nummer
+                                    }
+                                    size="small"
+                                    onClick={bed.is_active && room.is_active && !bed.deaktiviert_ab
+                                      ? () => { setDeaktBedId(bed.id); setDeaktDate('') }
+                                      : undefined}
+                                    onDelete={bed.is_active && room.is_active ? () => handleDeactivateBed(bed.id, bed.bett_nummer) : undefined}
+                                    sx={{
+                                      bgcolor: bed.deaktiviert_ab ? '#fff3e0' : bed.is_active ? '#e8f5e9' : '#f5f5f5',
+                                      color: bed.deaktiviert_ab ? '#e65100' : bed.is_active ? '#2e7d32' : '#888',
+                                      opacity: bed.is_active ? 1 : 0.6,
+                                    }}
+                                  />
+                                </Tooltip>
+                                {bed.is_active && room.is_active && (
+                                  <Tooltip title="Verfügbar-ab Datum setzen">
+                                    <IconButton size="small" sx={{ width: 16, height: 16, color: '#1565c0', opacity: 0.6 }}
+                                      onClick={() => { setValidFromBedId(bed.id); setValidFromDate('') }}>
+                                      <AddCircleIcon sx={{ fontSize: 12 }} />
+                                    </IconButton>
+                                  </Tooltip>
+                                )}
+                              </Box>
+                            )
+                          })}
                           {room.beds.length === 0 && (
                             <Typography variant="caption" color="text.secondary">Keine Betten</Typography>
                           )}
@@ -1343,6 +1381,36 @@ export default function Drilldown() {
             onClick={handleDeaktiviereBedTimed}
           >
             {deaktSaving ? <CircularProgress size={18} /> : 'Datum setzen'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Bett Verfügbar-ab Dialog ── */}
+      <Dialog open={!!validFromBedId} onClose={() => setValidFromBedId(null)} maxWidth="xs" fullWidth>
+        <DialogTitle fontWeight={700}>Bett: Verfügbar ab Datum</DialogTitle>
+        <DialogContent sx={{ pt: 2 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Das Bett gilt bis zu diesem Datum als "geplant" und kann nicht belegt werden.
+          </Typography>
+          <TextField
+            label="Verfügbar ab"
+            type="date"
+            value={validFromDate}
+            onChange={(e) => setValidFromDate(e.target.value)}
+            InputLabelProps={{ shrink: true }}
+            fullWidth
+            inputProps={{ min: today }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setValidFromBedId(null)}>Abbrechen</Button>
+          <Button
+            variant="contained"
+            color="primary"
+            disabled={!validFromDate || validFromSaving}
+            onClick={handleSetBedValidFrom}
+          >
+            {validFromSaving ? <CircularProgress size={18} /> : 'Datum setzen'}
           </Button>
         </DialogActions>
       </Dialog>

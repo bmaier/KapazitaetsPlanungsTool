@@ -507,9 +507,15 @@ export default function SuggestionWizard() {
             </Box>
           ) : (
             <Box>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                {suggestion.variants.length} Option{suggestion.variants.length > 1 ? 'en' : ''} gefunden — bitte auswählen:
-              </Typography>
+              <Box display="flex" alignItems="center" gap={2} mb={2}>
+                <Typography variant="body2" color="text.secondary">
+                  {suggestion.variants.length} Option{suggestion.variants.length > 1 ? 'en' : ''} gefunden — bitte auswählen:
+                </Typography>
+                <Button size="small" variant="outlined" onClick={handleSearch} disabled={loading}
+                  sx={{ ml: 'auto', fontSize: 11 }}>
+                  Ergebnisse aktualisieren
+                </Button>
+              </Box>
               <Box display="flex" flexDirection="column" gap={2} mb={3}>
                 {suggestion.variants.map((v, idx) => {
                   const isSelected = selectedVariant === idx
