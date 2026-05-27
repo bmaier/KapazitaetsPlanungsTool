@@ -1,26 +1,25 @@
 ---
 # BorderCapControl — Docker Compose Override (Lokale Entwicklung)
-# Aktiviert Hot-Reload für das Backend und macht Port-Bindings explizit.
-# Diese Datei wird von Docker Compose automatisch geladen und überschreibt
-# Teile von docker-compose.yml.
+#
+# Port-Übersicht:
+#   3000  → Frontend  (Vite Dev-Server mit HMR)
+#   5432  → PostgreSQL
+#   8000  → Backend API (Uvicorn + WatchFiles Hot-Reload)
+#   8001  → SKOS Codelisten
+#   8080  → Keycloak Admin-UI
+#   8082  → Tileserver
+#
+# Workflow:
+#   make dev    — startet Stack; baut Images nur wenn noch nicht vorhanden
+#   make build  — erzwingt Rebuild aller Images (nach Dockerfile-/Dep-Änderungen)
 
 version: "3.9"
 
-# Port-Übersicht für lokale Entwicklung:
-# 5432  → PostgreSQL (direkter DB-Zugriff mit DBeaver etc.)
-# 8080  → Keycloak Admin-UI (http://localhost:8080/admin)
-# 8000  → Backend API (http://localhost:8000/docs)
-# 8001  → SKOS Codelisten (http://localhost:8001/docs)
-# 8082  → Tileserver (http://localhost:8082/)
+volumes:
+  # Isoliertes node_modules-Volume verhindert Host/Container-Konflikte
+  frontend_node_modules:
 
 services:
-
-  # Port-Übersicht für lokale Entwicklung:
-  # 5432  → PostgreSQL (direkter DB-Zugriff)
-  # 8080  → Keycloak Admin-UI (http://localhost:8080/admin)
-  # 8000  → Backend API (http://localhost:8000/docs)
-  # 8001  → SKOS Codelisten (http://localhost:8001/docs)
-  # 8082  → Tileserver (http://localhost:8082/)
 
   postgres:
     ports:
@@ -33,6 +32,9 @@ services:
       - ./infra/keycloak/themes:/opt/keycloak/themes:ro
 
   skos_service:
+    build:
+      context: ./skos_service
+      dockerfile: Dockerfile
     ports:
       - "8001:8001"
 
@@ -40,12 +42,11 @@ services:
     ports:
       - "8082:8080"
 
-  frontend:
-    ports:
-      - "80:80"
-
-  # Backend: Hot-Reload via uvicorn --reload + Source-Code-Volume
+  # Backend: Uvicorn + WatchFiles Hot-Reload, src/ live gemountet
   backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
     ports:
       - "8000:8000"
     environment:
@@ -57,7 +58,31 @@ services:
         --reload
         --reload-dir /home/appuser/app/src
     volumes:
-      # Hot-Reload: lokaler src/-Ordner wird in Container gemountet
       - ./backend/src:/home/appuser/app/src:rw
-      # Alembic-Migrationen ebenfalls live
       - ./backend/alembic:/home/appuser/app/alembic:rw
+
+  # Frontend: Vite Dev-Server mit HMR, src/ live gemountet
+  # Proxy-Ziele via Env-Vars → Vite leitet an Docker-interne Service-Namen weiter
+  frontend:
+    image: node:20-alpine
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app:rw
+      - frontend_node_modules:/app/node_modules
+    working_dir: /app
+    environment:
+      VITE_BACKEND_URL: "http://backend:8000"
+      VITE_KEYCLOAK_URL: "http://keycloak:8080"
+      VITE_TILESERVER_URL: "http://tileserver:8080"
+    command: sh -c "npm install && npm run dev"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 6
+      start_period: 120s
+    restart: unless-stopped
