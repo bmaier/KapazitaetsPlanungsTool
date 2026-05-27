@@ -67,3 +67,13 @@ export function useApiClient() {
 
   return useMemo(() => ({ get, post, patch, del }), [get, post, patch, del])
 }
+
+export function extractApiError(err: unknown): string {
+  const detail = (err as { detail?: unknown })?.detail
+  if (typeof detail === 'string') return detail
+  const inner = (detail as { detail?: unknown })?.detail
+  if (typeof inner === 'string') return inner
+  if (Array.isArray(inner)) return inner.map((d: { msg: string }) => d.msg).join('; ')
+  if (Array.isArray(detail)) return detail.map((d: { msg: string }) => d.msg).join('; ')
+  return (err as Error)?.message ?? 'Unbekannter Fehler'
+}

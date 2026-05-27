@@ -33,3 +33,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Claude Code (personal settings)
+.claude/

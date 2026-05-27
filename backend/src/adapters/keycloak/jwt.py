@@ -23,6 +23,7 @@ from src.config import settings
 class UserContext:
     sub: str
     roles: list[str] = field(default_factory=list)
+    location_id: Optional[str] = None
 
 
 _jwks_cache: Optional[dict] = None
@@ -74,13 +75,14 @@ async def get_current_user(request: Request) -> UserContext:
             raise HTTPException(status_code=401, detail="Not authenticated")
         sub = payload.get("sub", "")
         roles = payload.get("realm_access", {}).get("roles", [])
+        loc_id = payload.get("location_id")
         user_roles = set(roles)
         if request.method in ("POST", "PUT", "PATCH", "DELETE"):
             if not (user_roles & _WRITER_PLUS):
                 raise HTTPException(status_code=403, detail="Insufficient permissions")
         elif not (user_roles & _READER_PLUS):
             raise HTTPException(status_code=403, detail="Insufficient permissions")
-        return UserContext(sub=sub, roles=roles)
+        return UserContext(sub=sub, roles=roles, location_id=loc_id)
     except HTTPException:
         raise
     except (JWTError, Exception):
@@ -94,16 +96,24 @@ async def _get_db_session():
 
 
 async def get_location_context(
-    x_location_id: UUID = Header(...),
+    x_location_id: Optional[UUID] = Header(None),
     session: AsyncSession = Depends(_get_db_session),
+    user: UserContext = Depends(get_current_user),
 ) -> LocationModel:
     """
-    FastAPI Dependency (für Ziel 3b): liest X-Location-Id-Header,
-    prüft ob Location existiert und aktiv ist.
-    HTTP 403 wenn nicht gefunden oder inaktiv.
+    FastAPI Dependency: liest X-Location-Id-Header, fällt auf JWT-Claim zurück.
+    HTTP 403 wenn weder Header noch Claim vorhanden, oder Location nicht aktiv.
     """
+    loc_uuid: Optional[UUID] = x_location_id
+    if loc_uuid is None and user.location_id:
+        try:
+            loc_uuid = UUID(user.location_id)
+        except ValueError:
+            pass
+    if loc_uuid is None:
+        raise HTTPException(status_code=403, detail="Keine Einrichtung im Token oder Header")
     result = await session.execute(
-        select(LocationModel).where(LocationModel.id == x_location_id)
+        select(LocationModel).where(LocationModel.id == loc_uuid)
     )
     loc = result.scalar_one_or_none()
     if not loc or not loc.is_active:

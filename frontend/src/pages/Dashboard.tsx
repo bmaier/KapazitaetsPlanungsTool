@@ -44,6 +44,8 @@ interface LocationSummary {
   is_active: boolean
   lat?: number | null
   lon?: number | null
+  valid_from?: string | null
+  valid_until?: string | null
 }
 
 interface Reservation {
@@ -233,6 +235,22 @@ export default function Dashboard() {
                           {loc.name}
                           {isOwn && <Typography component="span" variant="caption" sx={{ ml: 1, color: '#003366' }}>(Meine)</Typography>}
                         </Typography>
+                        {(() => {
+                          if (!loc.valid_until) return null
+                          const days = Math.ceil(
+                            (new Date(loc.valid_until).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+                          )
+                          if (days > 0 && days <= 30) {
+                            return (
+                              <Chip
+                                label={`Endet in ${days} Tag${days === 1 ? '' : 'en'}`}
+                                size="small"
+                                sx={{ bgcolor: '#fff3e0', color: '#e65100', fontWeight: 600 }}
+                              />
+                            )
+                          }
+                          return null
+                        })()}
                       </Box>
                       <Box display="flex" gap={2} mt={1}>
                         <Box>

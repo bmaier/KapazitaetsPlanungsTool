@@ -7,6 +7,7 @@ from src.jobs.jobs import (
     job_12wochen_warnung,
     job_belegungsbericht,
     job_cleanup,
+    job_notbett_warnung,
     job_ueberkapazitaet,
 )
 
@@ -14,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 JOB_REGISTRY = [
     {"func": job_12wochen_warnung, "trigger": "cron", "hour": 6, "minute": 0},
+    {"func": job_notbett_warnung, "trigger": "cron", "hour": 6, "minute": 5},
     {"func": job_ueberkapazitaet, "trigger": "cron", "hour": 6, "minute": 10},
     {"func": job_belegungsbericht, "trigger": "cron", "day_of_week": "mon", "hour": 7},
     {"func": job_cleanup, "trigger": "cron", "hour": 3},

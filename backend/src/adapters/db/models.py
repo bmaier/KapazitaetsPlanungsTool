@@ -116,6 +116,7 @@ class OccupantModel(Base):
         PG_UUID(as_uuid=True), nullable=True
     )
     labels: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    extended_once: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )

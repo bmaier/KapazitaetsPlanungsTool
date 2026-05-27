@@ -148,3 +148,55 @@ async def job_cleanup() -> None:
         except Exception:
             await session.rollback()
             raise
+
+
+async def job_notbett_warnung() -> None:
+    """Täglich: Postkorb-Task für jede Einrichtung mit belegten Notbetten."""
+    async with AsyncSessionFactory() as session:
+        try:
+            result = await session.execute(text("""
+                SELECT r.location_id,
+                       COUNT(o.id) AS cnt,
+                       STRING_AGG(o.azr_id, ', ' ORDER BY o.belegung_ende) AS azr_ids,
+                       MIN(o.belegung_ende) AS naechste_ende
+                FROM persons.occupants o
+                JOIN capacity.beds b ON b.id = o.bed_id AND b.bett_typ = 'NOTBETT'
+                JOIN capacity.rooms r ON r.id = b.room_id
+                JOIN capacity.locations l ON l.id = r.location_id
+                WHERE o.belegung_start <= CURRENT_DATE
+                  AND o.belegung_ende >= CURRENT_DATE
+                  AND l.is_active = true
+                GROUP BY r.location_id
+            """))
+            rows = result.fetchall()
+
+            for row in rows:
+                existing = await session.execute(text("""
+                    SELECT 1 FROM tasks.inbox
+                    WHERE location_id = :lid
+                      AND task_type = 'NOTBETT_WARNUNG'
+                      AND status = 'OPEN'
+                      AND created_at::date = CURRENT_DATE
+                """), {"lid": str(row.location_id)})
+                if existing.fetchone():
+                    continue
+                await session.execute(text("""
+                    INSERT INTO tasks.inbox
+                        (location_id, task_type, priority, title, body, status)
+                    VALUES (:lid, 'NOTBETT_WARNUNG', 'HIGH',
+                            'Notbett belegt – Verlegung erforderlich',
+                            :body, 'OPEN')
+                """), {
+                    "lid": str(row.location_id),
+                    "body": (
+                        f"{row.cnt} Notbett{'en' if row.cnt > 1 else ''} belegt. "
+                        f"Betroffene AZR-IDs: {row.azr_ids}. "
+                        f"Früheste Ablauf: {row.naechste_ende}. "
+                        "Notbetten sind auf max. 1 Tag begrenzt – bitte umgehend verlegen oder um 1 Nacht verlängern."
+                    ),
+                })
+
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise

@@ -2,9 +2,9 @@
 Domain Entities für das Kapazitätsmanagement.
 Reine Python-Dataclasses — keine ORM-Abhängigkeit, kein FastAPI-Import.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
-from typing import Optional
+from typing import List, Optional
 from uuid import UUID
 
 from src.domain.capacity.value_objects import BedType, GenderDesignation
@@ -27,6 +27,9 @@ class Room:
     name: str
     geschlechts_designation: GenderDesignation
     is_active: bool
+    labels: List[str] = field(default_factory=list)
+    valid_from: Optional[date] = None
+    valid_until: Optional[date] = None
 
 
 @dataclass
@@ -36,6 +39,9 @@ class Bed:
     bett_nummer: str
     bett_typ: BedType
     is_active: bool
+    deaktiviert_ab: Optional[date] = None
+    labels: List[str] = field(default_factory=list)
+    valid_from: Optional[date] = None
 
 
 @dataclass

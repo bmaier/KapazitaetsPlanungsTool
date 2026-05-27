@@ -7,47 +7,66 @@
 #   make down     Stoppt alle Services und entfernt Volumes
 #   make logs     Streamt Logs aller Services
 #   make migrate  Führt ausstehende Alembic-Migrationen aus
+#   make seed     Demo-Daten einspielen (nach make down + make dev nötig)
 
 .PHONY: dev test down logs migrate seed frontend-install frontend-dev
 
-# Maximale Wartezeit auf Healthchecks in Sekunden
+# Auto-detect container runtime: prefer podman if available, fall back to docker.
+# Override with: make dev RUNTIME=docker  or  make dev RUNTIME=podman
+ifneq ($(shell command -v podman 2>/dev/null),)
+RUNTIME ?= podman
+else
+RUNTIME ?= docker
+endif
+COMPOSE        ?= $(RUNTIME) compose
+PROJECT         = kapzitaetsplanungstool
 HEALTH_TIMEOUT ?= 120
 
 # ---------------------------------------------------------------------------
 # dev: Startet/aktualisiert alle Services und wartet auf Healthchecks
 # ---------------------------------------------------------------------------
 dev:
-	@echo ">>> Starte BorderCapControl Docker-Compose-Umgebung..."
-	docker compose up -d --build
-	@echo ">>> Warte auf alle Healthchecks (max. $(HEALTH_TIMEOUT)s)..."
-	@elapsed=0; \
-	result=1; \
+	@echo ">>> Bereinige Python-Bytecode-Cache (verhindert stale .pyc nach Rebuilds)..."
+	@find backend/src -type d -name '__pycache__' -prune -exec rm -rf {} + 2>/dev/null; true
+	@echo ">>> Starte BorderCapControl Compose-Stack..."
+	$(COMPOSE) up -d --build
+	@echo ">>> Warte auf Healthchecks (max. $(HEALTH_TIMEOUT)s)..."
+	@elapsed=0; result=1; \
 	while [ $$elapsed -lt $(HEALTH_TIMEOUT) ]; do \
-		unhealthy=$$(docker compose ps 2>/dev/null | grep -c "unhealthy" 2>/dev/null || echo 0); \
+		statuses=$$($(RUNTIME) ps \
+			--filter "label=com.docker.compose.project=$(PROJECT)" \
+			--format "{{.Status}}" 2>/dev/null); \
+		if [ -z "$$statuses" ]; then \
+			echo "  Warte auf Container-Start... ($${elapsed}s)"; \
+			sleep 5; elapsed=$$((elapsed + 5)); continue; \
+		fi; \
+		unhealthy=$$(echo "$$statuses" | grep -c "unhealthy" 2>/dev/null || echo 0); \
 		if [ "$$unhealthy" -gt 0 ]; then \
 			echo ""; \
 			echo "!!! FEHLER: $$unhealthy Service(s) im Status 'unhealthy'. Logs:"; \
-			docker compose ps; \
+			$(COMPOSE) ps; \
 			exit 1; \
 		fi; \
-		still_starting=$$(docker compose ps 2>/dev/null | grep -cE "(health: starting|starting)" 2>/dev/null || echo 0); \
-		if [ "$$still_starting" = "0" ]; then \
-			echo ">>> Alle Services sind bereit!"; \
+		total=$$(echo "$$statuses" | wc -l | tr -d ' '); \
+		healthy=$$(echo "$$statuses" | grep -c "(healthy)" 2>/dev/null || echo 0); \
+		if [ "$$healthy" -ge "$$total" ] && [ "$$total" -gt 0 ]; then \
+			echo ">>> Alle $$total Services sind bereit!"; \
 			result=0; \
 			break; \
 		fi; \
-		echo "  Warte... ($${elapsed}s / $(HEALTH_TIMEOUT)s) — $$still_starting Service(s) initialisieren noch"; \
+		starting=$$(echo "$$statuses" | grep -c "health: starting" 2>/dev/null || echo 0); \
+		echo "  Warte... ($${elapsed}s / $(HEALTH_TIMEOUT)s) — $$starting/$$total Service(s) starten noch ($$healthy healthy)"; \
 		sleep 5; \
 		elapsed=$$((elapsed + 5)); \
 	done; \
 	if [ $$result -ne 0 ]; then \
 		echo "!!! TIMEOUT: Services nach $(HEALTH_TIMEOUT)s noch nicht bereit."; \
-		docker compose ps; \
+		$(COMPOSE) ps; \
 		exit 1; \
 	fi
 	@echo ""
 	@echo ">>> Service-Status:"
-	@docker compose ps
+	@$(COMPOSE) ps
 	@echo ""
 	@echo ">>> Endpoints:"
 	@echo "  Backend API:    http://localhost:8000/docs"
@@ -55,6 +74,8 @@ dev:
 	@echo "  Keycloak Admin: http://localhost:8080/admin (admin / admin_dev)"
 	@echo "  PostgreSQL:     localhost:5432 (bordercap / bordercap_dev)"
 	@echo "  Tileserver:     http://localhost:8082/"
+	@echo ""
+	@echo "  Hinweis: Nach 'make down' Demo-Daten mit 'make seed' neu einspielen."
 
 # ---------------------------------------------------------------------------
 # test: Führt Behave-Tests gegen die laufende Umgebung aus
@@ -72,21 +93,21 @@ test:
 # ---------------------------------------------------------------------------
 down:
 	@echo ">>> Stoppe BorderCapControl Services..."
-	docker compose down -v
-	@echo ">>> Fertig. Volumes entfernt."
+	$(COMPOSE) down -v
+	@echo ">>> Fertig. Volumes entfernt. Demo-Daten mit 'make seed' neu einspielen."
 
 # ---------------------------------------------------------------------------
 # logs: Streamt Logs aller Services (Ctrl+C zum Beenden)
 # ---------------------------------------------------------------------------
 logs:
-	docker compose logs -f
+	$(COMPOSE) logs -f
 
 # ---------------------------------------------------------------------------
 # migrate: Führt ausstehende Alembic-Migrationen im Backend-Container aus
 # ---------------------------------------------------------------------------
 migrate:
 	@echo ">>> Führe Alembic-Migrationen aus..."
-	docker compose exec backend alembic upgrade head
+	$(COMPOSE) exec backend alembic upgrade head
 	@echo ">>> Migrationen abgeschlossen."
 
 seed: ## Seed Demo-Daten in die DB einfügen (idempotent)

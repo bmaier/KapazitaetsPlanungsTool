@@ -78,6 +78,9 @@ def _to_room(m: RoomModel) -> Room:
         name=m.name,
         geschlechts_designation=GenderDesignation(m.geschlechts_designation),
         is_active=m.is_active,
+        labels=list(m.labels or []),
+        valid_from=m.valid_from,
+        valid_until=m.valid_until,
     )
 
 
@@ -88,6 +91,9 @@ def _to_bed(m: BedModel) -> Bed:
         bett_nummer=m.bett_nummer,
         bett_typ=BedType(m.bett_typ),
         is_active=m.is_active,
+        deaktiviert_ab=m.deaktiviert_ab,
+        labels=list(m.labels or []),
+        valid_from=m.valid_from,
     )
 
 

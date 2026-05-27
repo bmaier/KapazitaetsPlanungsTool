@@ -22,7 +22,7 @@ def check_notbett_duration(bett_typ: BedType, start: date, ende: date) -> None:
     Notbett erlaubt maximal start + 1 Tag == ende.
     """
     if bett_typ == BedType.NOTBETT and (ende - start).days > 1:
-        raise DomainError("Notbett: max. 1 Nacht erlaubt")
+        raise DomainError("Notbetten können maximal 1 Tag belegt werden")
 
 
 def check_12_weeks(start: date, ende: date) -> bool:
@@ -41,7 +41,10 @@ def check_eu_quota(
     """
     Raises DomainError wenn die Summe aller Location-Kontingente die
     EU-Gesamtquote überschreiten würde.
+    eu_gesamtquote == 0 bedeutet "nicht konfiguriert" → keine Prüfung.
     """
+    if eu_gesamtquote == 0:
+        return
     if current_kontingent_sum + new_kontingent > eu_gesamtquote:
         raise DomainError(
             f"EU-Gesamtquote würde überschritten "

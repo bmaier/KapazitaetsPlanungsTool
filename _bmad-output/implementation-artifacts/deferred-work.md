@@ -5,6 +5,14 @@ Diese Ziele werden nach Abschluss von Ziel 1 sequenziell angegangen.
 
 ---
 
+## Review-Findings (Ziel 9a) — Zurückgestellt
+
+Gefunden beim Review von `spec-ziel9a-bugfixes.md`. Nicht kritisch für Demo-Betrieb.
+
+- **Inkonsistente HTTP-Statuscodes für fehlende Location:** `get_location_context` (genutzt von suggestions, tasks, notifications) gibt jetzt HTTP 403 zurück wenn weder Header noch JWT-Claim vorhanden ist. Die `_resolve_location`-Funktion in `reservations/router.py` gibt bei fehlendem Header HTTP 422 zurück. Beide Codes haben semantische Berechtigung (403 = Authorization, 422 = Validation), führen aber zu inkonsistenter Client-seitiger Fehlerbehandlung. Fix: `_resolve_location` auf 403 angleichen oder zentrale `_get_location_id`-Utility einführen.
+
+---
+
 ## Review-Findings (Ziel 1) — Zurückgestellt
 
 Gefunden beim Review von `spec-demo-infrastruktur.md`. Nicht kritisch für Demo-Betrieb.

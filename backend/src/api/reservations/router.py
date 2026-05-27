@@ -9,7 +9,7 @@ from typing import List, Literal, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.db.engine import AsyncSessionFactory
@@ -74,6 +74,16 @@ async def create_reservation(
         raise HTTPException(status_code=422, detail="system-admin benötigt X-Location-Id zum Erstellen einer Anfrage")
     if body.target_location_id == location.id:
         raise HTTPException(status_code=422, detail="Requester und Target dürfen nicht gleich sein")
+    target_loc_row = await session.execute(
+        text("SELECT valid_from, valid_until FROM capacity.locations WHERE id = :id"),
+        {"id": str(body.target_location_id)},
+    )
+    target_row = target_loc_row.fetchone()
+    if target_row:
+        if target_row.valid_from and body.belegung_start < target_row.valid_from:
+            raise HTTPException(status_code=409, detail=f"Einrichtung ist erst ab {target_row.valid_from} aktiv")
+        if target_row.valid_until and body.belegung_start >= target_row.valid_until:
+            raise HTTPException(status_code=409, detail=f"Einrichtung ist ab {target_row.valid_until} inaktiv")
     repo = SqlReservationRepo(session)
     req = await repo.create(body, requester_location_id=location.id)
     return ReservationResponse.model_validate(req)

@@ -39,7 +39,7 @@ import AddCircleIcon from '@mui/icons-material/AddCircle'
 import AddIcon from '@mui/icons-material/Add'
 import MeetingRoomIcon from '@mui/icons-material/MeetingRoom'
 import BlockIcon from '@mui/icons-material/Block'
-import { useApiClient } from '../api/client'
+import { extractApiError, useApiClient } from '../api/client'
 import { useKeycloak } from '../auth/KeycloakProvider'
 import { useSseNotifications } from '../hooks/useSseNotifications'
 import LabelChips, { LabelList } from '../components/LabelChips'
@@ -83,6 +83,7 @@ interface BedStatus {
   bed_labels?: string[]
   occ_labels?: string[]
   is_notbett?: boolean
+  extended_once?: boolean
   deaktiviert_ab?: string | null
   bed_valid_from?: string | null
 }
@@ -530,8 +531,9 @@ export default function Drilldown() {
       await loadMgmtRooms()
       loadBedStatus()
       setSnackbar({ open: true, message: `Raum "${roomName}" deaktiviert.`, severity: 'success' })
-    } catch {
-      setSnackbar({ open: true, message: 'Raum deaktivieren fehlgeschlagen.', severity: 'error' })
+    } catch (err: unknown) {
+      const msg = extractApiError(err)
+      setSnackbar({ open: true, message: msg, severity: 'error' })
     }
   }
 
@@ -560,6 +562,16 @@ export default function Drilldown() {
       setSnackbar({ open: true, message: `Bett ${bedNr} deaktiviert.`, severity: 'success' })
     } catch {
       setSnackbar({ open: true, message: 'Bett deaktivieren fehlgeschlagen.', severity: 'error' })
+    }
+  }
+
+  async function handleExtendNotbett(occupancyId: string) {
+    try {
+      await post(`/api/occupants/${occupancyId}/extend`, {})
+      loadBedStatus()
+      setSnackbar({ open: true, message: 'Notbett um 1 Tag verlängert.', severity: 'success' })
+    } catch (err: unknown) {
+      setSnackbar({ open: true, message: extractApiError(err), severity: 'error' })
     }
   }
 
@@ -843,32 +855,41 @@ export default function Drilldown() {
                           {room.beds.map((bed) => {
                             const isBelegt = bed.status === 'BELEGT'
                             return (
-                              <Tooltip key={bed.bed_id}
-                                title={isBelegt
-                                  ? `${bed.azr_id ?? '–'} · ${bed.belegung_start} – ${bed.belegung_ende} · Max. 1 Tag!`
-                                  : 'Notbett frei · Max. 1 Tag Belegung'}
-                                arrow>
-                                <Box onClick={() => canEdit && handleBedClick(bed, room)}
-                                  sx={{
-                                    width: 58, height: 58, borderRadius: 1.5,
-                                    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                                    bgcolor: isBelegt ? '#fff3e0' : '#f1f8e9',
-                                    border: `2px solid ${isBelegt ? '#ff9800' : '#8bc34a'}`,
-                                    cursor: canEdit ? 'pointer' : 'default',
-                                    '&:hover': canEdit ? { transform: 'scale(1.1)', boxShadow: 3 } : {},
-                                  }}>
-                                  <BedIcon sx={{ fontSize: 16, color: isBelegt ? '#e65100' : '#558b2f', mb: 0.2 }} />
-                                  <Typography variant="caption" fontWeight={700}
-                                    sx={{ color: isBelegt ? '#e65100' : '#558b2f', lineHeight: 1, fontSize: 10 }}>
-                                    N{bed.bett_nummer}
-                                  </Typography>
-                                  {isBelegt && bed.azr_id && (
-                                    <Typography sx={{ fontSize: 7, color: '#e65100', lineHeight: 1, maxWidth: 52, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', px: 0.3 }}>
-                                      {bed.azr_id.slice(-6)}
+                              <Box key={bed.bed_id} display="flex" flexDirection="column" alignItems="center" gap={0.5}>
+                                <Tooltip
+                                  title={isBelegt
+                                    ? `${bed.azr_id ?? '–'} · ${bed.belegung_start} – ${bed.belegung_ende} · Max. 1 Tag!`
+                                    : 'Notbett frei · Max. 1 Tag Belegung'}
+                                  arrow>
+                                  <Box onClick={() => canEdit && handleBedClick(bed, room)}
+                                    sx={{
+                                      width: 58, height: 58, borderRadius: 1.5,
+                                      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                                      bgcolor: isBelegt ? '#fff3e0' : '#f1f8e9',
+                                      border: `2px solid ${isBelegt ? '#ff9800' : '#8bc34a'}`,
+                                      cursor: canEdit ? 'pointer' : 'default',
+                                      '&:hover': canEdit ? { transform: 'scale(1.1)', boxShadow: 3 } : {},
+                                    }}>
+                                    <BedIcon sx={{ fontSize: 16, color: isBelegt ? '#e65100' : '#558b2f', mb: 0.2 }} />
+                                    <Typography variant="caption" fontWeight={700}
+                                      sx={{ color: isBelegt ? '#e65100' : '#558b2f', lineHeight: 1, fontSize: 10 }}>
+                                      N{bed.bett_nummer}
                                     </Typography>
-                                  )}
-                                </Box>
-                              </Tooltip>
+                                    {isBelegt && bed.azr_id && (
+                                      <Typography sx={{ fontSize: 7, color: '#e65100', lineHeight: 1, maxWidth: 52, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', px: 0.3 }}>
+                                        {bed.azr_id.slice(-6)}
+                                      </Typography>
+                                    )}
+                                  </Box>
+                                </Tooltip>
+                                {canEdit && isBelegt && !bed.extended_once && bed.occupancy_id && (
+                                  <Button size="small" variant="outlined" color="warning"
+                                    sx={{ fontSize: 9, px: 0.5, py: 0.2, minWidth: 0 }}
+                                    onClick={() => handleExtendNotbett(bed.occupancy_id!)}>
+                                    +1 Tag
+                                  </Button>
+                                )}
+                              </Box>
                             )
                           })}
                         </Box>
@@ -1015,19 +1036,7 @@ export default function Drilldown() {
                     labels={manageBed.bed.occ_labels ?? []}
                     entityType="OCCUPANCY"
                     entityId={manageBed.bed.occupancy_id}
-                    onSaved={(newLabels) => {
-                      const bedId = manageBed?.bed.bed_id
-                      setManageBed((prev) => prev ? {
-                        ...prev,
-                        bed: { ...prev.bed, occ_labels: newLabels }
-                      } : prev)
-                      if (bedId) {
-                        setRooms((prev) => prev.map((room) => ({
-                          ...room,
-                          beds: room.beds.map((b) => b.bed_id === bedId ? { ...b, occ_labels: newLabels } : b),
-                        })))
-                      }
-                    }}
+                    onSaved={() => { loadBedStatus() }}
                   />
                 </Box>
               )}

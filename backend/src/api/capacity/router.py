@@ -7,7 +7,7 @@ Schichtentrennung:
 - Domain-Rules: reine Logik ohne I/O
 """
 from collections import defaultdict
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import List, Optional
 from uuid import UUID, uuid4
 
@@ -57,14 +57,6 @@ from src.domain.capacity.value_objects import BedType
 router = APIRouter(tags=["capacity"])
 
 
-def _to_pg_array(lst: list[str]) -> str:
-    """Converts a Python list to a PostgreSQL TEXT[] literal string.
-    Using a string literal avoids asyncpg type-encoding issues with raw text() queries.
-    """
-    if not lst:
-        return '{}'
-    escaped = ('"' + s.replace('\\', '\\\\').replace('"', '\\"') + '"' for s in lst)
-    return '{' + ','.join(escaped) + '}'
 
 
 # ---------------------------------------------------------------------------
@@ -253,6 +245,8 @@ async def get_locations_summary() -> List[LocationSummaryResponse]:
                     l.is_active,
                     l.lat,
                     l.lon,
+                    l.valid_from,
+                    l.valid_until,
                     COUNT(o.id) FILTER (
                         WHERE o.belegung_ende >= CURRENT_DATE
                     ) AS belegt,
@@ -271,7 +265,7 @@ async def get_locations_summary() -> List[LocationSummaryResponse]:
                 LEFT JOIN capacity.beds b ON b.room_id = r.id AND b.is_active = true
                 LEFT JOIN persons.occupants o ON o.bed_id = b.id
                 WHERE l.is_active = true
-                GROUP BY l.id, l.name, l.kontingent, l.notbett_kapazitaet, l.is_active, l.lat, l.lon
+                GROUP BY l.id, l.name, l.kontingent, l.notbett_kapazitaet, l.is_active, l.lat, l.lon, l.valid_from, l.valid_until
                 ORDER BY l.name
             """)
         )
@@ -287,6 +281,8 @@ async def get_locations_summary() -> List[LocationSummaryResponse]:
             is_active=row["is_active"],
             lat=row["lat"],
             lon=row["lon"],
+            valid_from=row["valid_from"],
+            valid_until=row["valid_until"],
         )
         for row in rows
     ]
@@ -343,7 +339,7 @@ async def update_location(
     if body.notbett_kapazitaet is not None:
         updates["notbett_kapazitaet"] = body.notbett_kapazitaet
     if body.labels is not None:
-        updates["labels"] = _to_pg_array(body.labels)
+        updates["labels"] = body.labels
     if body.lat is not None:
         updates["lat"] = body.lat
     if body.lon is not None:
@@ -382,8 +378,6 @@ async def update_location(
     set_parts = []
     for k in (k for k in updates if k != "id"):
         if k == "labels":
-            # labels is already a PostgreSQL array literal string from _to_pg_array
-            # CAST() avoids asyncpg treating :: as a second named-parameter prefix
             set_parts.append("labels = CAST(:labels AS TEXT[])")
         else:
             set_parts.append(f"{k} = :{k}")
@@ -449,6 +443,7 @@ async def get_bed_status(
               o.belegung_start,
               o.belegung_ende,
               o.labels    AS occ_labels,
+              o.extended_once,
               (
                 SELECT COUNT(*) FROM reservations.requests req
                 WHERE req.target_location_id = r.location_id
@@ -501,6 +496,7 @@ async def get_bed_status(
             deaktiviert_ab=row.get("deaktiviert_ab"),
             bed_valid_from=row.get("bed_valid_from"),
             is_notbett=(row["bett_typ"] == "NOTBETT"),
+            extended_once=bool(row.get("extended_once") or False),
         ))
     return [RoomBedStatus(**rooms_map[rid]) for rid in rooms_order]
 
@@ -535,7 +531,7 @@ async def search_occupants(
     if label_list:
         # All requested labels must appear in o.labels (AND logic)
         # Use PostgreSQL array literal to avoid asyncpg type-encoding issues
-        params["label_filter"] = _to_pg_array(label_list)
+        params["label_filter"] = label_list
         where_clauses.append("o.labels @> CAST(:label_filter AS TEXT[])")
 
     where_sql = " AND ".join(where_clauses)
@@ -582,7 +578,7 @@ async def set_location_labels(
     """Setzt die Labels einer Einrichtung (vollständiges Ersetzen)."""
     result = await session.execute(
         text("UPDATE capacity.locations SET labels = CAST(:labels AS TEXT[]), updated_at = NOW() WHERE id = :id RETURNING id"),
-        {"labels": _to_pg_array(body.labels), "id": str(location_id)},
+        {"labels": body.labels, "id": str(location_id)},
     )
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Einrichtung nicht gefunden")
@@ -713,6 +709,22 @@ async def deactivate_room(
     room = await repo.get_by_id(room_id)
     if not room:
         raise HTTPException(status_code=404, detail="Raum nicht gefunden")
+    result = await session.execute(
+        text("""
+            SELECT COUNT(*) AS cnt
+            FROM persons.occupants o
+            JOIN capacity.beds b ON b.id = o.bed_id
+            WHERE b.room_id = :room_id
+              AND o.belegung_ende >= CURRENT_DATE
+        """),
+        {"room_id": str(room_id)},
+    )
+    row = result.fetchone()
+    if row and row.cnt > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Raum hat noch {row.cnt} aktive Belegung(en). Erst umbuchen, dann deaktivieren.",
+        )
     await repo.deactivate(room_id)
     return {"deactivated": True}
 
@@ -961,6 +973,22 @@ async def create_occupancy(
     if not bed or not bed.is_active:
         raise HTTPException(status_code=404, detail="Bett nicht gefunden")
 
+    loc_validity = await session.execute(
+        text("""
+            SELECT l.valid_from, l.valid_until
+            FROM capacity.rooms r
+            JOIN capacity.locations l ON l.id = r.location_id
+            WHERE r.id = :room_id
+        """),
+        {"room_id": str(bed.room_id)},
+    )
+    loc_row = loc_validity.fetchone()
+    if loc_row:
+        if loc_row.valid_from and body.belegung_start < loc_row.valid_from:
+            raise HTTPException(status_code=409, detail=f"Einrichtung ist erst ab {loc_row.valid_from} aktiv")
+        if loc_row.valid_until and body.belegung_start >= loc_row.valid_until:
+            raise HTTPException(status_code=409, detail=f"Einrichtung ist ab {loc_row.valid_until} inaktiv")
+
     existing = await occ_repo.get_active_for_bed(bed_id)
 
     try:
@@ -996,6 +1024,41 @@ async def create_occupancy(
         belegung_start=created.belegung_start,
         belegung_ende=created.belegung_ende,
     )
+
+
+@router.post("/occupants/{occupancy_id}/extend", status_code=200)
+async def extend_notbett_occupancy(
+    occupancy_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    _: UserContext = Depends(get_current_user),
+):
+    """Verlängert eine Notbett-Belegung einmalig um 1 Tag."""
+    result = await session.execute(
+        text("""
+            SELECT o.id, o.belegung_ende, o.extended_once, b.bett_typ
+            FROM persons.occupants o
+            JOIN capacity.beds b ON b.id = o.bed_id
+            WHERE o.id = :occ_id
+        """),
+        {"occ_id": str(occupancy_id)},
+    )
+    row = result.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Belegung nicht gefunden")
+    if row.bett_typ != "NOTBETT":
+        raise HTTPException(status_code=422, detail="Nur Notbetten können verlängert werden")
+    if row.extended_once:
+        raise HTTPException(status_code=409, detail="Notbett-Verlängerung wurde bereits einmal gewährt")
+    new_ende = row.belegung_ende + timedelta(days=1)
+    await session.execute(
+        text("""
+            UPDATE persons.occupants
+            SET belegung_ende = :new_ende, extended_once = TRUE
+            WHERE id = :occ_id
+        """),
+        {"new_ende": new_ende, "occ_id": str(occupancy_id)},
+    )
+    return {"belegung_ende": str(new_ende), "extended_once": True}
 
 
 @router.delete("/beds/{bed_id}/occupancy/{occupancy_id}", status_code=200)
@@ -1083,7 +1146,7 @@ async def set_room_labels(
     """Setzt die Labels eines Raums (vollständiges Ersetzen)."""
     result = await session.execute(
         text("UPDATE capacity.rooms SET labels = CAST(:labels AS TEXT[]) WHERE id = :id RETURNING id"),
-        {"labels": _to_pg_array(body.labels), "id": room_id},
+        {"labels": body.labels, "id": str(room_id)},
     )
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Raum nicht gefunden")
@@ -1099,7 +1162,7 @@ async def set_bed_labels(
     """Setzt die Labels eines Betts (vollständiges Ersetzen)."""
     result = await session.execute(
         text("UPDATE capacity.beds SET labels = CAST(:labels AS TEXT[]) WHERE id = :id RETURNING id"),
-        {"labels": _to_pg_array(body.labels), "id": bed_id},
+        {"labels": body.labels, "id": str(bed_id)},
     )
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Bett nicht gefunden")
@@ -1115,7 +1178,7 @@ async def set_occupancy_labels(
     """Setzt die Labels einer Belegung (vollständiges Ersetzen)."""
     result = await session.execute(
         text("UPDATE persons.occupants SET labels = CAST(:labels AS TEXT[]) WHERE id = :id RETURNING id"),
-        {"labels": _to_pg_array(body.labels), "id": occupancy_id},
+        {"labels": body.labels, "id": str(occupancy_id)},
     )
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Belegung nicht gefunden")

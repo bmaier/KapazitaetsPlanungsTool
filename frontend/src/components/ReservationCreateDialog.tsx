@@ -12,7 +12,7 @@ import {
   Select,
   TextField,
 } from '@mui/material'
-import { useApiClient } from '../api/client'
+import { extractApiError, useApiClient } from '../api/client'
 import { useKeycloak } from '../auth/KeycloakProvider'
 
 interface Location {
@@ -99,21 +99,7 @@ export default function ReservationCreateDialog({ open, onClose, onCreated, loca
       onCreated()
       onClose()
     } catch (err: unknown) {
-      const body = (err as { detail?: unknown }).detail
-      let msg = 'Unbekannter Fehler'
-      if (typeof body === 'string') {
-        msg = body
-      } else if (body && typeof body === 'object') {
-        const inner = (body as { detail?: unknown }).detail
-        if (typeof inner === 'string') {
-          msg = inner
-        } else if (Array.isArray(inner)) {
-          msg = inner.map((d: { msg: string }) => d.msg).join('; ')
-        } else if (typeof inner === 'undefined' && typeof (body as { message?: string }).message === 'string') {
-          msg = (body as { message: string }).message
-        }
-      }
-      setApiError(msg)
+      setApiError(extractApiError(err))
     } finally {
       setSubmitting(false)
     }

@@ -155,6 +155,7 @@ class LocationUpdateRequest(BaseModel):
 class BedUpdateRequest(BaseModel):
     deaktiviert_ab: Optional[date] = None
     is_active: Optional[bool] = None
+    valid_from: Optional[date] = None
 
 
 class LocationSummaryResponse(BaseModel):
@@ -167,6 +168,8 @@ class LocationSummaryResponse(BaseModel):
     is_active: bool
     lat: Optional[float] = None
     lon: Optional[float] = None
+    valid_from: Optional[date] = None
+    valid_until: Optional[date] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -193,6 +196,7 @@ class BedStatusItem(BaseModel):
     deaktiviert_ab: Optional[date] = None
     bed_valid_from: Optional[date] = None
     is_notbett: bool = False
+    extended_once: bool = False
 
 
 class RoomBedStatus(BaseModel):
