@@ -459,7 +459,7 @@ async def get_bed_status(
               AND o.belegung_ende > :date_from
             WHERE r.location_id = :location_id
               AND r.is_active = true
-            ORDER BY r.name, b.bett_nummer::integer
+            ORDER BY r.name, CASE WHEN b.bett_nummer ~ '^[0-9]+$' THEN b.bett_nummer::integer ELSE NULL END NULLS LAST, b.bett_nummer
         """), {"location_id": str(location_id), "date_from": d_from, "date_to": d_to})
         rows = result.mappings().all()
 
