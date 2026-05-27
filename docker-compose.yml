@@ -1,6 +1,6 @@
 ---
 # BorderCapControl — Docker Compose (Basis-Konfiguration)
-# Alle 5 Services mit Healthchecks und Abhängigkeiten.
+# Alle 6 Services mit Healthchecks und Abhängigkeiten.
 # Port-Bindings und Dev-Overrides: siehe docker-compose.override.yml
 
 version: "3.9"
@@ -66,9 +66,7 @@ services:
   # FastAPI Backend — Hexagonale Architektur
   # ---------------------------------------------------------------------------
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    image: bosenet/bordercapcontrol-backend:01
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://bordercap:bordercap_dev@postgres:5432/bordercap}
       KEYCLOAK_URL: ${KEYCLOAK_URL:-http://keycloak:8080}
@@ -93,9 +91,7 @@ services:
   # SKOS Codelisten Service
   # ---------------------------------------------------------------------------
   skos_service:
-    build:
-      context: ./skos_service
-      dockerfile: Dockerfile
+    image: bosenet/bordercapcontrol-skos:01
     networks:
       - bordercap_net
     healthcheck:
@@ -119,4 +115,22 @@ services:
       timeout: 10s
       retries: 6
       start_period: 30s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # React Frontend — Nginx-gehostet
+  # ---------------------------------------------------------------------------
+  frontend:
+    image: bosenet/bordercapcontrol-frontend:01
+    networks:
+      - bordercap_net
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/index.html || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
     restart: unless-stopped

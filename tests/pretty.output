@@ -1,0 +1,67 @@
+Feature: Ziel-9-Schutzregeln (HF-17, HF-18, HF-19, HF-22) # features/ziel9_guards.feature:1
+  Als Sachbearbeiter
+  möchte ich, dass das System dateninkonsistente Aktionen verhindert
+  damit Belegungs- und Kapazitätsdaten jederzeit korrekt sind.
+  Background:   # features/ziel9_guards.feature:6
+
+  Scenario: Raum mit aktiver Belegung kann nicht deaktiviert werden  # features/ziel9_guards.feature:13
+    Given die API läuft auf http://localhost:8000                    # steps/capacity_steps.py:76
+    Given ein belegtes Bett in einem Raum existiert                  # steps/ziel9_steps.py:120
+    When ich DELETE /api/rooms/{room_id} sende                       # steps/ziel9_steps.py:186
+    Then ist der HTTP-Status 409                                     # steps/capacity_steps.py:304
+    And die Fehlermeldung enthält "aktive Belegung"                  # steps/capacity_steps.py:341
+
+  Scenario: Leerer Raum kann deaktiviert werden   # features/ziel9_guards.feature:19
+    Given die API läuft auf http://localhost:8000 # steps/capacity_steps.py:76
+    Given ein Raum existiert                      # steps/capacity_steps.py:137
+    When ich DELETE /api/rooms/{room_id} sende    # steps/ziel9_steps.py:186
+    Then ist der HTTP-Status 200                  # steps/capacity_steps.py:304
+
+  Scenario: Kontingent kann nicht unter aktuelle Belegungszahl gesenkt werden  # features/ziel9_guards.feature:28
+    Given die API läuft auf http://localhost:8000                              # steps/capacity_steps.py:76
+    Given eine Location mit Kontingent 10 und 3 aktiven Belegungen existiert   # steps/ziel9_steps.py:128
+    When ich PATCH /api/locations/{location_id} mit Kontingent 2 sende         # steps/ziel9_steps.py:192
+    Then ist der HTTP-Status 409                                               # steps/capacity_steps.py:304
+    And die Fehlermeldung enthält "Belegung"                                   # steps/capacity_steps.py:341
+
+  Scenario: Kontingent kann auf die aktuelle Belegungszahl gesetzt werden    # features/ziel9_guards.feature:34
+    Given die API läuft auf http://localhost:8000                            # steps/capacity_steps.py:76
+    Given eine Location mit Kontingent 10 und 3 aktiven Belegungen existiert # steps/ziel9_steps.py:128
+    When ich PATCH /api/locations/{location_id} mit Kontingent 3 sende       # steps/ziel9_steps.py:192
+    Then ist der HTTP-Status 200                                             # steps/capacity_steps.py:304
+
+  Scenario: Belegung auf inaktiver Einrichtung (valid_until überschritten) schlägt fehl  # features/ziel9_guards.feature:43
+    Given die API läuft auf http://localhost:8000                                        # steps/capacity_steps.py:76
+    Given eine Location mit abgelaufenem Gültigkeitszeitraum existiert                   # steps/ziel9_steps.py:148
+    When ich POST /api/beds/{bed_id}/occupancy mit heutigem Belegungsstart sende         # steps/ziel9_steps.py:202
+    Then ist der HTTP-Status 409                                                         # steps/capacity_steps.py:304
+    And die Fehlermeldung enthält "inaktiv"                                              # steps/capacity_steps.py:341
+
+  Scenario: Belegung auf Einrichtung ohne Gültigkeitsbeschränkung funktioniert                            # features/ziel9_guards.feature:49
+    Given die API läuft auf http://localhost:8000                                                         # steps/capacity_steps.py:76
+    Given ein Bett vom Typ KONTINGENT existiert                                                           # steps/capacity_steps.py:152
+    When ich POST /api/beds/{bed_id}/occupancy sende mit AZR-ID "AZR-VALID" und Belegungsende in 10 Tagen # steps/capacity_steps.py:236
+    Then ist der HTTP-Status 201                                                                          # steps/capacity_steps.py:304
+
+  Scenario: Notbett-Belegung kann einmalig um 1 Tag verlängert werden  # features/ziel9_guards.feature:58
+    Given die API läuft auf http://localhost:8000                      # steps/capacity_steps.py:76
+    Given eine laufende Notbett-Belegung existiert                     # steps/ziel9_steps.py:164
+    When ich POST /api/occupants/{occupancy_id}/extend sende           # steps/ziel9_steps.py:217
+    Then ist der HTTP-Status 200                                       # steps/capacity_steps.py:304
+    And die Antwort enthält ein "belegung_ende"-Feld                   # steps/capacity_steps.py:313
+    And die Antwort enthält "extended_once" mit Wert true              # steps/ziel9_steps.py:228
+
+  Scenario: Notbett-Belegung kann nicht zweimal verlängert werden  # features/ziel9_guards.feature:65
+    Given die API läuft auf http://localhost:8000                  # steps/capacity_steps.py:76
+    Given eine bereits verlängerte Notbett-Belegung existiert      # steps/ziel9_steps.py:172
+    When ich POST /api/occupants/{occupancy_id}/extend sende       # steps/ziel9_steps.py:217
+    Then ist der HTTP-Status 409                                   # steps/capacity_steps.py:304
+    And die Fehlermeldung enthält "bereits einmal"                 # steps/capacity_steps.py:341
+
+  Scenario: Kontingent-Belegung kann nicht über extend-Endpoint verlängert werden  # features/ziel9_guards.feature:71
+    Given die API läuft auf http://localhost:8000                                  # steps/capacity_steps.py:76
+    Given ein belegtes Bett existiert                                              # steps/capacity_steps.py:168
+    When ich POST /api/occupants/{occupancy_id}/extend sende                       # steps/ziel9_steps.py:217
+    Then ist der HTTP-Status 422                                                   # steps/capacity_steps.py:304
+    And die Fehlermeldung enthält "Notbett"                                        # steps/capacity_steps.py:341
+

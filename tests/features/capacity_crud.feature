@@ -1,4 +1,3 @@
-# language: de
 Feature: Kapazitäts-CRUD API
   Als Sachbearbeiter
   möchte ich Einrichtungen, Räume, Betten und Belegungen verwalten

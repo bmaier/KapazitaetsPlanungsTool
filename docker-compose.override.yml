@@ -40,6 +40,10 @@ services:
     ports:
       - "8082:8080"
 
+  frontend:
+    ports:
+      - "80:80"
+
   # Backend: Hot-Reload via uvicorn --reload + Source-Code-Volume
   backend:
     ports:

@@ -57,28 +57,9 @@ def step_get_url(context, url):
 # HTTP-Status-Assertions
 # ---------------------------------------------------------------------------
 
-@then("ist der HTTP-Status {expected_status:d}")
-def step_check_http_status(context, expected_status):
-    actual = context.response.status_code
-    assert actual == expected_status, (
-        f"Erwartet HTTP {expected_status}, erhalten {actual}. "
-        f"Body: {context.response.text[:500]}"
-    )
-
-
 # ---------------------------------------------------------------------------
 # JSON-Body-Assertions
 # ---------------------------------------------------------------------------
-
-@then('die Antwort enthält "{field}" mit Wert "{value}"')
-def step_check_json_field_value(context, field, value):
-    assert context.response_json is not None, "Antwort ist kein JSON"
-    actual = context.response_json.get(field)
-    assert actual == value, (
-        f"Feld '{field}': erwartet '{value}', erhalten '{actual}'. "
-        f"Vollständige Antwort: {context.response_json}"
-    )
-
 
 @then('die Antwort enthält das Feld "{field}"')
 def step_check_json_field_exists(context, field):
