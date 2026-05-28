@@ -310,12 +310,12 @@ class SqlReservationRepo(AbstractReservationRepo):
     async def list_pending_for_target(
         self, target_location_id: UUID
     ) -> List[ReservationRequest]:
-        """FCFS: PENDING-Anfragen für eine Zieleinrichtung, sortiert nach created_at ASC."""
+        """Aktionspflichtige Anfragen für die Zieleinrichtung: PENDING (bestätigen) + CONFIRMED (einchecken)."""
         result = await self._session.execute(
             select(ReservationRequestModel)
             .where(
                 ReservationRequestModel.target_location_id == target_location_id,
-                ReservationRequestModel.status == "PENDING",
+                ReservationRequestModel.status.in_(["PENDING", "CONFIRMED"]),
             )
             .order_by(ReservationRequestModel.created_at.asc())
         )

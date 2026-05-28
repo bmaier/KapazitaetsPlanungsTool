@@ -9,6 +9,10 @@ import {
   CardContent,
   Chip,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Divider,
   Paper,
   Snackbar,
@@ -24,6 +28,7 @@ import CancelIcon from '@mui/icons-material/Cancel'
 import FlightIcon from '@mui/icons-material/Flight'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import HotelIcon from '@mui/icons-material/Hotel'
+import BedIcon from '@mui/icons-material/Hotel'
 import { useApiClient } from '../api/client'
 import { useSseNotifications } from '../hooks/useSseNotifications'
 import { useKeycloak } from '../auth/KeycloakProvider'
@@ -50,6 +55,14 @@ interface Reservation {
   belegung_start: string
   belegung_ende: string
   status: string
+  confirmed_bed_id?: string | null
+  confirmed_at?: string | null
+}
+
+interface FreeBed {
+  bed_id: string
+  bett_nummer: string
+  room_name: string
 }
 
 interface Location {
@@ -81,7 +94,8 @@ function TaskCard({
   task,
   reservation,
   locationName,
-  onConfirm,
+  onConfirmOpen,
+  onTransfer,
   onReject,
   onCancel,
   onDismiss,
@@ -90,15 +104,19 @@ function TaskCard({
   task: Task
   reservation?: Reservation
   locationName?: string
-  onConfirm?: (resId: string) => void
+  onConfirmOpen?: (res: Reservation) => void
+  onTransfer?: (resId: string) => void
   onReject?: (resId: string, reason: string) => void
   onCancel?: (resId: string) => void
   onDismiss: (taskId: string) => void
   onJumpToBed?: (azrId: string) => void
 }) {
   const pm = PRIORITY_META[task.priority] ?? { color: '#555', bg: '#f5f5f5', label: task.priority }
-  const isDone = ['DONE', 'DISMISSED', 'CANCELLED', 'REJECTED', 'CONFIRMED'].includes(task.status)
-    || (reservation && !['PENDING'].includes(reservation.status))
+
+  // A task is "done" only when the reservation is in a terminal state or the task itself is dismissed
+  const isDone = ['DONE', 'DISMISSED'].includes(task.status)
+    || (reservation != null && ['CANCELLED', 'REJECTED', 'TRANSFERRED'].includes(reservation.status))
+
   const [rejectReason, setRejectReason] = useState('')
   const [showReject, setShowReject] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -113,24 +131,26 @@ function TaskCard({
 
   const resStatus = reservation?.status
   const resStatusLabel: Record<string, string> = {
-    PENDING: 'Ausstehend', CONFIRMED: 'Bestätigt', REJECTED: 'Abgelehnt',
-    CANCELLED: 'Storniert', TRANSFERRED: 'Verlegt',
+    PENDING: 'Ausstehend', CONFIRMED: 'Bestätigt — Einchecken ausstehend',
+    REJECTED: 'Abgelehnt', CANCELLED: 'Storniert', TRANSFERRED: 'Verlegt',
   }
   const resStatusColor: Record<string, 'warning' | 'success' | 'error' | 'default' | 'info'> = {
     PENDING: 'warning', CONFIRMED: 'success', REJECTED: 'error',
     CANCELLED: 'default', TRANSFERRED: 'info',
   }
 
+  const borderColor = resStatus === 'CONFIRMED' ? '#1565c0' : isDone ? '#bdbdbd' : pm.color
+
   return (
     <Card elevation={isDone ? 0 : 2} sx={{
       borderRadius: 2.5,
-      borderLeft: `5px solid ${isDone ? '#bdbdbd' : pm.color}`,
+      borderLeft: `5px solid ${borderColor}`,
       opacity: isDone ? 0.65 : 1,
       transition: 'all 0.2s',
     }}>
       <CardContent sx={{ pb: '16px !important' }}>
         <Box display="flex" alignItems="flex-start" gap={1.5}>
-          <Box sx={{ mt: 0.3, color: pm.color, flexShrink: 0 }}>
+          <Box sx={{ mt: 0.3, color: borderColor, flexShrink: 0 }}>
             <FlightIcon sx={{ fontSize: 22 }} />
           </Box>
           <Box flex={1}>
@@ -190,28 +210,42 @@ function TaskCard({
                     <Typography variant="caption" color="text.secondary">Zeitraum</Typography>
                     <Typography variant="body2" fontWeight={600}>{reservation.belegung_start} – {reservation.belegung_ende}</Typography>
                   </Box>
+                  {reservation.confirmed_at && (
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">Bestätigt am</Typography>
+                      <Typography variant="body2" fontWeight={600} sx={{ color: '#2e7d32' }}>
+                        {reservation.confirmed_at.slice(0, 10)}
+                      </Typography>
+                    </Box>
+                  )}
                 </Box>
               </Paper>
             )}
 
             {/* Aktionen */}
             <Box display="flex" gap={1} flexWrap="wrap" alignItems="center">
-              {!isDone && reservation?.status === 'PENDING' && onConfirm && onReject && onCancel && (
+
+              {/* PENDING: Bestätigen + Ablehnen + Stornieren */}
+              {!isDone && reservation?.status === 'PENDING' && onConfirmOpen && (
                 <>
                   {!showReject ? (
                     <>
                       <Button size="small" variant="contained" color="success" startIcon={<CheckCircleIcon />}
-                        onClick={() => onConfirm(reservation.id)}>
+                        onClick={() => onConfirmOpen(reservation)}>
                         Aufnahme bestätigen
                       </Button>
-                      <Button size="small" variant="outlined" color="error" startIcon={<CancelIcon />}
-                        onClick={() => setShowReject(true)}>
-                        Ablehnen
-                      </Button>
-                      <Button size="small" variant="text" color="inherit"
-                        onClick={() => onCancel(reservation.id)}>
-                        Stornieren
-                      </Button>
+                      {onReject && (
+                        <Button size="small" variant="outlined" color="error" startIcon={<CancelIcon />}
+                          onClick={() => setShowReject(true)}>
+                          Ablehnen
+                        </Button>
+                      )}
+                      {onCancel && (
+                        <Button size="small" variant="text" color="inherit"
+                          onClick={() => onCancel(reservation.id)}>
+                          Stornieren
+                        </Button>
+                      )}
                     </>
                   ) : (
                     <>
@@ -220,7 +254,7 @@ function TaskCard({
                         sx={{ minWidth: 260 }} placeholder="z.B. keine freien Plätze verfügbar" />
                       <Button size="small" color="error" variant="contained"
                         disabled={!rejectReason.trim()}
-                        onClick={() => onReject(reservation.id, rejectReason)}>
+                        onClick={() => { onReject!(reservation.id, rejectReason); setShowReject(false) }}>
                         Ablehnen
                       </Button>
                       <Button size="small" onClick={() => setShowReject(false)}>Abbrechen</Button>
@@ -229,7 +263,24 @@ function TaskCard({
                 </>
               )}
 
-              {/* Jump-to-bed: shown for any task with an AZR-ID in the body and no linked reservation */}
+              {/* CONFIRMED: Einchecken + Stornieren */}
+              {!isDone && reservation?.status === 'CONFIRMED' && onTransfer && (
+                <>
+                  <Button size="small" variant="contained" startIcon={<CheckCircleIcon />}
+                    sx={{ bgcolor: '#1565c0', '&:hover': { bgcolor: '#0d47a1' } }}
+                    onClick={() => onTransfer(reservation.id)}>
+                    Einchecken
+                  </Button>
+                  {onCancel && (
+                    <Button size="small" variant="text" color="inherit"
+                      onClick={() => onCancel(reservation.id)}>
+                      Stornieren
+                    </Button>
+                  )}
+                </>
+              )}
+
+              {/* Jump-to-bed: for standalone tasks with AZR in body */}
               {!reservation && bodyAzrId && onJumpToBed && (
                 <Button size="small" variant="outlined" startIcon={<HotelIcon />}
                   onClick={() => onJumpToBed(bodyAzrId)}
@@ -238,12 +289,7 @@ function TaskCard({
                 </Button>
               )}
 
-              {!isDone && !reservation && !bodyAzrId && (
-                <Button size="small" variant="text" color="inherit" onClick={() => onDismiss(task.id)}>
-                  Als erledigt markieren
-                </Button>
-              )}
-              {!isDone && !reservation && bodyAzrId && (
+              {!isDone && !reservation && (
                 <Button size="small" variant="text" color="inherit" onClick={() => onDismiss(task.id)}>
                   Als erledigt markieren
                 </Button>
@@ -274,6 +320,13 @@ export default function TaskInbox() {
     open: false, message: '', severity: 'success',
   })
 
+  // Bett-Auswahl-Dialog für Bestätigung
+  const [confirmRes, setConfirmRes] = useState<Reservation | null>(null)
+  const [freeBeds, setFreeBeds] = useState<FreeBed[]>([])
+  const [bedsLoading, setBedsLoading] = useState(false)
+  const [selectedBedId, setSelectedBedId] = useState<string | null>(null)
+  const [confirmSaving, setConfirmSaving] = useState(false)
+
   useEffect(() => { resetCount() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const load = useCallback(async () => {
@@ -298,21 +351,59 @@ export default function TaskInbox() {
 
   const locName = (id: string) => locations.find((l) => l.id === id)?.name ?? id.slice(0, 8) + '…'
 
-  // Split reservations by direction
+  // Eingehend = Ich bin Zieleinrichtung + noch aktionspflichtig (PENDING oder CONFIRMED)
   const incomingReservations = allReservations.filter(
-    (r) => r.target_location_id === myLocationId && r.status === 'PENDING'
+    (r) => r.target_location_id === myLocationId && ['PENDING', 'CONFIRMED'].includes(r.status)
   )
   const outgoingReservations = allReservations.filter(
     (r) => r.requester_location_id === myLocationId
   )
 
-  async function handleConfirm(resId: string) {
+  // Bett-Auswahl-Dialog öffnen
+  async function openConfirmDialog(res: Reservation) {
+    setConfirmRes(res)
+    setSelectedBedId(null)
+    setBedsLoading(true)
     try {
-      await post(`/api/reservations/${resId}/confirm`, {})
-      setSnackbar({ open: true, message: 'Reservierung bestätigt.', severity: 'success' })
+      type RoomBedStatus = { room_id: string; room_name: string; beds: { bed_id: string; bett_nummer: string; status: string }[] }
+      const rooms = await get<RoomBedStatus[]>(
+        `/api/locations/${res.target_location_id}/bed-status?date_from=${res.belegung_start}&date_to=${res.belegung_ende}`
+      )
+      setFreeBeds(
+        rooms.flatMap((room) =>
+          room.beds.filter((b) => b.status === 'FREI')
+            .map((b) => ({ bed_id: b.bed_id, bett_nummer: b.bett_nummer, room_name: room.room_name }))
+        )
+      )
+    } catch {
+      setFreeBeds([])
+    } finally {
+      setBedsLoading(false)
+    }
+  }
+
+  async function handleConfirmWithBed() {
+    if (!confirmRes || !selectedBedId) return
+    setConfirmSaving(true)
+    try {
+      await post(`/api/reservations/${confirmRes.id}/confirm`, { confirmed_bed_id: selectedBedId })
+      setConfirmRes(null)
+      setSnackbar({ open: true, message: 'Reservierung bestätigt, Bett vorgemerkt.', severity: 'success' })
       load()
     } catch {
       setSnackbar({ open: true, message: 'Bestätigung fehlgeschlagen.', severity: 'error' })
+    } finally {
+      setConfirmSaving(false)
+    }
+  }
+
+  async function handleTransfer(resId: string) {
+    try {
+      await post(`/api/reservations/${resId}/transfer`, {})
+      setSnackbar({ open: true, message: 'Person eingecheckt. Belegung übertragen.', severity: 'success' })
+      load()
+    } catch {
+      setSnackbar({ open: true, message: 'Einchecken fehlgeschlagen.', severity: 'error' })
     }
   }
 
@@ -360,8 +451,15 @@ export default function TaskInbox() {
 
   const openTasks = tasks.filter((t) => t.status === 'OPEN' || t.status === 'IN_PROGRESS')
   const doneTasks = tasks.filter((t) => !['OPEN', 'IN_PROGRESS'].includes(t.status))
-  const pendingReservations = isSystemAdmin ? allReservations.filter((r) => r.status === 'PENDING') : incomingReservations
-  const totalPending = openTasks.length + incomingReservations.length
+
+  // Aktionspflichtige Reservierungen für Tab 0
+  const actionableReservations = isSystemAdmin
+    ? allReservations.filter((r) => ['PENDING', 'CONFIRMED'].includes(r.status))
+    : incomingReservations
+
+  const totalPending = openTasks.length + (isSystemAdmin
+    ? allReservations.filter((r) => r.status === 'PENDING').length
+    : incomingReservations.length)
 
   return (
     <Box sx={{ p: 3, maxWidth: 900, mx: 'auto' }}>
@@ -402,18 +500,19 @@ export default function TaskInbox() {
       ) : tab === 0 ? (
         /* TAB 0: Eingehend / Zu beantworten */
         <Box>
-          {pendingReservations.length > 0 && (
+          {actionableReservations.length > 0 && (
             <Box mb={3}>
               <Typography variant="caption" fontWeight={700} color="text.secondary"
                 sx={{ display: 'block', mb: 1.5, letterSpacing: 1 }}>
                 {isSystemAdmin
-                  ? `ALLE OFFENEN ANFRAGEN (${pendingReservations.length})`
-                  : `EINGEHENDE ANFRAGEN — ZU BEANTWORTEN (${pendingReservations.length})`}
+                  ? `ALLE OFFENEN ANFRAGEN (${actionableReservations.length})`
+                  : `EINGEHENDE ANFRAGEN — ZU BEANTWORTEN (${actionableReservations.length})`}
               </Typography>
               <Box display="flex" flexDirection="column" gap={2}>
-                {pendingReservations.map((res) => {
+                {actionableReservations.map((res) => {
                   const linkedTask = tasks.find((t) => t.related_reservation_id === res.id)
                   const isIncoming = res.target_location_id === myLocationId
+                  const canAct = isIncoming || isSystemAdmin
                   return (
                     <TaskCard
                       key={res.id}
@@ -422,7 +521,9 @@ export default function TaskInbox() {
                         task_type: 'RESERVATION_RECEIVED',
                         priority: 'HIGH',
                         status: 'OPEN',
-                        title: isIncoming || isSystemAdmin ? `Anfrage von ${locName(res.requester_location_id)}` : 'Eigene Anfrage',
+                        title: isIncoming || isSystemAdmin
+                          ? `Anfrage von ${locName(res.requester_location_id)}`
+                          : 'Eigene Anfrage',
                         body: `${res.azr_id} · ${locName(res.requester_location_id)} → ${locName(res.target_location_id)}`,
                         created_at: '',
                         related_reservation_id: res.id,
@@ -431,8 +532,10 @@ export default function TaskInbox() {
                       locationName={isSystemAdmin
                         ? `${locName(res.requester_location_id)} → ${locName(res.target_location_id)}`
                         : locName(res.requester_location_id)}
-                      onConfirm={(isIncoming || isSystemAdmin) ? handleConfirm : undefined}
-                      onReject={(isIncoming || isSystemAdmin) ? handleReject : undefined}
+                      onConfirmOpen={canAct ? openConfirmDialog : undefined}
+                      onTransfer={canAct ? handleTransfer : undefined}
+                      onReject={canAct ? handleReject : undefined}
+                      onCancel={canAct ? handleCancel : undefined}
                       onDismiss={handleDismiss}
                     />
                   )
@@ -441,7 +544,7 @@ export default function TaskInbox() {
             </Box>
           )}
 
-          {pendingReservations.length > 0 &&
+          {actionableReservations.length > 0 &&
             openTasks.filter((t) => !allReservations.some((r) => r.id === t.related_reservation_id)).length > 0 && (
               <Divider sx={{ my: 3 }} />
             )}
@@ -465,7 +568,7 @@ export default function TaskInbox() {
             ) : null
           })()}
 
-          {totalPending === 0 && openTasks.length === 0 && (
+          {actionableReservations.length === 0 && openTasks.length === 0 && (
             <Box textAlign="center" py={6}>
               <CheckCircleIcon sx={{ fontSize: 56, color: '#a5d6a7', mb: 1.5 }} />
               <Typography variant="h6" color="text.secondary">Alles erledigt</Typography>
@@ -492,9 +595,9 @@ export default function TaskInbox() {
                       id: `out-${res.id}`,
                       task_type: 'RESERVATION_SENT',
                       priority: res.status === 'PENDING' ? 'MEDIUM' : 'LOW',
-                      status: ['CONFIRMED', 'CANCELLED', 'REJECTED', 'TRANSFERRED'].includes(res.status) ? 'DONE' : 'OPEN',
+                      status: ['CANCELLED', 'REJECTED', 'TRANSFERRED'].includes(res.status) ? 'DONE' : 'OPEN',
                       title: `Anfrage an ${locName(res.target_location_id)}`,
-                      body: `${res.azr_id} · Status: ${res.status}`,
+                      body: `${res.azr_id} · ${locName(res.requester_location_id)} → ${locName(res.target_location_id)}`,
                       created_at: '',
                       related_reservation_id: res.id,
                     }}
@@ -522,6 +625,57 @@ export default function TaskInbox() {
           )}
         </Box>
       )}
+
+      {/* ── Bett-Auswahl-Dialog (Bestätigung) ── */}
+      <Dialog open={!!confirmRes} onClose={() => setConfirmRes(null)} maxWidth="sm" fullWidth>
+        <DialogTitle fontWeight={700}>
+          <Box display="flex" alignItems="center" gap={1}>
+            <BedIcon sx={{ color: '#2e7d32' }} />
+            Aufnahme bestätigen — Bett zuweisen
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 1.5 }}>
+          {confirmRes && (
+            <Alert severity="info" sx={{ mb: 2, py: 0.5 }}>
+              AZR-ID <strong>{confirmRes.azr_id}</strong> · {confirmRes.belegung_start} – {confirmRes.belegung_ende}
+            </Alert>
+          )}
+          {bedsLoading ? (
+            <Box display="flex" justifyContent="center" py={4}><CircularProgress /></Box>
+          ) : freeBeds.length === 0 ? (
+            <Alert severity="warning">Keine freien Betten im gewünschten Zeitraum verfügbar.</Alert>
+          ) : (
+            <Box display="flex" flexDirection="column" gap={1}>
+              <Typography variant="body2" color="text.secondary" mb={1}>Freies Bett wählen:</Typography>
+              {freeBeds.map((b) => (
+                <Paper
+                  key={b.bed_id}
+                  elevation={selectedBedId === b.bed_id ? 3 : 1}
+                  onClick={() => setSelectedBedId(b.bed_id)}
+                  sx={{
+                    p: 1.5, borderRadius: 2, cursor: 'pointer',
+                    border: selectedBedId === b.bed_id ? '2px solid #2e7d32' : '2px solid transparent',
+                    bgcolor: selectedBedId === b.bed_id ? '#e8f5e9' : 'white',
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  <Box display="flex" alignItems="center" gap={1}>
+                    <BedIcon sx={{ color: '#43a047', fontSize: 20 }} />
+                    <Typography fontWeight={600}>{b.room_name} — Bett {b.bett_nummer}</Typography>
+                  </Box>
+                </Paper>
+              ))}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setConfirmRes(null)}>Abbrechen</Button>
+          <Button variant="contained" color="success" disabled={!selectedBedId || confirmSaving}
+            onClick={handleConfirmWithBed}>
+            {confirmSaving ? <CircularProgress size={18} /> : 'Bestätigen & Bett vormerken'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Snackbar open={snackbar.open} autoHideDuration={5000}
         onClose={() => setSnackbar((s) => ({ ...s, open: false }))}>
