@@ -79,7 +79,9 @@ function GenderChip({ g }: { g: string }) {
 
 export default function Reservations() {
   const { get, post, del } = useApiClient()
-  const { locationId } = useKeycloak()
+  const { locationId, keycloak } = useKeycloak()
+  const roles = ((keycloak?.tokenParsed as Record<string, unknown>)?.realm_access as { roles?: string[] } | undefined)?.roles ?? []
+  const isSystemAdmin = roles.includes('system-admin')
   const [searchParams] = useSearchParams()
   const highlightId = searchParams.get('highlight')
 
@@ -227,7 +229,7 @@ export default function Reservations() {
           {rows.map((r) => {
             const cfg = STATUS_CONFIG[r.status] ?? { color: 'default', label: r.status }
             const isHighlighted = r.id === highlightId
-            const isTargetLocation = locationId != null && r.target_location_id === locationId
+            const isTargetLocation = isSystemAdmin || (locationId != null && r.target_location_id === locationId)
             return (
               <TableRow key={r.id} sx={{
                 '&:hover': { bgcolor: '#fafafa' },
@@ -292,7 +294,8 @@ export default function Reservations() {
                           Einchecken
                         </Button>
                       )}
-                      {['PENDING', 'CONFIRMED'].includes(r.status) && (
+                      {['PENDING', 'CONFIRMED'].includes(r.status) &&
+                        (isSystemAdmin || (locationId != null && r.requester_location_id === locationId)) && (
                         <Button size="small" color="error" variant="text"
                           onClick={() => handleCancel(r.id)}>
                           Stornieren
@@ -333,7 +336,7 @@ export default function Reservations() {
       </Tabs>
 
       <Paper elevation={0} sx={{ borderRadius: 2, border: '1px solid #e0e0e0', overflow: 'hidden' }}>
-        {tab === 0 && <ReservationTable rows={reservations} showActions={false} />}
+        {tab === 0 && <ReservationTable rows={reservations} showActions={true} />}
         {tab === 1 && <ReservationTable rows={incoming} showActions={true} />}
       </Paper>
 
