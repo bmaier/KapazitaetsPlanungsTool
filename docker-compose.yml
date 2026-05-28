@@ -118,7 +118,9 @@ services:
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
-  # React Frontend — Nginx-gehostet
+  # React Frontend — Nginx-gehostet (Prod) / Vite Dev-Server (Override)
+  # Kein Compose-Healthcheck: Prod-Image hat HEALTHCHECK im Dockerfile,
+  # Dev-Override (node:20-alpine + Vite) kennt kein nginx — würde immer scheitern.
   # ---------------------------------------------------------------------------
   frontend:
     image: bosenet/bordercapcontrol-frontend:01
@@ -127,10 +129,4 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost/index.html || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 6
-      start_period: 10s
     restart: unless-stopped
