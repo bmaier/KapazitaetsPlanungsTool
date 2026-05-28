@@ -2,14 +2,15 @@
 # Einheitlicher Workflow-Einstiegspunkt für die Entwicklungsumgebung.
 #
 # Verwendung:
-#   make dev      Startet alle Services (inkl. Build) und wartet auf Healthchecks
+#   make dev      Startet alle Services; baut Images nur wenn noch nicht vorhanden
+#   make build    Erzwingt Rebuild aller Images (nach Dockerfile-/Dep-Änderungen)
 #   make test     Führt Behave-Tests gegen die laufende Umgebung aus
 #   make down     Stoppt alle Services und entfernt Volumes
 #   make logs     Streamt Logs aller Services
 #   make migrate  Führt ausstehende Alembic-Migrationen aus
 #   make seed     Demo-Daten einspielen (nach make down + make dev nötig)
 
-.PHONY: dev test down logs migrate seed frontend-install frontend-dev
+.PHONY: dev build test down logs migrate seed
 
 # Auto-detect container runtime: prefer podman if available, fall back to docker.
 # Override with: make dev RUNTIME=docker  or  make dev RUNTIME=podman
@@ -21,15 +22,13 @@ endif
 COMPOSE        ?= $(RUNTIME) compose
 PROJECT         = kapzitaetsplanungstool
 HEALTH_TIMEOUT ?= 120
+# Anzahl Core-Services mit Healthcheck (ohne Frontend, das im Hintergrund startet)
+CORE_SERVICES  ?= 5
 
 # ---------------------------------------------------------------------------
-# dev: Startet/aktualisiert alle Services und wartet auf Healthchecks
+# _wait_healthy: Internes Makro — wartet bis CORE_SERVICES healthy sind
 # ---------------------------------------------------------------------------
-dev:
-	@echo ">>> Bereinige Python-Bytecode-Cache (verhindert stale .pyc nach Rebuilds)..."
-	@find backend/src -type d -name '__pycache__' -prune -exec rm -rf {} + 2>/dev/null; true
-	@echo ">>> Starte BorderCapControl Compose-Stack..."
-	$(COMPOSE) up -d --build
+define WAIT_HEALTHY
 	@echo ">>> Warte auf Healthchecks (max. $(HEALTH_TIMEOUT)s)..."
 	@elapsed=0; result=1; \
 	while [ $$elapsed -lt $(HEALTH_TIMEOUT) ]; do \
@@ -40,35 +39,38 @@ dev:
 			echo "  Warte auf Container-Start... ($${elapsed}s)"; \
 			sleep 5; elapsed=$$((elapsed + 5)); continue; \
 		fi; \
-		unhealthy=$$(echo "$$statuses" | grep -c "unhealthy" 2>/dev/null || echo 0); \
-		if [ "$$unhealthy" -gt 0 ]; then \
+		unhealthy=$$(echo "$$statuses" | grep -c "unhealthy" 2>/dev/null || true); \
+		if [ "$${unhealthy:-0}" -gt 0 ]; then \
 			echo ""; \
-			echo "!!! FEHLER: $$unhealthy Service(s) im Status 'unhealthy'. Logs:"; \
+			echo "!!! FEHLER: $$unhealthy Service(s) unhealthy. Logs:"; \
 			$(COMPOSE) ps; \
 			exit 1; \
 		fi; \
-		total=$$(echo "$$statuses" | wc -l | tr -d ' '); \
-		healthy=$$(echo "$$statuses" | grep -c "(healthy)" 2>/dev/null || echo 0); \
-		if [ "$$healthy" -ge "$$total" ] && [ "$$total" -gt 0 ]; then \
-			echo ">>> Alle $$total Services sind bereit!"; \
+		healthy=$$(echo "$$statuses" | grep -c "(healthy)" 2>/dev/null || true); \
+		if [ "$${healthy:-0}" -ge "$(CORE_SERVICES)" ]; then \
+			echo ">>> $(CORE_SERVICES) Core-Services bereit! (Frontend startet im Hintergrund)"; \
 			result=0; \
 			break; \
 		fi; \
-		starting=$$(echo "$$statuses" | grep -c "health: starting" 2>/dev/null || echo 0); \
-		echo "  Warte... ($${elapsed}s / $(HEALTH_TIMEOUT)s) — $$starting/$$total Service(s) starten noch ($$healthy healthy)"; \
+		starting=$$(echo "$$statuses" | grep -c "health: starting" 2>/dev/null || true); \
+		echo "  Warte... ($${elapsed}s / $(HEALTH_TIMEOUT)s) — $${healthy:-0}/$(CORE_SERVICES) healthy, $${starting:-0} starting"; \
 		sleep 5; \
 		elapsed=$$((elapsed + 5)); \
 	done; \
 	if [ $$result -ne 0 ]; then \
-		echo "!!! TIMEOUT: Services nach $(HEALTH_TIMEOUT)s noch nicht bereit."; \
+		echo "!!! TIMEOUT: Core-Services nach $(HEALTH_TIMEOUT)s noch nicht bereit."; \
 		$(COMPOSE) ps; \
 		exit 1; \
 	fi
+endef
+
+define PRINT_ENDPOINTS
 	@echo ""
 	@echo ">>> Service-Status:"
 	@$(COMPOSE) ps
 	@echo ""
 	@echo ">>> Endpoints:"
+	@echo "  Frontend:       http://localhost:3000  (Vite startet ~60s nach Container-Start)"
 	@echo "  Backend API:    http://localhost:8000/docs"
 	@echo "  SKOS Service:   http://localhost:8001/docs"
 	@echo "  Keycloak Admin: http://localhost:8080/admin (admin / admin_dev)"
@@ -76,6 +78,30 @@ dev:
 	@echo "  Tileserver:     http://localhost:8082/"
 	@echo ""
 	@echo "  Hinweis: Nach 'make down' Demo-Daten mit 'make seed' neu einspielen."
+endef
+
+# ---------------------------------------------------------------------------
+# dev: Startet alle Services (kein Rebuild — Volume-Mounts für Hot-Reload)
+# Für expliziten Image-Rebuild nach Dockerfile-/Dep-Änderungen: make build
+# ---------------------------------------------------------------------------
+dev:
+	@echo ">>> Bereinige Python-Bytecode-Cache..."
+	@find backend/src -type d -name '__pycache__' -prune -exec rm -rf {} + 2>/dev/null; true
+	@echo ">>> Starte BorderCapControl Compose-Stack..."
+	$(COMPOSE) up -d
+	$(WAIT_HEALTHY)
+	$(PRINT_ENDPOINTS)
+
+# ---------------------------------------------------------------------------
+# build: Erzwingt Rebuild aller Images (nach Dockerfile- oder Dep-Änderungen)
+# ---------------------------------------------------------------------------
+build:
+	@echo ">>> Bereinige Python-Bytecode-Cache..."
+	@find backend/src -type d -name '__pycache__' -prune -exec rm -rf {} + 2>/dev/null; true
+	@echo ">>> Baue Docker-Images und starte Stack..."
+	$(COMPOSE) up -d --build
+	$(WAIT_HEALTHY)
+	$(PRINT_ENDPOINTS)
 
 # ---------------------------------------------------------------------------
 # test: Führt Behave-Tests gegen die laufende Umgebung aus
@@ -107,14 +133,9 @@ logs:
 # ---------------------------------------------------------------------------
 migrate:
 	@echo ">>> Führe Alembic-Migrationen aus..."
-	$(COMPOSE) exec backend alembic upgrade head
+	$(RUNTIME) exec -w /home/appuser/app $(PROJECT)_backend_1 \
+		/home/appuser/app/.venv/bin/python3 -m alembic upgrade head
 	@echo ">>> Migrationen abgeschlossen."
 
 seed: ## Seed Demo-Daten in die DB einfügen (idempotent)
 	python3 backend/seeds/demo_data.py
-
-frontend-install: ## npm install im frontend/-Verzeichnis
-	cd frontend && npm install
-
-frontend-dev: ## Vite Dev-Server starten (Port 3000)
-	cd frontend && npm run dev
