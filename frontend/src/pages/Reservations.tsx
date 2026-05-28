@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   Alert,
   Box,
   Button,
   Chip,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Paper,
   Snackbar,
   Tab,
@@ -19,7 +24,10 @@ import {
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import CheckCircleIcon from '@mui/icons-material/CheckCircle'
+import BedIcon from '@mui/icons-material/Hotel'
 import { useApiClient } from '../api/client'
+import { useKeycloak } from '../auth/KeycloakProvider'
 import ReservationCreateDialog from '../components/ReservationCreateDialog'
 
 interface Location {
@@ -39,7 +47,16 @@ interface Reservation {
   belegung_start: string
   belegung_ende: string
   status: string
+  confirmed_bed_id?: string | null
+  confirmed_at?: string | null
   created_at: string
+}
+
+interface FreeBed {
+  bed_id: string
+  bett_nummer: string
+  room_name: string
+  geschlechts_designation: string
 }
 
 const STATUS_CONFIG: Record<string, { color: 'default' | 'warning' | 'success' | 'error' | 'info'; label: string }> = {
@@ -62,6 +79,10 @@ function GenderChip({ g }: { g: string }) {
 
 export default function Reservations() {
   const { get, post, del } = useApiClient()
+  const { locationId } = useKeycloak()
+  const [searchParams] = useSearchParams()
+  const highlightId = searchParams.get('highlight')
+
   const [tab, setTab] = useState(0)
   const [reservations, setReservations] = useState<Reservation[]>([])
   const [incoming, setIncoming] = useState<Reservation[]>([])
@@ -72,6 +93,13 @@ export default function Reservations() {
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
     open: false, message: '', severity: 'success',
   })
+
+  // Confirm dialog state: select a bed before confirming
+  const [confirmRes, setConfirmRes] = useState<Reservation | null>(null)
+  const [freeBeds, setFreeBeds] = useState<FreeBed[]>([])
+  const [bedsLoading, setBedsLoading] = useState(false)
+  const [selectedBedId, setSelectedBedId] = useState<string | null>(null)
+  const [confirmSaving, setConfirmSaving] = useState(false)
 
   const locName = useCallback(
     (id: string) => locations.find((l) => l.id === id)?.name ?? id.slice(0, 8) + '…',
@@ -98,19 +126,51 @@ export default function Reservations() {
 
   useEffect(() => { loadAll() }, [loadAll])
 
+  // Jump to "Aktionen" tab when navigated here with a highlight param
+  useEffect(() => {
+    if (highlightId) setTab(1)
+  }, [highlightId])
+
   function copyId(id: string) {
     navigator.clipboard.writeText(id).catch(() => {})
     setCopied(id)
     setTimeout(() => setCopied(null), 2000)
   }
 
-  async function handleConfirm(resId: string) {
+  async function openConfirmDialog(res: Reservation) {
+    setConfirmRes(res)
+    setSelectedBedId(null)
+    setBedsLoading(true)
     try {
-      await post(`/api/reservations/${resId}/confirm`, {})
-      setSnackbar({ open: true, message: 'Reservierung bestätigt.', severity: 'success' })
+      type RoomBedStatus = { room_id: string; room_name: string; geschlechts_designation: string; beds: { bed_id: string; bett_nummer: string; status: string }[] }
+      const rooms = await get<RoomBedStatus[]>(
+        `/api/locations/${res.target_location_id}/bed-status?date_from=${res.belegung_start}&date_to=${res.belegung_ende}`
+      )
+      const beds: FreeBed[] = rooms.flatMap((room) =>
+        room.beds
+          .filter((b) => b.status === 'FREI')
+          .map((b) => ({ bed_id: b.bed_id, bett_nummer: b.bett_nummer, room_name: room.room_name, geschlechts_designation: room.geschlechts_designation }))
+      )
+      setFreeBeds(beds)
+    } catch {
+      setFreeBeds([])
+    } finally {
+      setBedsLoading(false)
+    }
+  }
+
+  async function handleConfirmWithBed() {
+    if (!confirmRes || !selectedBedId) return
+    setConfirmSaving(true)
+    try {
+      await post(`/api/reservations/${confirmRes.id}/confirm`, { confirmed_bed_id: selectedBedId })
+      setConfirmRes(null)
+      setSnackbar({ open: true, message: 'Reservierung bestätigt, Bett vorgemerkt.', severity: 'success' })
       loadAll()
     } catch {
       setSnackbar({ open: true, message: 'Bestätigung fehlgeschlagen.', severity: 'error' })
+    } finally {
+      setConfirmSaving(false)
     }
   }
 
@@ -131,6 +191,16 @@ export default function Reservations() {
       loadAll()
     } catch {
       setSnackbar({ open: true, message: 'Stornierung fehlgeschlagen.', severity: 'error' })
+    }
+  }
+
+  async function handleTransfer(resId: string) {
+    try {
+      await post(`/api/reservations/${resId}/transfer`, {})
+      setSnackbar({ open: true, message: 'Person eingecheckt. Belegung an Zieleinrichtung übertragen.', severity: 'success' })
+      loadAll()
+    } catch {
+      setSnackbar({ open: true, message: 'Einchecken fehlgeschlagen.', severity: 'error' })
     }
   }
 
@@ -156,8 +226,13 @@ export default function Reservations() {
         <TableBody>
           {rows.map((r) => {
             const cfg = STATUS_CONFIG[r.status] ?? { color: 'default', label: r.status }
+            const isHighlighted = r.id === highlightId
+            const isTargetLocation = locationId != null && r.target_location_id === locationId
             return (
-              <TableRow key={r.id} sx={{ '&:hover': { bgcolor: '#fafafa' } }}>
+              <TableRow key={r.id} sx={{
+                '&:hover': { bgcolor: '#fafafa' },
+                ...(isHighlighted ? { bgcolor: '#fff8e1', outline: '2px solid #f9a825' } : {}),
+              }}>
                 <TableCell>
                   <Tooltip title={`Vollständige ID: ${r.id}${copied === r.id ? ' ✓ Kopiert!' : ''}`} arrow>
                     <Box display="flex" alignItems="center" gap={0.5} sx={{ cursor: 'pointer' }}
@@ -182,7 +257,14 @@ export default function Reservations() {
                   </Box>
                 </TableCell>
                 <TableCell>
-                  <Typography variant="caption">{r.belegung_start} – {r.belegung_ende}</Typography>
+                  <Box>
+                    <Typography variant="caption">{r.belegung_start} – {r.belegung_ende}</Typography>
+                    {r.confirmed_at && (
+                      <Typography variant="caption" sx={{ display: 'block', color: '#2e7d32', fontSize: 10 }}>
+                        Bestätigt: {r.confirmed_at.slice(0, 10)}
+                      </Typography>
+                    )}
+                  </Box>
                 </TableCell>
                 <TableCell>
                   <Chip label={cfg.label} color={cfg.color} size="small" />
@@ -190,10 +272,10 @@ export default function Reservations() {
                 {showActions && (
                   <TableCell>
                     <Box display="flex" gap={0.5} flexWrap="wrap">
-                      {r.status === 'PENDING' && (
+                      {r.status === 'PENDING' && isTargetLocation && (
                         <>
                           <Button size="small" variant="contained" color="success"
-                            onClick={() => handleConfirm(r.id)}>
+                            onClick={() => openConfirmDialog(r)}>
                             Bestätigen
                           </Button>
                           <Button size="small" variant="outlined" color="error"
@@ -201,6 +283,14 @@ export default function Reservations() {
                             Ablehnen
                           </Button>
                         </>
+                      )}
+                      {r.status === 'CONFIRMED' && isTargetLocation && (
+                        <Button size="small" variant="contained"
+                          startIcon={<CheckCircleIcon />}
+                          sx={{ bgcolor: '#1565c0', '&:hover': { bgcolor: '#0d47a1' } }}
+                          onClick={() => handleTransfer(r.id)}>
+                          Einchecken
+                        </Button>
                       )}
                       {['PENDING', 'CONFIRMED'].includes(r.status) && (
                         <Button size="small" color="error" variant="text"
@@ -246,6 +336,59 @@ export default function Reservations() {
         {tab === 0 && <ReservationTable rows={reservations} showActions={false} />}
         {tab === 1 && <ReservationTable rows={incoming} showActions={true} />}
       </Paper>
+
+      {/* ── Bett-Auswahl Dialog (für Bestätigung) ── */}
+      <Dialog open={!!confirmRes} onClose={() => setConfirmRes(null)} maxWidth="sm" fullWidth>
+        <DialogTitle fontWeight={700}>
+          <Box display="flex" alignItems="center" gap={1}>
+            <BedIcon sx={{ color: '#2e7d32' }} />
+            Reservierung bestätigen — Bett zuweisen
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 1.5 }}>
+          {confirmRes && (
+            <Alert severity="info" sx={{ mb: 2, py: 0.5 }}>
+              AZR-ID <strong>{confirmRes.azr_id}</strong> · {confirmRes.belegung_start} – {confirmRes.belegung_ende}
+            </Alert>
+          )}
+          {bedsLoading ? (
+            <Box display="flex" justifyContent="center" py={4}><CircularProgress /></Box>
+          ) : freeBeds.length === 0 ? (
+            <Alert severity="warning">Keine freien Betten im gewünschten Zeitraum verfügbar.</Alert>
+          ) : (
+            <Box display="flex" flexDirection="column" gap={1}>
+              <Typography variant="body2" color="text.secondary" mb={1}>
+                Freies Bett wählen:
+              </Typography>
+              {freeBeds.map((b) => (
+                <Paper
+                  key={b.bed_id}
+                  elevation={selectedBedId === b.bed_id ? 3 : 1}
+                  onClick={() => setSelectedBedId(b.bed_id)}
+                  sx={{
+                    p: 1.5, borderRadius: 2, cursor: 'pointer',
+                    border: selectedBedId === b.bed_id ? '2px solid #2e7d32' : '2px solid transparent',
+                    bgcolor: selectedBedId === b.bed_id ? '#e8f5e9' : 'white',
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  <Box display="flex" alignItems="center" gap={1}>
+                    <BedIcon sx={{ color: '#43a047', fontSize: 20 }} />
+                    <Typography fontWeight={600}>{b.room_name} — Bett {b.bett_nummer}</Typography>
+                  </Box>
+                </Paper>
+              ))}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setConfirmRes(null)}>Abbrechen</Button>
+          <Button variant="contained" color="success" disabled={!selectedBedId || confirmSaving}
+            onClick={handleConfirmWithBed}>
+            {confirmSaving ? <CircularProgress size={18} /> : 'Bestätigen & Bett vormerken'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <ReservationCreateDialog
         open={dialogOpen}

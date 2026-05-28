@@ -30,5 +30,6 @@ class ReservationRequest:
     belegung_ende: date
     status: ReservationStatus
     confirmed_bed_id: Optional[uuid.UUID]
+    confirmed_at: Optional[datetime]
     created_at: datetime
     updated_at: datetime

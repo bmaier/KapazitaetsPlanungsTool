@@ -72,7 +72,7 @@ interface BedStatus {
   bed_id: string
   bett_nummer: string
   bett_typ: string
-  status: 'FREI' | 'BELEGT'
+  status: 'FREI' | 'BELEGT' | 'VORGEMERKT'
   occupancy_id?: string
   azr_id?: string
   alias_id?: string
@@ -86,6 +86,10 @@ interface BedStatus {
   extended_once?: boolean
   deaktiviert_ab?: string | null
   bed_valid_from?: string | null
+  reservation_id?: string
+  reservation_azr_id?: string
+  reservation_start?: string
+  reservation_ende?: string
 }
 
 interface RoomStatus {
@@ -172,6 +176,7 @@ interface BedGridProps {
 function BedGrid({ room, canEdit, onBedClick, refDate }: BedGridProps) {
   const frei = room.beds.filter((b) => b.status === 'FREI').length
   const belegt = room.beds.filter((b) => b.status === 'BELEGT').length
+  const vorgemerkt = room.beds.filter((b) => b.status === 'VORGEMERKT').length
   const effectiveGender = deriveRoomGender(room)
   const color = genderColor(effectiveGender)
   const dateStatus = roomDateStatus(room, refDate)
@@ -186,7 +191,7 @@ function BedGrid({ room, canEdit, onBedClick, refDate }: BedGridProps) {
           sx={{ bgcolor: color + '15', color, fontWeight: 600, ml: 0.5 }} />
         <Box sx={{ flexGrow: 1 }} />
         <Typography variant="caption" color="text.secondary">
-          {frei} frei · {belegt} belegt
+          {frei} frei · {belegt} belegt{vorgemerkt > 0 ? ` · ${vorgemerkt} vorgemerkt` : ''}
         </Typography>
         {isOutOfRange && (
           <Chip label={dateStatus === 'geplant' ? `ab ${room.valid_from}` : `bis ${room.valid_until}`}
@@ -210,7 +215,12 @@ function BedGrid({ room, canEdit, onBedClick, refDate }: BedGridProps) {
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
         {room.beds.map((bed) => {
           const isBelegt = bed.status === 'BELEGT'
+          const isVorgemerkt = bed.status === 'VORGEMERKT'
           const bedActive = bedIsActive(bed, refDate)
+          const bedColor = !bedActive ? '#9e9e9e' : isVorgemerkt ? '#6a1b9a' : isBelegt ? '#c62828' : '#2e7d32'
+          const bedBg = !bedActive ? '#f5f5f5' : isVorgemerkt ? '#f3e5f5' : isBelegt ? '#ffebee' : '#e8f5e9'
+          const bedBorder = !bedActive ? '#bdbdbd' : isVorgemerkt ? '#7b1fa2' : isBelegt ? '#e53935' : '#43a047'
+          const isClickable = canEdit && bedActive && (isBelegt || isVorgemerkt || (!isBelegt && !isVorgemerkt))
           return (
             <Tooltip
               key={bed.bed_id}
@@ -218,18 +228,20 @@ function BedGrid({ room, canEdit, onBedClick, refDate }: BedGridProps) {
                 <Box>
                   {!bedActive
                     ? (bed.bed_valid_from && refDate < bed.bed_valid_from ? `Verfügbar ab ${bed.bed_valid_from}` : `Deaktiviert ab ${bed.deaktiviert_ab}`)
+                    : isVorgemerkt
+                    ? `Vorgemerkt für: ${bed.reservation_azr_id ?? '–'} · ${bed.reservation_start} – ${bed.reservation_ende}`
                     : isBelegt
                     ? `${bed.azr_id || '–'}${bed.alias_id ? ' · ' + bed.alias_id : ''} · ${bed.belegung_start} – ${bed.belegung_ende}`
                     : 'Bett frei'}
                   {(bed.bed_labels ?? []).length > 0 && ` · ${bed.bed_labels!.join(', ')}`}
                   {isBelegt && (bed.occ_labels ?? []).length > 0 && ` · ${bed.occ_labels!.join(', ')}`}
-                  {canEdit && bedActive && (isBelegt ? ' · Klicken zum Verwalten' : ' · Klicken zum Belegen')}
+                  {canEdit && bedActive && (isVorgemerkt ? ' · Klicken zur Reservierung' : isBelegt ? ' · Klicken zum Verwalten' : ' · Klicken zum Belegen')}
                 </Box>
               }
               arrow
             >
               <Box
-                onClick={() => canEdit && bedActive && onBedClick(bed, room)}
+                onClick={() => isClickable && onBedClick(bed, room)}
                 sx={{
                   width: 58,
                   height: 58,
@@ -238,22 +250,26 @@ function BedGrid({ room, canEdit, onBedClick, refDate }: BedGridProps) {
                   flexDirection: 'column',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  bgcolor: !bedActive ? '#f5f5f5' : isBelegt ? '#ffebee' : '#e8f5e9',
-                  border: `2px solid ${!bedActive ? '#bdbdbd' : isBelegt ? '#e53935' : '#43a047'}`,
-                  cursor: canEdit && bedActive ? 'pointer' : 'default',
+                  bgcolor: bedBg,
+                  border: `2px solid ${bedBorder}`,
+                  cursor: isClickable ? 'pointer' : 'default',
                   opacity: bedActive ? 1 : 0.5,
                   transition: 'all 0.15s',
-                  '&:hover': canEdit && bedActive ? { transform: 'scale(1.1)', boxShadow: 3 } : {},
+                  '&:hover': isClickable ? { transform: 'scale(1.1)', boxShadow: 3 } : {},
                 }}
               >
-                <BedIcon sx={{ fontSize: 16, color: !bedActive ? '#9e9e9e' : isBelegt ? '#c62828' : '#2e7d32', mb: 0.2 }} />
-                <Typography variant="caption" fontWeight={700}
-                  sx={{ color: !bedActive ? '#9e9e9e' : isBelegt ? '#c62828' : '#2e7d32', lineHeight: 1, fontSize: 10 }}>
+                <BedIcon sx={{ fontSize: 16, color: bedColor, mb: 0.2 }} />
+                <Typography variant="caption" fontWeight={700} sx={{ color: bedColor, lineHeight: 1, fontSize: 10 }}>
                   {bed.bett_nummer}
                 </Typography>
                 {isBelegt && bed.azr_id && (
                   <Typography sx={{ fontSize: 7, color: '#c62828', lineHeight: 1, maxWidth: 52, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', px: 0.3 }}>
                     {bed.azr_id.slice(-6)}
+                  </Typography>
+                )}
+                {isVorgemerkt && bed.reservation_azr_id && (
+                  <Typography sx={{ fontSize: 7, color: '#6a1b9a', lineHeight: 1, maxWidth: 52, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', px: 0.3 }}>
+                    {bed.reservation_azr_id.slice(-6)}
                   </Typography>
                 )}
               </Box>
@@ -262,7 +278,7 @@ function BedGrid({ room, canEdit, onBedClick, refDate }: BedGridProps) {
         })}
       </Box>
 
-      <Box display="flex" gap={2} mt={1.5}>
+      <Box display="flex" gap={2} mt={1.5} flexWrap="wrap">
         <Box display="flex" alignItems="center" gap={0.5}>
           <Box sx={{ width: 10, height: 10, borderRadius: 0.5, bgcolor: '#43a047' }} />
           <Typography variant="caption" color="text.secondary">Frei{canEdit && ' (klicken)'}</Typography>
@@ -271,6 +287,12 @@ function BedGrid({ room, canEdit, onBedClick, refDate }: BedGridProps) {
           <Box sx={{ width: 10, height: 10, borderRadius: 0.5, bgcolor: '#e53935' }} />
           <Typography variant="caption" color="text.secondary">Belegt{canEdit && ' (klicken)'}</Typography>
         </Box>
+        {vorgemerkt > 0 && (
+          <Box display="flex" alignItems="center" gap={0.5}>
+            <Box sx={{ width: 10, height: 10, borderRadius: 0.5, bgcolor: '#7b1fa2' }} />
+            <Typography variant="caption" color="text.secondary">Vorgemerkt{canEdit && ' (zur Reservierung)'}</Typography>
+          </Box>
+        )}
       </Box>
     </Paper>
   )
@@ -622,6 +644,8 @@ export default function Drilldown() {
       setBelegLabels([])
       setWarn12w(false)
       setBelegBed({ bed, room })
+    } else if (bed.status === 'VORGEMERKT') {
+      if (bed.reservation_id) navigate(`/reservations?highlight=${bed.reservation_id}`)
     } else {
       setCheckoutConfirm(false)
       setManageBed({ bed, room })

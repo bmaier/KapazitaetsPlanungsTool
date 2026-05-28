@@ -41,6 +41,10 @@ class ReservationCreate(BaseModel):
         return self
 
 
+class ReservationConfirmRequest(BaseModel):
+    confirmed_bed_id: uuid.UUID
+
+
 class ReservationResponse(BaseModel):
     id: uuid.UUID
     requester_location_id: uuid.UUID
@@ -53,6 +57,7 @@ class ReservationResponse(BaseModel):
     belegung_ende: date
     status: str
     confirmed_bed_id: Optional[uuid.UUID]
+    confirmed_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 

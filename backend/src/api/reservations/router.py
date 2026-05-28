@@ -16,7 +16,11 @@ from src.adapters.db.engine import AsyncSessionFactory
 from src.adapters.db.models import LocationModel
 from src.adapters.db.reservation_repo import SqlReservationRepo
 from src.adapters.keycloak.jwt import UserContext, get_current_user
-from src.api.reservations.schemas import ReservationCreate, ReservationResponse
+from src.api.reservations.schemas import (
+    ReservationConfirmRequest,
+    ReservationCreate,
+    ReservationResponse,
+)
 from src.domain.reservations.rules import (
     InvalidStateTransitionError,
     RetractionForbiddenError,
@@ -149,13 +153,14 @@ async def cancel_reservation(
 @router.post("/reservations/{reservation_id}/confirm")
 async def confirm_reservation(
     reservation_id: UUID,
+    body: ReservationConfirmRequest,
     request: Request,
     user: UserContext = Depends(get_current_user),
     session: AsyncSession = Depends(_get_session),
 ) -> ReservationResponse:
     """
-    Bestätigt eine Reservierung (→ CONFIRMED).
-    system-admin: darf immer bestätigen.
+    Bestätigt eine Reservierung und weist ein Bett zu (→ CONFIRMED / VORGEMERKT).
+    system-admin: darf für jede Einrichtung bestätigen.
     Alle anderen: nur wenn X-Location-Id die Zieleinrichtung ist.
     """
     location = await _resolve_location(request, user, session)
@@ -163,12 +168,47 @@ async def confirm_reservation(
     repo = SqlReservationRepo(session)
     try:
         if is_system_admin and location is None:
-            # system-admin ohne location: Statusübergang direkt prüfen und ausführen
-            result = await repo.update_status(
-                reservation_id, "CONFIRMED", is_system_admin=True
+            existing = await repo.get(reservation_id)
+            if not existing:
+                raise HTTPException(status_code=404, detail="Reservierung nicht gefunden")
+            result = await repo.confirm(
+                reservation_id, existing.target_location_id, body.confirmed_bed_id
             )
         else:
-            result = await repo.confirm(reservation_id, location.id)  # type: ignore[union-attr]
+            result = await repo.confirm(
+                reservation_id, location.id, body.confirmed_bed_id  # type: ignore[union-attr]
+            )
+    except RetractionForbiddenError as e:
+        raise HTTPException(status_code=403, detail=e.message)
+    except InvalidStateTransitionError as e:
+        raise HTTPException(status_code=409, detail=e.message)
+    return ReservationResponse.model_validate(result)
+
+
+@router.post("/reservations/{reservation_id}/transfer")
+async def transfer_reservation(
+    reservation_id: UUID,
+    request: Request,
+    user: UserContext = Depends(get_current_user),
+    session: AsyncSession = Depends(_get_session),
+) -> ReservationResponse:
+    """
+    Checkt Person ein (→ TRANSFERRED).
+    Erstellt Occupant am bestätigten Bett.
+    system-admin: darf für jede Einrichtung ausführen.
+    Alle anderen: nur wenn X-Location-Id die Zieleinrichtung ist.
+    """
+    location = await _resolve_location(request, user, session)
+    is_system_admin = "system-admin" in user.roles
+    repo = SqlReservationRepo(session)
+    try:
+        if is_system_admin and location is None:
+            existing = await repo.get(reservation_id)
+            if not existing:
+                raise HTTPException(status_code=404, detail="Reservierung nicht gefunden")
+            result = await repo.transfer(reservation_id, existing.target_location_id)
+        else:
+            result = await repo.transfer(reservation_id, location.id)  # type: ignore[union-attr]
     except RetractionForbiddenError as e:
         raise HTTPException(status_code=403, detail=e.message)
     except InvalidStateTransitionError as e:

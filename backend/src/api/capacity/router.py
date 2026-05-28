@@ -435,7 +435,11 @@ async def get_bed_status(
               b.labels    AS bed_labels,
               b.deaktiviert_ab,
               b.valid_from AS bed_valid_from,
-              CASE WHEN o.id IS NOT NULL THEN 'BELEGT' ELSE 'FREI' END AS status,
+              CASE
+                WHEN o.id  IS NOT NULL THEN 'BELEGT'
+                WHEN rr.id IS NOT NULL THEN 'VORGEMERKT'
+                ELSE 'FREI'
+              END AS status,
               o.id        AS occupancy_id,
               o.azr_id,
               o.alias_id,
@@ -444,6 +448,10 @@ async def get_bed_status(
               o.belegung_ende,
               o.labels    AS occ_labels,
               o.extended_once,
+              rr.id       AS reservation_id,
+              rr.azr_id   AS reservation_azr_id,
+              rr.belegung_start AS reservation_start,
+              rr.belegung_ende  AS reservation_ende,
               (
                 SELECT COUNT(*) FROM reservations.requests req
                 WHERE req.target_location_id = r.location_id
@@ -457,6 +465,11 @@ async def get_bed_status(
               ON o.bed_id = b.id
               AND o.belegung_start < :date_to
               AND o.belegung_ende > :date_from
+            LEFT JOIN reservations.requests rr
+              ON rr.confirmed_bed_id = b.id
+              AND rr.status = 'CONFIRMED'
+              AND rr.belegung_start < :date_to
+              AND rr.belegung_ende > :date_from
             WHERE r.location_id = :location_id
               AND r.is_active = true
             ORDER BY r.name, CASE WHEN b.bett_nummer ~ '^[0-9]+$' THEN b.bett_nummer::integer ELSE NULL END NULLS LAST, b.bett_nummer
@@ -497,6 +510,10 @@ async def get_bed_status(
             bed_valid_from=row.get("bed_valid_from"),
             is_notbett=(row["bett_typ"] == "NOTBETT"),
             extended_once=bool(row.get("extended_once") or False),
+            reservation_id=row.get("reservation_id"),
+            reservation_azr_id=row.get("reservation_azr_id"),
+            reservation_start=row.get("reservation_start"),
+            reservation_ende=row.get("reservation_ende"),
         ))
     return [RoomBedStatus(**rooms_map[rid]) for rid in rooms_order]
 

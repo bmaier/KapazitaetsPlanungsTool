@@ -13,7 +13,7 @@ from fastapi import HTTPException
 from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.adapters.db.models import ReservationRequestModel, TaskModel
+from src.adapters.db.models import OccupantModel, ReservationRequestModel, TaskModel
 from src.domain.reservations.entities import ReservationRequest, ReservationStatus
 from src.domain.reservations.rules import (
     InvalidStateTransitionError,
@@ -38,6 +38,7 @@ def _to_entity(model: ReservationRequestModel) -> ReservationRequest:
         belegung_ende=model.belegung_ende,
         status=ReservationStatus(model.status),
         confirmed_bed_id=model.confirmed_bed_id,
+        confirmed_at=model.confirmed_at,
         created_at=model.created_at,
         updated_at=model.updated_at,
     )
@@ -139,9 +140,12 @@ class SqlReservationRepo(AbstractReservationRepo):
         return _to_entity(model)
 
     async def confirm(
-        self, reservation_id: UUID, location_id: UUID
+        self, reservation_id: UUID, location_id: UUID, confirmed_bed_id: UUID
     ) -> ReservationRequest:
-        """Bestätigt eine Reservierung — prüft ob location_id == target_location_id."""
+        """
+        Bestätigt eine Reservierung und weist ein Bett zu (VORGEMERKT).
+        Prüft: location_id == target_location_id, Bett gehört zur Einrichtung, keine Überschneidung.
+        """
         result = await self._session.execute(
             select(ReservationRequestModel)
             .where(ReservationRequestModel.id == reservation_id)
@@ -158,8 +162,55 @@ class SqlReservationRepo(AbstractReservationRepo):
 
         check_state_transition(model.status, "CONFIRMED")
 
+        # Bett gehört zur Zieleinrichtung und ist aktiv?
+        bed_row = await self._session.execute(
+            text(
+                "SELECT b.id FROM capacity.beds b "
+                "JOIN capacity.rooms r ON r.id = b.room_id "
+                "WHERE b.id = :bed_id AND r.location_id = :loc_id AND b.is_active = true"
+            ),
+            {"bed_id": str(confirmed_bed_id), "loc_id": str(location_id)},
+        )
+        if bed_row.fetchone() is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Bett gehört nicht zu dieser Einrichtung oder ist inaktiv",
+            )
+
+        # Kein Occupant im Zeitraum?
+        occupant_overlap = await self._session.execute(
+            select(OccupantModel).where(
+                OccupantModel.bed_id == confirmed_bed_id,
+                OccupantModel.belegung_start < model.belegung_ende,
+                OccupantModel.belegung_ende > model.belegung_start,
+            )
+        )
+        if occupant_overlap.scalar_one_or_none() is not None:
+            raise HTTPException(
+                status_code=409, detail="Bett ist im gewünschten Zeitraum bereits belegt"
+            )
+
+        # Keine andere CONFIRMED-Reservierung für dasselbe Bett im Zeitraum?
+        res_overlap = await self._session.execute(
+            select(ReservationRequestModel).where(
+                ReservationRequestModel.confirmed_bed_id == confirmed_bed_id,
+                ReservationRequestModel.status == "CONFIRMED",
+                ReservationRequestModel.id != reservation_id,
+                ReservationRequestModel.belegung_start < model.belegung_ende,
+                ReservationRequestModel.belegung_ende > model.belegung_start,
+            )
+        )
+        if res_overlap.scalar_one_or_none() is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="Bett ist bereits für eine andere Reservierung vorgemerkt",
+            )
+
+        now = datetime.now(timezone.utc)
         model.status = "CONFIRMED"
-        model.updated_at = datetime.now(timezone.utc)
+        model.confirmed_bed_id = confirmed_bed_id
+        model.confirmed_at = now
+        model.updated_at = now
 
         await self._create_task_and_audit(model, "CONFIRMED", location_id)
         await self._session.flush()
@@ -189,6 +240,70 @@ class SqlReservationRepo(AbstractReservationRepo):
         model.updated_at = datetime.now(timezone.utc)
 
         await self._create_task_and_audit(model, "REJECTED", location_id)
+        await self._session.flush()
+        return _to_entity(model)
+
+    async def transfer(
+        self, reservation_id: UUID, location_id: UUID
+    ) -> ReservationRequest:
+        """
+        Zieleinrichtung checkt Person ein: erstellt Occupant am confirmed_bed_id, setzt TRANSFERRED.
+        Source-Einrichtung erhält Task zur manuellen Ausbuchung.
+        """
+        result = await self._session.execute(
+            select(ReservationRequestModel)
+            .where(ReservationRequestModel.id == reservation_id)
+            .with_for_update()
+        )
+        model = result.scalar_one_or_none()
+        if model is None:
+            raise HTTPException(status_code=404, detail="Reservierung nicht gefunden")
+
+        if model.target_location_id != location_id:
+            raise RetractionForbiddenError(
+                "Nur die Zieleinrichtung kann den Transfer durchführen"
+            )
+
+        check_state_transition(model.status, "TRANSFERRED")
+
+        if model.confirmed_bed_id is None:
+            raise HTTPException(
+                status_code=409,
+                detail="Kein Bett zugewiesen — Reservierung erst bestätigen",
+            )
+
+        # Nochmals auf Doppelbelegung prüfen (Absicherung)
+        overlap = await self._session.execute(
+            select(OccupantModel).where(
+                OccupantModel.bed_id == model.confirmed_bed_id,
+                OccupantModel.belegung_start < model.belegung_ende,
+                OccupantModel.belegung_ende > model.belegung_start,
+            )
+        )
+        if overlap.scalar_one_or_none() is not None:
+            raise HTTPException(
+                status_code=409, detail="Bett ist im Zeitraum bereits belegt"
+            )
+
+        now = datetime.now(timezone.utc)
+        occupant = OccupantModel(
+            id=uuid4(),
+            bed_id=model.confirmed_bed_id,
+            azr_id=model.azr_id,
+            alias_id=None,
+            geschlecht=model.geschlecht,
+            belegung_start=model.belegung_start,
+            belegung_ende=model.belegung_ende,
+            labels=[],
+            extended_once=False,
+            created_at=now,
+        )
+        self._session.add(occupant)
+
+        model.status = "TRANSFERRED"
+        model.updated_at = now
+
+        await self._create_task_and_audit(model, "TRANSFERRED", location_id)
         await self._session.flush()
         return _to_entity(model)
 
@@ -319,8 +434,16 @@ class SqlReservationRepo(AbstractReservationRepo):
                 reservation_id=model.id,
                 task_type=TaskType.RESERVATION_TRANSFERRED,
                 priority=TaskPriority.HIGH,
-                title="Transfer abgeschlossen",
-                body=f"Transfer für AZR-ID {model.azr_id} wurde abgeschlossen.",
+                title="Person transferiert — Ausbuchung prüfen",
+                body=f"AZR-ID {model.azr_id} wurde zur Zieleinrichtung transferiert. Bitte prüfen, ob die Person noch manuell ausgebucht werden muss.",
+            )
+            await self._create_task(
+                location_id=model.target_location_id,
+                reservation_id=model.id,
+                task_type=TaskType.RESERVATION_TRANSFERRED,
+                priority=TaskPriority.MEDIUM,
+                title="Einchecken bestätigt",
+                body=f"AZR-ID {model.azr_id} wurde erfolgreich eingecheckt und einem Bett zugewiesen.",
             )
 
         await self._write_audit(model.id, new_status, location_id)

@@ -176,6 +176,9 @@ class ReservationRequestModel(Base):
         ForeignKey("capacity.beds.id"),
         nullable=True,
     )
+    confirmed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )

@@ -33,15 +33,21 @@ class AbstractReservationRepo(ABC):
 
     @abstractmethod
     async def confirm(
-        self, reservation_id: UUID, location_id: UUID
+        self, reservation_id: UUID, location_id: UUID, confirmed_bed_id: UUID
     ) -> ReservationRequest:
-        """Bestätigt eine Reservierung — nur wenn location_id == target_location_id."""
+        """Bestätigt eine Reservierung und weist Bett zu — nur wenn location_id == target_location_id."""
 
     @abstractmethod
     async def reject(
         self, reservation_id: UUID, location_id: UUID
     ) -> ReservationRequest:
         """Lehnt eine Reservierung ab — nur wenn location_id == target_location_id."""
+
+    @abstractmethod
+    async def transfer(
+        self, reservation_id: UUID, location_id: UUID
+    ) -> ReservationRequest:
+        """Checkt Person ein: erstellt Occupant, setzt TRANSFERRED — nur Zieleinrichtung."""
 
     @abstractmethod
     async def list_pending_for_target(

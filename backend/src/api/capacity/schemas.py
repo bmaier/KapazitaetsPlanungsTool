@@ -184,6 +184,7 @@ class BedStatusItem(BaseModel):
     bett_nummer: str
     bett_typ: str
     status: str  # FREI | BELEGT | VORGEMERKT
+    # BELEGT: aktueller Belegter
     occupancy_id: Optional[UUID] = None
     azr_id: Optional[str] = None
     alias_id: Optional[str] = None
@@ -197,6 +198,11 @@ class BedStatusItem(BaseModel):
     bed_valid_from: Optional[date] = None
     is_notbett: bool = False
     extended_once: bool = False
+    # VORGEMERKT: zugehörige bestätigte Reservierung
+    reservation_id: Optional[UUID] = None
+    reservation_azr_id: Optional[str] = None
+    reservation_start: Optional[date] = None
+    reservation_ende: Optional[date] = None
 
 
 class RoomBedStatus(BaseModel):
