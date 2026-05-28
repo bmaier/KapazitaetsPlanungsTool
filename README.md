@@ -28,10 +28,9 @@ FastAPI Backend  ──→  PostgreSQL 16
 
 | Tool | Mindestversion | Zweck |
 |------|---------------|-------|
-| Docker **oder** Podman | Docker 24 / Podman 4.9 | Alle Backend-Services |
+| Docker **oder** Podman | Docker 24 / Podman 4.9 | Alle Services |
 | docker-compose **oder** podman-compose | v2 / 1.2 | Orchestrierung |
-| Node.js | 18 LTS | Frontend Dev-Server |
-| Python | 3.11 | Seed-Skript (einmalig) |
+| Python | 3.11 | Seed-Skript (`make seed`) |
 
 ### Podman auf macOS
 
@@ -51,61 +50,214 @@ brew install podman-compose
 
 ---
 
-## Schnellstart
+## Entwicklungsumgebung (Dev)
 
-### 1 — Repository klonen (falls noch nicht geschehen)
+### Wie Hot-Reload in Docker funktioniert
+
+Im Dev-Betrieb laufen alle Services in Docker-Containern, lesen den Quellcode
+aber **direkt aus deinem lokalen Verzeichnis** über Volume-Mounts:
+
+```
+dein Laptop                        Docker-Container
+──────────────────────────────────────────────────
+./backend/src/  ←── Volume-Mount ──→  /home/appuser/app/src/
+./frontend/     ←── Volume-Mount ──→  /app/
+```
+
+- **Backend:** Uvicorn läuft mit `--reload` — jede Änderung an `backend/src/` startet den
+  Python-Prozess automatisch neu (< 1 s).
+- **Frontend:** Vite läuft mit HMR (Hot Module Replacement) und `usePolling: true` — jede
+  Änderung an `frontend/src/` wird sofort im Browser sichtbar, ohne Reload (~200 ms).
+
+Du brauchst kein lokales Python-venv und kein lokales `npm run dev` —
+**alles läuft im Container, der Code kommt vom Host**.
+
+---
+
+### docker-compose.yml vs. docker-compose.override.yml
+
+Docker Compose lädt **automatisch** beide Dateien und merged sie — kein extra Flag nötig.
+
+```
+docker-compose.yml              ← Basis: läuft überall (Prod, CI, Dev)
+docker-compose.override.yml     ← Wird automatisch drübergelegt (nur lokal/Dev)
+```
+
+| Was steht in `docker-compose.yml` | Was steht in `docker-compose.override.yml` |
+|---|---|
+| Image-Namen (Docker Hub) | Build-Kontexte (`build: ./backend`) |
+| Netzwerke, Volumes | Port-Mappings (`5432:5432`) |
+| Healthchecks | Volume-Mounts für Hot-Reload |
+| Produktions-Env-Vars | Dev-Env-Variablen |
+| — | `KC_HOSTNAME_URL: http://localhost:8080` |
+| — | Uvicorn `--reload`, Vite `npm run dev` |
+
+**Faustregel:** Was auf einem Server oder in CI nie gebraucht wird → Override.
+
+Das Override wird von Git getrackt, weil es der einzige Weg ist, den lokalen Stack zu
+starten. Für Produktions-Deployments wird eine eigene Datei verwendet (s. unten).
+
+---
+
+### Stack starten
 
 ```bash
+# Repository klonen
 git clone <repo-url> KapzitaetsPlanungsTool
 cd KapzitaetsPlanungsTool
-```
 
-### 2 — Backend-Services starten
-
-```bash
-docker compose up -d --build
-```
-
-Warten, bis alle Services healthy sind (dauert beim ersten Build ~3–5 Min):
-
-```bash
-docker compose ps
-# Alle Services sollten "(healthy)" zeigen
-```
-
-Alternativ mit dem Makefile (wartet automatisch auf Healthchecks):
-
-```bash
+# Stack starten (Volume-Mounts aktiv, kein Image-Rebuild)
 make dev
 ```
 
-### 3 — Datenbank migrieren
+`make dev` startet alle Services, wartet auf Healthchecks und gibt die Endpoints aus.
+Das Frontend (Vite, Port 3000) startet im Hintergrund und braucht ~60 s für `npm install`.
+
+> **Nach Änderungen an einem Dockerfile oder `package.json`** Images neu bauen:
+> ```bash
+> make build
+> ```
+
+### Datenbank und Demo-Daten
 
 ```bash
-docker compose exec backend alembic upgrade head
-# oder: make migrate
+make migrate   # Alembic-Migrationen ausführen (nach erstem Start oder neuen Migrationen)
+make seed      # Demo-Daten einfügen (idempotent — mehrfaches Ausführen ist sicher)
 ```
 
-### 4 — Demo-Daten einfügen (einmalig)
+Nach `make down` (Volumes gelöscht) müssen beide Befehle erneut ausgeführt werden.
 
-```bash
-python3 backend/seeds/demo_data.py
+---
+
+### Ports anpassen
+
+Ports werden im `docker-compose.override.yml` gesetzt. Beispiel: Frontend auf 4000
+statt 3000 verlegen:
+
+```yaml
+# docker-compose.override.yml
+services:
+  frontend:
+    ports:
+      - "4000:3000"   # HOST:CONTAINER — nur die linke Zahl ändern
 ```
 
-> Voraussetzung: `pip install psycopg2-binary` falls nicht installiert.
-> Das Skript ist idempotent — mehrfaches Ausführen ist sicher.
+Danach den Stack neu starten: `make dev`
 
-### 5 — Frontend starten
+> Die rechte Zahl (Container-Port) darf nicht geändert werden — sie ist im
+> Dockerfile und in der Anwendungskonfiguration fest verdrahtet.
+
+Alle Standard-Ports im Überblick:
+
+| Service | Container-Port | Standard Host-Port | Override-Schlüssel |
+|---------|---------------|-------------------|-------------------|
+| Frontend (Vite) | 3000 | 3000 | `frontend.ports` |
+| Backend API | 8000 | 8000 | `backend.ports` |
+| SKOS Service | 8001 | 8001 | `skos_service.ports` |
+| Keycloak | 8080 | 8080 | `keycloak.ports` |
+| Tileserver | 8080 | 8082 | `tileserver.ports` |
+| PostgreSQL | 5432 | 5432 | `postgres.ports` |
+
+> **Keycloak-Sonderfall:** Wenn du den Keycloak-Host-Port änderst, muss auch
+> `KC_HOSTNAME_URL` im Override aktualisiert werden:
+> ```yaml
+> keycloak:
+>   ports:
+>     - "9090:8080"
+>   environment:
+>     KC_HOSTNAME_URL: "http://localhost:9090"
+>     KC_HOSTNAME_ADMIN_URL: "http://localhost:9090"
+> ```
+
+---
+
+### System prüfen
 
 ```bash
-cd frontend
-npm install          # nur beim ersten Mal
-npm run dev          # startet auf http://localhost:3000
+# Alle Container und ihr Status
+make logs           # Log-Stream aller Services (Ctrl+C zum Beenden)
+podman compose ps   # oder: docker compose ps
+
+# Einzelne Services prüfen
+curl http://localhost:8000/health          # Backend Healthcheck
+curl http://localhost:8001/health          # SKOS Service
+curl http://localhost:8080/health/ready    # Keycloak
+
+# API im Browser
+open http://localhost:8000/docs            # Swagger UI (Backend)
+open http://localhost:8001/docs            # Swagger UI (SKOS)
+open http://localhost:8080/admin           # Keycloak Admin (admin / admin_dev)
+```
+
+Alle Core-Services zeigen `(healthy)` in `compose ps`, sobald sie bereit sind.
+Das Frontend hat keinen Healthcheck — es startet im Hintergrund.
+
+---
+
+### Anwendung starten
+
+```bash
+open http://localhost:3000
+```
+
+Login mit einem der Demo-Benutzer (s. Abschnitt [Demo-Benutzer](#demo-benutzer)).
+Der Browser wird zu Keycloak (`http://localhost:8080`) weitergeleitet und nach
+erfolgreichem Login zurück zur Anwendung.
+
+---
+
+### Stack stoppen
+
+```bash
+make down                    # Services + Volumes entfernen (sauberer Reset)
+podman compose down          # Services stoppen, Volumes behalten
+podman compose down -v       # Services stoppen + Volumes löschen
 ```
 
 ---
 
-## Erreichbare Services
+## Produktions-Deployment
+
+Für Produktion wird das Override **nicht** verwendet. Stattdessen eine eigene
+`docker-compose.prod.yml` anlegen und explizit angeben:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+Eine minimale `docker-compose.prod.yml` für den Anfang:
+
+```yaml
+version: "3.9"
+
+services:
+  postgres:
+    environment:
+      POSTGRES_PASSWORD: "<sicheres-passwort>"
+
+  keycloak:
+    environment:
+      KEYCLOAK_ADMIN_PASSWORD: "<sicheres-passwort>"
+      KC_HOSTNAME_URL: "https://meine-domain.de"
+      KC_HOSTNAME_ADMIN_URL: "https://meine-domain.de"
+      KC_PROXY: "edge"       # wenn ein Reverse-Proxy (nginx/Traefik) vorgelagert ist
+
+  backend:
+    environment:
+      DATABASE_URL: "postgresql+asyncpg://bordercap:<passwort>@postgres:5432/bordercap"
+      KEYCLOAK_URL: "http://keycloak:8080"
+      KEYCLOAK_PUBLIC_URL: "https://meine-domain.de"
+
+  frontend:
+    image: bosenet/bordercapcontrol-frontend:latest   # gebautes Prod-Image
+```
+
+> **Wichtig:** In Produktion keine Port-Mappings für PostgreSQL und Keycloak nach
+> außen öffnen. Nur Frontend (80/443) und ggf. Backend-API nach außen exponieren.
+
+---
+
+## Erreichbare Services (Dev)
 
 | Service | URL | Zugangsdaten |
 |---------|-----|-------------|
@@ -146,13 +298,13 @@ npm run dev          # startet auf http://localhost:3000
 
 > **Hinweis:** Der `location_id`-Claim im JWT bestimmt, welche Einrichtung im Dashboard hervorgehoben wird.
 > System-Admins sehen alle Einrichtungen mit vollem Zugriff.
-> Nach Keycloak-Neustart (`make down -v && make dev`) werden alle Benutzer automatisch importiert.
+> Nach Keycloak-Neustart (`make down && make dev`) werden alle Benutzer automatisch importiert.
 
 ---
 
 ## Demo-Daten
 
-Nach `python3 backend/seeds/demo_data.py` sind vorhanden:
+Nach `make seed` sind vorhanden:
 
 ### Einrichtungen
 
@@ -163,7 +315,7 @@ Nach `python3 backend/seeds/demo_data.py` sind vorhanden:
 | Grenzübergang Passau | 10 | 2 | 2 | 10 | 3 (30 %) | Grün |
 | Flughafen Hamburg | 12 | 3 | 3 | 12 | 5 (42 %) | Grün |
 
-EU-Gesamtquote: 55 (wird vom Seed automatisch gesetzt)
+EU-Gesamtquote: 800 (wird vom Seed automatisch gesetzt)
 
 ### Räume pro Einrichtung
 
@@ -196,27 +348,16 @@ Das System unterstützt Hinweis-Labels für Räume, Betten und Belegungen:
 
 ---
 
-## Alle Services stoppen
+## Makefile-Referenz
 
 ```bash
-docker compose down          # Services stoppen, Volumes behalten
-docker compose down -v       # Services stoppen + Volumes löschen (sauberer Reset)
-# oder: make down
-```
-
----
-
-## Wichtige Makefile-Ziele
-
-```bash
-make dev              # Services starten + auf Healthchecks warten
-make migrate          # Alembic-Migrationen ausführen
-make seed             # Demo-Daten einfügen
-make test             # Behave-Integrationstests ausführen
-make logs             # Log-Stream aller Services (Ctrl+C zum Beenden)
-make down             # Services + Volumes entfernen
-make frontend-install # npm install im frontend/-Verzeichnis
-make frontend-dev     # Vite Dev-Server starten
+make dev       # Stack starten (kein Rebuild — Volume-Mounts für Hot-Reload)
+make build     # Stack starten + Images neu bauen (nach Dockerfile-/Dep-Änderungen)
+make migrate   # Alembic-Migrationen ausführen
+make seed      # Demo-Daten einfügen (idempotent)
+make test      # Behave-Integrationstests ausführen
+make logs      # Log-Stream aller Services (Ctrl+C zum Beenden)
+make down      # Services + Volumes entfernen (sauberer Reset)
 ```
 
 ---
@@ -248,11 +389,11 @@ KapzitaetsPlanungsTool/
 │       └── components/       Wiederverwendbare MUI-Komponenten
 ├── skos_service/             Codelisten-Service (FastAPI)
 ├── infra/
-│   ├── keycloak/             Realm-Export (3 Benutzer, Rollen)
+│   ├── keycloak/             Realm-Export (Benutzer, Rollen, Client-Config)
 │   └── postgres/             Initialisierungs-SQL, Rollen
 ├── tests/                    Behave-Integrationstests
-├── docker-compose.yml        Produktions-nahe Basis-Konfiguration
-├── docker-compose.override.yml  Dev-Overrides (Port-Bindings, Hot-Reload)
+├── docker-compose.yml        Basis-Konfiguration (Prod-tauglich)
+├── docker-compose.override.yml  Dev-Overrides (Port-Bindings, Hot-Reload, lokale Env-Vars)
 └── Makefile                  Workflow-Einstiegspunkt
 ```
 
@@ -261,8 +402,8 @@ KapzitaetsPlanungsTool/
 ## Bekannte Hinweise
 
 - **Keycloak-Realm-Import:** Keycloak importiert den Realm nur beim ersten Start (leeres Volume).
-  Bei Änderungen an `infra/keycloak/realm-export.json` zuerst `docker compose down -v` ausführen.
-- **EU-Gesamtquote:** Der Demo-Seed setzt die Quote automatisch auf 55. Nach einem `down -v` einfach den Seed nochmals laufen lassen.
+  Bei Änderungen an `infra/keycloak/realm-export.json` zuerst `make down` ausführen.
+- **EU-Gesamtquote:** Der Demo-Seed setzt die Quote automatisch auf 800. Nach einem `make down` einfach `make seed` erneut ausführen.
 - **Tileserver ohne MBTiles:** Der Tileserver startet, liefert aber ohne Deutschland-MBTiles keine Kacheln.
   Das Frontend fällt automatisch auf den SVG-Fallback zurück.
 - **PDF-Report:** `GET /api/reports/eu-compliance?zeitraum=monat` liefert eine PDF-Datei.
