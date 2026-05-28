@@ -206,7 +206,8 @@ open http://localhost:8080/admin           # Keycloak Admin (admin / admin_dev)
 ```
 
 Alle Core-Services zeigen `(healthy)` in `compose ps`, sobald sie bereit sind.
-Das Frontend hat keinen Healthcheck — es startet im Hintergrund.
+Das Frontend-Prod-Image hat einen HEALTHCHECK eingebaut (`wget 127.0.0.1/index.html`).
+Im Dev-Modus (`node:20-alpine`) ist kein Healthcheck aktiv — der Container zeigt kein Health-Label.
 
 ---
 
@@ -265,11 +266,16 @@ services:
       KEYCLOAK_PUBLIC_URL: "https://meine-domain.de"
 
   frontend:
-    image: bosenet/bordercapcontrol-frontend:latest   # gebautes Prod-Image
+    image: bosenet/bordercapcontrol-frontend:latest
+    ports:
+      - "80:80"     # oder "443:80" hinter einem Reverse-Proxy
 ```
 
 > **Wichtig:** In Produktion keine Port-Mappings für PostgreSQL und Keycloak nach
 > außen öffnen. Nur Frontend (80/443) und ggf. Backend-API nach außen exponieren.
+>
+> Das Frontend-Image hat einen eingebauten HEALTHCHECK (`wget 127.0.0.1/index.html`).
+> nginx hört auf Port 80 (IPv4) und `[::]:80` (IPv6) — der Healthcheck ist stabil.
 
 ---
 
