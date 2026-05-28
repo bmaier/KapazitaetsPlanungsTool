@@ -28,6 +28,12 @@ services:
   keycloak:
     ports:
       - "8080:8080"
+    environment:
+      # Ohne KC_HOSTNAME_URL würde Keycloak den internen Docker-Hostnamen
+      # ("keycloak:8080") in OIDC-Endpoints verwenden — der Browser kann
+      # diesen nicht auflösen.
+      KC_HOSTNAME_URL: "http://localhost:8080"
+      KC_HOSTNAME_ADMIN_URL: "http://localhost:8080"
     volumes:
       - ./infra/keycloak/themes:/opt/keycloak/themes:ro
 
