@@ -29,11 +29,11 @@ services:
     ports:
       - "8080:8080"
     environment:
-      # Ohne KC_HOSTNAME_URL würde Keycloak den internen Docker-Hostnamen
-      # ("keycloak:8080") in OIDC-Endpoints verwenden — der Browser kann
-      # diesen nicht auflösen.
-      KC_HOSTNAME_URL: "http://localhost:8080"
-      KC_HOSTNAME_ADMIN_URL: "http://localhost:8080"
+      # KEYCLOAK_PUBLIC_URL steuert die öffentliche Keycloak-URL in OIDC-Endpoints.
+      # Wert aus .env-Datei oder Umgebungsvariable; Default: localhost für lokale Dev.
+      # Auf Prod-Servern: KEYCLOAK_PUBLIC_URL=http://<server-ip>:8080 in .env setzen.
+      KC_HOSTNAME_URL: "${KEYCLOAK_PUBLIC_URL:-http://localhost:8080}"
+      KC_HOSTNAME_ADMIN_URL: "${KEYCLOAK_PUBLIC_URL:-http://localhost:8080}"
     volumes:
       - ./infra/keycloak/themes:/opt/keycloak/themes:ro
 
@@ -56,7 +56,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      KEYCLOAK_PUBLIC_URL: "http://localhost:8080"
+      KEYCLOAK_PUBLIC_URL: "${KEYCLOAK_PUBLIC_URL:-http://localhost:8080}"
     command: >
       python -m uvicorn src.main:app
         --host 0.0.0.0
