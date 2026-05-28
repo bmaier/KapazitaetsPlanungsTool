@@ -22,6 +22,8 @@ FastAPI Backend  ──→  PostgreSQL 16
 **Backend-Architektur:** Hexagonal — Fachlogik von Infrastruktur getrennt  
 **Hintergrundprozesse:** APScheduler (Überkapazitäts-Alerts, 12-Wochen-Warnungen, PDF-Reports)
 
+Detailliertes Datenbankmodell mit ERD, Designentscheidungen und Label-System: **[datamodel.md](datamodel.md)**
+
 ---
 
 ## Voraussetzungen
