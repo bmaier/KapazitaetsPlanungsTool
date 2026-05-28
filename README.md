@@ -24,6 +24,20 @@ FastAPI Backend  ──→  PostgreSQL 16
 
 Detailliertes Datenbankmodell mit ERD, Designentscheidungen und Label-System: **[datamodel.md](datamodel.md)**
 
+### Docker Hub Images
+
+| Image | Docker Hub | Beschreibung |
+|-------|-----------|-------------|
+| `bosenet/bordercapcontrol-frontend` | [![Docker Hub](https://img.shields.io/docker/v/bosenet/bordercapcontrol-frontend?label=frontend)](https://hub.docker.com/r/bosenet/bordercapcontrol-frontend) | React + MUI, Vite-Build in nginx — kein Source-Code zur Laufzeit |
+| `bosenet/bordercapcontrol-backend` | [![Docker Hub](https://img.shields.io/docker/v/bosenet/bordercapcontrol-backend?label=backend)](https://hub.docker.com/r/bosenet/bordercapcontrol-backend) | FastAPI + Uvicorn, Python 3.11 |
+| `bosenet/bordercapcontrol-skos` | [![Docker Hub](https://img.shields.io/docker/v/bosenet/bordercapcontrol-skos?label=skos)](https://hub.docker.com/r/bosenet/bordercapcontrol-skos) | SKOS Codelisten-Service, FastAPI |
+
+```bash
+docker pull bosenet/bordercapcontrol-frontend:latest
+docker pull bosenet/bordercapcontrol-backend:latest
+docker pull bosenet/bordercapcontrol-skos:latest
+```
+
 ---
 
 ## Voraussetzungen
