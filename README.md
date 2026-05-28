@@ -271,6 +271,122 @@ services:
 
 ---
 
+## Keycloak: Rollen, Location-ID und JWT
+
+### Wie location_id gepflegt wird
+
+Jeder Benutzer bekommt in Keycloak eine UUID als Benutzer-Attribut `location_id` — sie
+verknüpft den Account mit genau einer Einrichtung.
+
+**Keycloak Admin UI** → `http://localhost:8080/admin` → Realm `bordercapcontrol` →
+**Users** → Benutzer auswählen → Tab **Attributes**:
+
+```
+Schlüssel    Wert
+──────────   ──────────────────────────────────────
+location_id  a1b2c3d4-0001-0001-0001-000000000001
+```
+
+Die UUID muss mit der `id` in der Tabelle `capacity.locations` übereinstimmen (s. Demo-Daten).
+
+> `system-admin` bekommt **kein** `location_id`-Attribut — sie haben globalen Zugriff
+> und übergeben die gewünschte Einrichtung über den `X-Location-Id`-Header.
+
+---
+
+### Wie location_id ins JWT gelangt (Protocol Mapper)
+
+Ein **Protocol Mapper** im Keycloak-Client `bordercapcontrol-frontend` liest das
+Benutzer-Attribut und schreibt es als Claim ins Access-Token:
+
+```
+Keycloak Admin → Clients → bordercapcontrol-frontend
+  → Client scopes → bordercapcontrol-frontend-dedicated
+  → Mappers → "location_id"
+     Typ:         User Attribute
+     Attribut:    location_id
+     Claim-Name:  location_id
+     Token:       Access Token ✓  ID Token ✓
+```
+
+Dieser Mapper ist im `infra/keycloak/realm-export.json` gespeichert und wird beim
+ersten Keycloak-Start automatisch importiert — keine manuelle Konfiguration nötig.
+
+---
+
+### JWT-Token Struktur (dekodiertes Beispiel)
+
+```json
+{
+  "sub":    "1234abcd-...",
+  "iss":    "http://localhost:8080/realms/bordercapcontrol",
+  "exp":    1234567890,
+  "realm_access": {
+    "roles": ["writer"]
+  },
+  "location_id": "a1b2c3d4-0001-0001-0001-000000000001"
+}
+```
+
+> Bei `system-admin` fehlt `location_id`. Bei `reader`/`writer`/`location-admin`
+> ist sie immer vorhanden.
+
+Token im Browser dekodieren: **Keycloak Account Console** →
+`http://localhost:8080/realms/bordercapcontrol/account` → oder [jwt.io](https://jwt.io).
+
+---
+
+### Wie Backend Rolle und Location prüft
+
+Das Backend hat zwei FastAPI-Dependencies (`backend/src/adapters/keycloak/jwt.py`):
+
+**1. `get_current_user` — Signatur und Rolle prüfen**
+
+```
+Request mit Bearer-Token
+    │
+    ├─ JWKS von Keycloak laden (gecacht, TTL 5 min)
+    ├─ Token-Signatur verifizieren (RS256)
+    ├─ Issuer prüfen (muss realm-URL entsprechen)
+    ├─ Rollen lesen aus payload["realm_access"]["roles"]
+    │
+    ├─ GET/HEAD  → mindestens "reader"-Rolle erforderlich
+    └─ POST/PUT/PATCH/DELETE → mindestens "writer"-Rolle erforderlich
+         → HTTP 403 bei unzureichender Rolle
+```
+
+Gibt ein `UserContext`-Objekt zurück: `sub`, `roles`, `location_id`.
+
+**2. `get_location_context` — Einrichtung auflösen**
+
+```
+X-Location-Id Header vorhanden?
+    ├─ Ja  → diese UUID verwenden
+    └─ Nein → location_id aus JWT-Claim verwenden
+
+Keine UUID gefunden → HTTP 403
+
+UUID in DB vorhanden und is_active = true?
+    ├─ Ja  → LocationModel zurückgeben
+    └─ Nein → HTTP 403
+```
+
+`system-admin` muss den `X-Location-Id`-Header explizit setzen (kein JWT-Claim).
+Alle anderen Rollen sind an ihre JWT-Claim-UUID gebunden.
+
+---
+
+### Rollenhierarchie im Überblick
+
+```
+system-admin      Alle Einrichtungen, kein location_id-Claim nötig
+location-admin    Eigene Einrichtung, Schreibzugriff, Kontingent setzen
+writer            Eigene Einrichtung, Belegung + Reservierungen bearbeiten
+reader            Eigene Einrichtung, nur lesend
+```
+
+---
+
 ## Demo-Benutzer
 
 ### Vordefinierte Rollen
