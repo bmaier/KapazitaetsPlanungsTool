@@ -9,8 +9,10 @@ import DashboardIcon from '@mui/icons-material/Dashboard'
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz'
 import SearchIcon from '@mui/icons-material/Search'
 import LogoutIcon from '@mui/icons-material/Logout'
+import HelpOutlineIcon from '@mui/icons-material/HelpOutline'
 import BedIcon from '@mui/icons-material/Hotel'
 import { useLocation, useNavigate } from 'react-router-dom'
+import HelpDrawer from './HelpDrawer'
 import { useKeycloak } from '../auth/KeycloakProvider'
 import { useSseNotifications } from '../hooks/useSseNotifications'
 import { useApiClient } from '../api/client'
@@ -68,6 +70,7 @@ export default function NavBar() {
   const [searchResults, setSearchResults] = useState<OccupantResult[]>([])
   const [searchLoading, setSearchLoading] = useState(false)
   const [searched, setSearched] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
 
   async function handleSearch() {
     if (!searchQ.trim()) return
@@ -135,6 +138,13 @@ export default function NavBar() {
             </IconButton>
           </Tooltip>
 
+          {/* Hilfe */}
+          <Tooltip title="Hilfe & Benutzerhandbuch">
+            <IconButton color="inherit" onClick={() => setHelpOpen(true)} sx={{ borderRadius: 1.5 }} aria-label="Hilfe öffnen">
+              <HelpOutlineIcon />
+            </IconButton>
+          </Tooltip>
+
           {/* Postkorb */}
           <Tooltip title="Postkorb">
             <IconButton color="inherit" onClick={() => navigate('/tasks')}
@@ -166,6 +176,8 @@ export default function NavBar() {
           </Tooltip>
         </Toolbar>
       </AppBar>
+
+      <HelpDrawer open={helpOpen} onClose={() => setHelpOpen(false)} />
 
       {/* AZR-Suchdialog */}
       <Dialog open={searchOpen} onClose={() => { setSearchOpen(false); setSearchQ(''); setSearchResults([]); setSearched(false) }}

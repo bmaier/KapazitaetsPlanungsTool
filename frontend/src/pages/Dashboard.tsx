@@ -33,6 +33,7 @@ import { useKeycloak } from '../auth/KeycloakProvider'
 import { useApiClient } from '../api/client'
 import type { SvgIconComponent } from '@mui/icons-material'
 import MapView from '../components/MapView'
+import HelpTooltip from '../components/HelpTooltip'
 
 interface LocationSummary {
   id: string
@@ -291,9 +292,13 @@ export default function Dashboard() {
           <TextField label="Adresse" value={newAdresse}
             onChange={(e) => setNewAdresse(e.target.value)} fullWidth multiline rows={2} />
           <Box display="flex" gap={2}>
-            <TextField label="Kontingent (Plätze) *" type="number" value={newKontingent}
+            <TextField
+              label={<>Kontingent (Plätze) *<HelpTooltip text="EU-quotenrelevante Betten. Jede Belegung startet einen 12-Wochen-Timer." /></>}
+              type="number" value={newKontingent}
               onChange={(e) => setNewKontingent(e.target.value)} inputProps={{ min: 0 }} fullWidth />
-            <TextField label="Notbett-Kapazität" type="number" value={newNotbett}
+            <TextField
+              label={<>Notbett-Kapazität<HelpTooltip text="Temporäre Plätze für max. 1 Nacht. Nicht EU-quotenrelevant, kein 12-Wochen-Timer." /></>}
+              type="number" value={newNotbett}
               onChange={(e) => setNewNotbett(e.target.value)} inputProps={{ min: 0 }} fullWidth />
           </Box>
           <Alert severity="info">

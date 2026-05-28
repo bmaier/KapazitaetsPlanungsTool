@@ -43,6 +43,7 @@ import { extractApiError, useApiClient } from '../api/client'
 import { useKeycloak } from '../auth/KeycloakProvider'
 import { useSseNotifications } from '../hooks/useSseNotifications'
 import LabelChips, { LabelList } from '../components/LabelChips'
+import HelpTooltip from '../components/HelpTooltip'
 
 interface Location {
   id: string
@@ -780,16 +781,18 @@ export default function Drilldown() {
           </Box>
           <Box display="flex" gap={3} mt={2} flexWrap="wrap">
             {[
-              { label: 'Kontingent', value: location.kontingent },
-              { label: 'Notbetten', value: location.notbett_kapazitaet },
+              { label: 'Kontingent', value: location.kontingent, help: 'EU-quotenrelevante Gesamtkapazität dieser Einrichtung.' },
+              { label: 'Notbetten', value: location.notbett_kapazitaet, help: 'Temporäre Plätze für max. 1 Nacht — nicht EU-quotenrelevant.' },
               { label: 'Frei', value: totalFrei, color: '#a5d6a7' },
               { label: 'Belegt', value: totalBelegt, color: '#ef9a9a' },
-            ].map(({ label, value, color }) => (
+            ].map(({ label, value, color, help }) => (
               <Box key={label} sx={{ textAlign: 'center' }}>
                 <Typography variant="h4" fontWeight={800} sx={{ color: color ?? 'white', lineHeight: 1 }}>
                   {value}
                 </Typography>
-                <Typography variant="caption" sx={{ opacity: 0.8 }}>{label}</Typography>
+                <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                  {label}{help && <HelpTooltip text={help} />}
+                </Typography>
               </Box>
             ))}
             {totalPending > 0 && (
@@ -940,14 +943,14 @@ export default function Drilldown() {
         </DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, pt: 2 }}>
           <TextField
-            label="AZR-ID *"
+            label={<>AZR-ID *<HelpTooltip text="Ausländerzentralregister-Nummer der Person. Keine Personennamen werden gespeichert (DSGVO)." /></>}
             value={azrId}
             onChange={(e) => setAzrId(e.target.value)}
             placeholder="z.B. AZR-2024-FFM-M01"
             fullWidth required
           />
           <TextField
-            label="Alias-ID (optional)"
+            label={<>Alias-ID (optional)<HelpTooltip text="Einrichtungsinterne Kennung — erleichtert die Suche ohne vollständige AZR-ID." /></>}
             value={aliasId}
             onChange={(e) => setAliasId(e.target.value)}
             placeholder="z.B. AL-M-001"
@@ -1178,9 +1181,13 @@ export default function Drilldown() {
           {editTab === 0 && (
             <Box display="flex" flexDirection="column" gap={2.5}>
               <Box display="flex" gap={2}>
-                <TextField label="Kontingent (Plätze)" type="number" value={editKontingent}
+                <TextField
+                  label={<>Kontingent (Plätze)<HelpTooltip text="EU-quotenrelevante Gesamtkapazität. Reduktion unter aktuelle Belegung erzeugt eine Überkapazität im EU-Reporting." /></>}
+                  type="number" value={editKontingent}
                   onChange={(e) => setEditKontingent(e.target.value)} inputProps={{ min: 0 }} fullWidth />
-                <TextField label="Notbett-Kapazität" type="number" value={editNotbett}
+                <TextField
+                  label={<>Notbett-Kapazität<HelpTooltip text="Max. gleichzeitige Notbett-Belegungen. Notbetten sind max. 1 Nacht, nicht EU-quotenrelevant." /></>}
+                  type="number" value={editNotbett}
                   onChange={(e) => setEditNotbett(e.target.value)} inputProps={{ min: 0 }} fullWidth />
               </Box>
               <TextField label="Adresse" value={editAdresse}
