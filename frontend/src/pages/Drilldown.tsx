@@ -383,7 +383,6 @@ export default function Drilldown() {
   const [checkoutConfirm, setCheckoutConfirm] = useState(false)
   const [checkoutSaving, setCheckoutSaving] = useState(false)
   const [checkoutGrund, setCheckoutGrund] = useState('')
-  const [managePeriodStart, setManagePeriodStart] = useState('')
   const [managePeriodEnde, setManagePeriodEnde] = useState('')
   const [managePeriodSaving, setManagePeriodSaving] = useState(false)
 
@@ -462,7 +461,6 @@ export default function Drilldown() {
 
   useEffect(() => {
     if (manageBed) {
-      setManagePeriodStart(manageBed.bed.belegung_start ?? '')
       setManagePeriodEnde(manageBed.bed.belegung_ende ?? '')
     }
   }, [manageBed])
@@ -820,12 +818,13 @@ export default function Drilldown() {
   }
 
   async function handleUpdatePeriod() {
-    if (!manageBed?.bed.occupancy_id || !managePeriodStart || !managePeriodEnde) return
-    if (managePeriodEnde <= managePeriodStart) return
+    if (!manageBed?.bed.occupancy_id || !managePeriodEnde) return
+    const origStart = manageBed.bed.belegung_start ?? ''
+    if (managePeriodEnde <= origStart) return
     setManagePeriodSaving(true)
     try {
       await patch(`/api/occupancy/${manageBed.bed.occupancy_id}/period`, {
-        belegung_start: managePeriodStart,
+        belegung_start: origStart,
         belegung_ende: managePeriodEnde,
       })
       loadBedStatus()
@@ -1185,13 +1184,10 @@ export default function Drilldown() {
             </FormControl>
           )}
           <Box display="flex" gap={2}>
-            <TextField label="Belegung von *" type="date" size="small" value={belegStart}
-              onChange={(e) => {
-                setBelegStart(e.target.value)
-                const end = new Date(new Date(e.target.value).getTime() + 14 * 86400000).toISOString().slice(0, 10)
-                setBelegEnde(end)
-              }}
-              InputLabelProps={{ shrink: true }} fullWidth />
+            <TextField label="Belegung von (heute)" type="date" size="small" value={belegStart}
+              InputLabelProps={{ shrink: true }} fullWidth
+              inputProps={{ readOnly: true, style: { color: '#666', cursor: 'default' } }}
+              sx={{ '& fieldset': { borderColor: '#e0e0e0' }, bgcolor: '#fafafa' }} />
             <TextField label="Belegung bis *" type="date" size="small" value={belegEnde}
               onChange={(e) => setBelegEnde(e.target.value)}
               InputLabelProps={{ shrink: true }} inputProps={{ min: belegStart }} fullWidth />
@@ -1269,18 +1265,17 @@ export default function Drilldown() {
                 <Box>
                   <Typography variant="caption" color="text.secondary">Belegungszeitraum</Typography>
                   <Box display="flex" alignItems="center" gap={0.5} mt={0.3} flexWrap="wrap">
-                    <TextField size="small" type="date" value={managePeriodStart}
-                      onChange={(e) => setManagePeriodStart(e.target.value)}
-                      inputProps={{ style: { fontSize: 12, padding: '4px 6px' } }}
-                      sx={{ width: 136 }} />
+                    <Typography sx={{ fontSize: 12, fontWeight: 600, px: 0.5 }}>
+                      {manageBed.bed.belegung_start}
+                    </Typography>
                     <Typography variant="caption">–</Typography>
                     <TextField size="small" type="date" value={managePeriodEnde}
                       onChange={(e) => setManagePeriodEnde(e.target.value)}
-                      inputProps={{ min: managePeriodStart, style: { fontSize: 12, padding: '4px 6px' } }}
-                      error={!!managePeriodStart && !!managePeriodEnde && managePeriodEnde <= managePeriodStart}
+                      inputProps={{ min: manageBed.bed.belegung_start ?? '', style: { fontSize: 12, padding: '4px 6px' } }}
+                      error={!!managePeriodEnde && !!manageBed.bed.belegung_start && managePeriodEnde <= manageBed.bed.belegung_start}
                       sx={{ width: 136 }} />
-                    {(managePeriodStart !== (manageBed.bed.belegung_start ?? '') || managePeriodEnde !== (manageBed.bed.belegung_ende ?? '')) &&
-                      managePeriodStart && managePeriodEnde && managePeriodEnde > managePeriodStart && (
+                    {managePeriodEnde !== (manageBed.bed.belegung_ende ?? '') &&
+                      managePeriodEnde > (manageBed.bed.belegung_start ?? '') && (
                       <Button size="small" variant="outlined" onClick={handleUpdatePeriod} disabled={managePeriodSaving}
                         sx={{ fontSize: 11, py: 0.3, px: 1, minWidth: 0 }}>
                         {managePeriodSaving ? <CircularProgress size={12} /> : 'OK'}

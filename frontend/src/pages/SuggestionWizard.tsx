@@ -335,7 +335,7 @@ export default function SuggestionWizard() {
           await post(`/api/beds/${selectedVariantData.beds[0].bed_id}/occupancy`, {
             azr_id: confirmAzrId.trim(),
             geschlecht: confirmAzrGeschlecht,
-            belegung_start: start,
+            belegung_start: today,
             belegung_ende: ende,
           })
         } else {
