@@ -19,6 +19,7 @@ import {
   TableHead,
   TableRow,
   Tabs,
+  TextField,
   Tooltip,
   Typography,
 } from '@mui/material'
@@ -94,6 +95,37 @@ export default function Reservations() {
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
+
+  // Filter state — default: letzte 5 Tage, alle Status
+  const [filterDateFrom, setFilterDateFrom] = useState(() => {
+    const d = new Date()
+    d.setDate(d.getDate() - 5)
+    return d.toISOString().slice(0, 10)
+  })
+  const [filterDateTo, setFilterDateTo] = useState('')
+  const [filterStatus, setFilterStatus] = useState<string[]>([])
+
+  function applyFilters(rows: Reservation[]): Reservation[] {
+    return rows.filter((r) => {
+      const created = r.created_at.slice(0, 10)
+      if (filterDateFrom && created < filterDateFrom) return false
+      if (filterDateTo && created > filterDateTo) return false
+      if (filterStatus.length > 0 && !filterStatus.includes(r.status)) return false
+      return true
+    })
+  }
+
+  function resetFilters() {
+    const d = new Date()
+    d.setDate(d.getDate() - 5)
+    setFilterDateFrom(d.toISOString().slice(0, 10))
+    setFilterDateTo('')
+    setFilterStatus([])
+  }
+
+  function toggleStatus(s: string) {
+    setFilterStatus((prev) => prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s])
+  }
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
     open: false, message: '', severity: 'success',
   })
@@ -213,6 +245,16 @@ export default function Reservations() {
 
   if (loading) return <Box display="flex" justifyContent="center" mt={8}><CircularProgress /></Box>
 
+  const filteredReservations = applyFilters(reservations)
+  const filteredIncoming = applyFilters(incoming)
+  const filteredMine = applyFilters(
+    isSystemAdmin ? reservations : reservations.filter((r) => r.requester_location_id === locationId)
+  )
+  const isFilterActive = filterStatus.length > 0 || filterDateTo !== '' || (() => {
+    const d = new Date(); d.setDate(d.getDate() - 5)
+    return filterDateFrom !== d.toISOString().slice(0, 10)
+  })()
+
   const ReservationTable = ({ rows, showActions }: { rows: Reservation[]; showActions: boolean }) => (
     rows.length === 0 ? (
       <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>Keine Verlegungsanfragen vorhanden.</Typography>
@@ -329,22 +371,73 @@ export default function Reservations() {
         </Button>
       </Box>
 
+      {/* ── Filterleiste ── */}
+      <Paper elevation={0} sx={{ p: 2, mb: 2, border: '1px solid #e0e0e0', borderRadius: 2 }}>
+        <Box display="flex" gap={2} flexWrap="wrap" alignItems="center">
+          <TextField
+            label="Erstellt ab"
+            type="date"
+            size="small"
+            value={filterDateFrom}
+            onChange={(e) => setFilterDateFrom(e.target.value)}
+            slotProps={{ inputLabel: { shrink: true } }}
+            sx={{ width: 160 }}
+          />
+          <TextField
+            label="Bis"
+            type="date"
+            size="small"
+            value={filterDateTo}
+            onChange={(e) => setFilterDateTo(e.target.value)}
+            slotProps={{ inputLabel: { shrink: true } }}
+            sx={{ width: 160 }}
+          />
+          <Box display="flex" gap={0.5} flexWrap="wrap" alignItems="center">
+            <Typography variant="caption" color="text.secondary" sx={{ mr: 0.5 }}>Status:</Typography>
+            {Object.entries(STATUS_CONFIG).map(([key, cfg]) => {
+              const selected = filterStatus.includes(key)
+              return (
+                <Chip
+                  key={key}
+                  label={cfg.label}
+                  size="small"
+                  onClick={() => toggleStatus(key)}
+                  sx={{
+                    bgcolor: selected ? cfg.bg : 'transparent',
+                    color: selected ? cfg.color : '#757575',
+                    border: `1px solid ${selected ? cfg.color : '#ccc'}`,
+                    fontWeight: selected ? 700 : 400,
+                    cursor: 'pointer',
+                  }}
+                />
+              )
+            })}
+          </Box>
+          {isFilterActive && (
+            <Button size="small" variant="text" onClick={resetFilters}
+              sx={{ color: '#888', ml: 'auto', whiteSpace: 'nowrap' }}>
+              Zurücksetzen
+            </Button>
+          )}
+        </Box>
+      </Paper>
+
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2, borderBottom: '1px solid #e0e0e0' }}>
-        <Tab label={`Alle Verlegungsanfragen (${reservations.length})`} />
+        <Tab label={`Alle (${filteredReservations.length})`} />
         <Tab label={
           <Box display="flex" alignItems="center" gap={1}>
             Aktionen erforderlich
-            {incoming.length > 0 && (
-              <Chip label={incoming.length} size="small" color="error" sx={{ height: 18, fontSize: 10 }} />
+            {filteredIncoming.length > 0 && (
+              <Chip label={filteredIncoming.length} size="small" color="error" sx={{ height: 18, fontSize: 10 }} />
             )}
           </Box>
         } />
         <Tab label={
           <Box display="flex" alignItems="center" gap={1}>
             Meine Verlegungsanfragen
-            {reservations.filter(r => r.requester_location_id === locationId && r.status === 'PENDING').length > 0 && (
+            {filteredMine.filter((r) => r.status === 'PENDING').length > 0 && (
               <Chip
-                label={reservations.filter(r => r.requester_location_id === locationId && r.status === 'PENDING').length}
+                label={filteredMine.filter((r) => r.status === 'PENDING').length}
                 size="small"
                 sx={{ height: 18, fontSize: 10, bgcolor: '#ede7f6', color: '#6a1b9a' }}
               />
@@ -354,14 +447,12 @@ export default function Reservations() {
       </Tabs>
 
       <Paper elevation={0} sx={{ borderRadius: 2, border: '1px solid #e0e0e0', overflow: 'hidden' }}>
-        {tab === 0 && <ReservationTable rows={reservations} showActions={true} />}
-        {tab === 1 && <ReservationTable rows={incoming} showActions={true} />}
+        {tab === 0 && <ReservationTable rows={filteredReservations} showActions={true} />}
+        {tab === 1 && <ReservationTable rows={filteredIncoming} showActions={true} />}
         {tab === 2 && (
-          isSystemAdmin
-            ? <ReservationTable rows={reservations} showActions={true} />
-            : locationId
-              ? <ReservationTable rows={reservations.filter(r => r.requester_location_id === locationId)} showActions={true} />
-              : <Typography color="text.secondary" sx={{ p: 3 }}>Keine Einrichtung zugeordnet.</Typography>
+          locationId || isSystemAdmin
+            ? <ReservationTable rows={filteredMine} showActions={true} />
+            : <Typography color="text.secondary" sx={{ p: 3 }}>Keine Einrichtung zugeordnet.</Typography>
         )}
       </Paper>
 
