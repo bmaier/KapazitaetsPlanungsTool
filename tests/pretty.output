@@ -1,67 +1,72 @@
-Feature: Ziel-9-Schutzregeln (HF-17, HF-18, HF-19, HF-22) # features/ziel9_guards.feature:1
-  Als Sachbearbeiter
-  möchte ich, dass das System dateninkonsistente Aktionen verhindert
-  damit Belegungs- und Kapazitätsdaten jederzeit korrekt sind.
-  Background:   # features/ziel9_guards.feature:6
+Feature: Bettsuche — SuggestionWizard # features/suggestion_wizard.feature:1
+  Als Sachbearbeiter einer Einrichtung
+  möchte ich für eine Person alle freien Betten an allen aktiven Einrichtungen sehen,
+  damit ich das passende Bett gezielt auswählen kann.
+  Background:   # features/suggestion_wizard.feature:6
 
-  Scenario: Raum mit aktiver Belegung kann nicht deaktiviert werden  # features/ziel9_guards.feature:13
-    Given die API läuft auf http://localhost:8000                    # steps/capacity_steps.py:76
-    Given ein belegtes Bett in einem Raum existiert                  # steps/ziel9_steps.py:120
-    When ich DELETE /api/rooms/{room_id} sende                       # steps/ziel9_steps.py:186
-    Then ist der HTTP-Status 409                                     # steps/capacity_steps.py:304
-    And die Fehlermeldung enthält "aktive Belegung"                  # steps/capacity_steps.py:341
+  Scenario: Einzelperson-Suche liefert jedes freie Bett als eigene Variante                                      # features/suggestion_wizard.feature:15
+    Given die API läuft auf http://localhost:8000                                                                # steps/capacity_steps.py:76
+    And die Datenbank ist leer (Suggestion-Test-Isolation)                                                       # steps/suggestion_steps.py:87
+    And eine Einrichtung "Quelle" mit ID "src-loc" existiert mit 0 freien Betten                                 # steps/suggestion_steps.py:108
+    And eine Einrichtung "Ziel-A" mit ID "dst-a" existiert mit 3 freien Männerbetten                             # steps/suggestion_steps.py:118
+    And eine Einrichtung "Ziel-B" mit ID "dst-b" existiert mit 5 freien Männerbetten                             # steps/suggestion_steps.py:118
+    When ich POST /api/suggestions sende als Einrichtung "src-loc" mit anzahl=1 geschlecht=M cross_location=true # steps/suggestion_steps.py:140
+    Then ist der HTTP-Status 200                                                                                 # steps/capacity_steps.py:304
+    And die Antwort enthält genau 8 Varianten                                                                    # steps/suggestion_steps.py:174
+    And jede Variante enthält genau 1 Bett                                                                       # steps/suggestion_steps.py:183
 
-  Scenario: Leerer Raum kann deaktiviert werden   # features/ziel9_guards.feature:19
-    Given die API läuft auf http://localhost:8000 # steps/capacity_steps.py:76
-    Given ein Raum existiert                      # steps/capacity_steps.py:137
-    When ich DELETE /api/rooms/{room_id} sende    # steps/ziel9_steps.py:186
-    Then ist der HTTP-Status 200                  # steps/capacity_steps.py:304
+  Scenario: Pro Zieleinrichtung werden alle freien Betten zurückgegeben                                          # features/suggestion_wizard.feature:21
+    Given die API läuft auf http://localhost:8000                                                                # steps/capacity_steps.py:76
+    And die Datenbank ist leer (Suggestion-Test-Isolation)                                                       # steps/suggestion_steps.py:87
+    And eine Einrichtung "Quelle" mit ID "src-loc" existiert mit 0 freien Betten                                 # steps/suggestion_steps.py:108
+    And eine Einrichtung "Ziel-A" mit ID "dst-a" existiert mit 3 freien Männerbetten                             # steps/suggestion_steps.py:118
+    And eine Einrichtung "Ziel-B" mit ID "dst-b" existiert mit 5 freien Männerbetten                             # steps/suggestion_steps.py:118
+    When ich POST /api/suggestions sende als Einrichtung "src-loc" mit anzahl=1 geschlecht=M cross_location=true # steps/suggestion_steps.py:140
+    Then ist der HTTP-Status 200                                                                                 # steps/capacity_steps.py:304
+    And die Einrichtung "Ziel-A" ist in 3 Varianten vertreten                                                    # steps/suggestion_steps.py:192
+    And die Einrichtung "Ziel-B" ist in 5 Varianten vertreten                                                    # steps/suggestion_steps.py:192
 
-  Scenario: Kontingent kann nicht unter aktuelle Belegungszahl gesenkt werden  # features/ziel9_guards.feature:28
-    Given die API läuft auf http://localhost:8000                              # steps/capacity_steps.py:76
-    Given eine Location mit Kontingent 10 und 3 aktiven Belegungen existiert   # steps/ziel9_steps.py:128
-    When ich PATCH /api/locations/{location_id} mit Kontingent 2 sende         # steps/ziel9_steps.py:192
-    Then ist der HTTP-Status 409                                               # steps/capacity_steps.py:304
-    And die Fehlermeldung enthält "Belegung"                                   # steps/capacity_steps.py:341
+  Scenario: Einrichtung ohne freie Betten erscheint nicht in Varianten                                           # features/suggestion_wizard.feature:27
+    Given die API läuft auf http://localhost:8000                                                                # steps/capacity_steps.py:76
+    And die Datenbank ist leer (Suggestion-Test-Isolation)                                                       # steps/suggestion_steps.py:87
+    And eine Einrichtung "Quelle" mit ID "src-loc" existiert mit 0 freien Betten                                 # steps/suggestion_steps.py:108
+    And eine Einrichtung "Ziel-A" mit ID "dst-a" existiert mit 3 freien Männerbetten                             # steps/suggestion_steps.py:118
+    And eine Einrichtung "Ziel-B" mit ID "dst-b" existiert mit 5 freien Männerbetten                             # steps/suggestion_steps.py:118
+    When ich POST /api/suggestions sende als Einrichtung "src-loc" mit anzahl=1 geschlecht=M cross_location=true # steps/suggestion_steps.py:140
+    Then ist der HTTP-Status 200                                                                                 # steps/capacity_steps.py:304
+    And die Einrichtung "Quelle" erscheint nicht in den Varianten                                                # steps/suggestion_steps.py:205
 
-  Scenario: Kontingent kann auf die aktuelle Belegungszahl gesetzt werden    # features/ziel9_guards.feature:34
-    Given die API läuft auf http://localhost:8000                            # steps/capacity_steps.py:76
-    Given eine Location mit Kontingent 10 und 3 aktiven Belegungen existiert # steps/ziel9_steps.py:128
-    When ich PATCH /api/locations/{location_id} mit Kontingent 3 sende       # steps/ziel9_steps.py:192
-    Then ist der HTTP-Status 200                                             # steps/capacity_steps.py:304
+  Scenario: Frauensuche liefert keine Männer-Betten                                                              # features/suggestion_wizard.feature:34
+    Given die API läuft auf http://localhost:8000                                                                # steps/capacity_steps.py:76
+    And die Datenbank ist leer (Suggestion-Test-Isolation)                                                       # steps/suggestion_steps.py:87
+    And eine Einrichtung "Quelle" mit ID "src-loc" existiert mit 0 freien Betten                                 # steps/suggestion_steps.py:108
+    And eine Einrichtung "Ziel-A" mit ID "dst-a" existiert mit 3 freien Männerbetten                             # steps/suggestion_steps.py:118
+    And eine Einrichtung "Ziel-B" mit ID "dst-b" existiert mit 5 freien Männerbetten                             # steps/suggestion_steps.py:118
+    Given eine Einrichtung "Ziel-C" mit ID "dst-c" existiert mit 2 freien Frauenbetten                           # steps/suggestion_steps.py:128
+    When ich POST /api/suggestions sende als Einrichtung "src-loc" mit anzahl=1 geschlecht=W cross_location=true # steps/suggestion_steps.py:140
+    Then ist der HTTP-Status 200                                                                                 # steps/capacity_steps.py:304
+    And alle Varianten gehören zu Frauenräumen                                                                   # steps/suggestion_steps.py:216
+    And die Einrichtung "Ziel-A" erscheint nicht in den Varianten                                                # steps/suggestion_steps.py:205
 
-  Scenario: Belegung auf inaktiver Einrichtung (valid_until überschritten) schlägt fehl  # features/ziel9_guards.feature:43
-    Given die API läuft auf http://localhost:8000                                        # steps/capacity_steps.py:76
-    Given eine Location mit abgelaufenem Gültigkeitszeitraum existiert                   # steps/ziel9_steps.py:148
-    When ich POST /api/beds/{bed_id}/occupancy mit heutigem Belegungsstart sende         # steps/ziel9_steps.py:202
-    Then ist der HTTP-Status 409                                                         # steps/capacity_steps.py:304
-    And die Fehlermeldung enthält "inaktiv"                                              # steps/capacity_steps.py:341
+  Scenario: Lokale Suche (cross_location=false) liefert nur eigene Einrichtung                                      # features/suggestion_wizard.feature:43
+    Given die API läuft auf http://localhost:8000                                                                   # steps/capacity_steps.py:76
+    And die Datenbank ist leer (Suggestion-Test-Isolation)                                                          # steps/suggestion_steps.py:87
+    And eine Einrichtung "Quelle" mit ID "src-loc" existiert mit 0 freien Betten                                    # steps/suggestion_steps.py:108
+    And eine Einrichtung "Ziel-A" mit ID "dst-a" existiert mit 3 freien Männerbetten                                # steps/suggestion_steps.py:118
+    And eine Einrichtung "Ziel-B" mit ID "dst-b" existiert mit 5 freien Männerbetten                                # steps/suggestion_steps.py:118
+    Given eine Einrichtung "Lokal" mit ID "local-loc" existiert mit 4 freien Männerbetten                           # steps/suggestion_steps.py:118
+    When ich POST /api/suggestions sende als Einrichtung "local-loc" mit anzahl=1 geschlecht=M cross_location=false # steps/suggestion_steps.py:140
+    Then ist der HTTP-Status 200                                                                                    # steps/capacity_steps.py:304
+    And alle Varianten gehören zur Einrichtung "Lokal"                                                              # steps/suggestion_steps.py:230
 
-  Scenario: Belegung auf Einrichtung ohne Gültigkeitsbeschränkung funktioniert                            # features/ziel9_guards.feature:49
-    Given die API läuft auf http://localhost:8000                                                         # steps/capacity_steps.py:76
-    Given ein Bett vom Typ KONTINGENT existiert                                                           # steps/capacity_steps.py:152
-    When ich POST /api/beds/{bed_id}/occupancy sende mit AZR-ID "AZR-VALID" und Belegungsende in 10 Tagen # steps/capacity_steps.py:236
-    Then ist der HTTP-Status 201                                                                          # steps/capacity_steps.py:304
-
-  Scenario: Notbett-Belegung kann einmalig um 1 Tag verlängert werden  # features/ziel9_guards.feature:58
-    Given die API läuft auf http://localhost:8000                      # steps/capacity_steps.py:76
-    Given eine laufende Notbett-Belegung existiert                     # steps/ziel9_steps.py:164
-    When ich POST /api/occupants/{occupancy_id}/extend sende           # steps/ziel9_steps.py:217
-    Then ist der HTTP-Status 200                                       # steps/capacity_steps.py:304
-    And die Antwort enthält ein "belegung_ende"-Feld                   # steps/capacity_steps.py:313
-    And die Antwort enthält "extended_once" mit Wert true              # steps/ziel9_steps.py:228
-
-  Scenario: Notbett-Belegung kann nicht zweimal verlängert werden  # features/ziel9_guards.feature:65
-    Given die API läuft auf http://localhost:8000                  # steps/capacity_steps.py:76
-    Given eine bereits verlängerte Notbett-Belegung existiert      # steps/ziel9_steps.py:172
-    When ich POST /api/occupants/{occupancy_id}/extend sende       # steps/ziel9_steps.py:217
-    Then ist der HTTP-Status 409                                   # steps/capacity_steps.py:304
-    And die Fehlermeldung enthält "bereits einmal"                 # steps/capacity_steps.py:341
-
-  Scenario: Kontingent-Belegung kann nicht über extend-Endpoint verlängert werden  # features/ziel9_guards.feature:71
-    Given die API läuft auf http://localhost:8000                                  # steps/capacity_steps.py:76
-    Given ein belegtes Bett existiert                                              # steps/capacity_steps.py:168
-    When ich POST /api/occupants/{occupancy_id}/extend sende                       # steps/ziel9_steps.py:217
-    Then ist der HTTP-Status 422                                                   # steps/capacity_steps.py:304
-    And die Fehlermeldung enthält "Notbett"                                        # steps/capacity_steps.py:341
+  Scenario: Gruppen-Suche gibt pro Einrichtung maximal 2 kompakte Varianten zurück                               # features/suggestion_wizard.feature:51
+    Given die API läuft auf http://localhost:8000                                                                # steps/capacity_steps.py:76
+    And die Datenbank ist leer (Suggestion-Test-Isolation)                                                       # steps/suggestion_steps.py:87
+    And eine Einrichtung "Quelle" mit ID "src-loc" existiert mit 0 freien Betten                                 # steps/suggestion_steps.py:108
+    And eine Einrichtung "Ziel-A" mit ID "dst-a" existiert mit 3 freien Männerbetten                             # steps/suggestion_steps.py:118
+    And eine Einrichtung "Ziel-B" mit ID "dst-b" existiert mit 5 freien Männerbetten                             # steps/suggestion_steps.py:118
+    When ich POST /api/suggestions sende als Einrichtung "src-loc" mit anzahl=2 geschlecht=M cross_location=true # steps/suggestion_steps.py:140
+    Then ist der HTTP-Status 200                                                                                 # steps/capacity_steps.py:304
+    And die Einrichtung "Ziel-B" ist in maximal 2 Varianten vertreten                                            # steps/suggestion_steps.py:241
+    And jede Variante enthält genau 2 Betten                                                                     # steps/suggestion_steps.py:252
 
