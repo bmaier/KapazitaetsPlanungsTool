@@ -47,6 +47,7 @@ class LocationResponse(BaseModel):
 class RoomCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     geschlechts_designation: GenderDesignation = GenderDesignation.D
+    room_type: str = "STANDARD"  # STANDARD | WARTEBEREICH
 
 
 class RoomResponse(BaseModel):
@@ -54,6 +55,7 @@ class RoomResponse(BaseModel):
     location_id: UUID
     name: str
     geschlechts_designation: GenderDesignation
+    room_type: str = "STANDARD"
     is_active: bool
     labels: list[str] = []
     valid_from: Optional[date] = None
@@ -203,14 +205,19 @@ class BedStatusItem(BaseModel):
     reservation_azr_id: Optional[str] = None
     reservation_start: Optional[date] = None
     reservation_ende: Optional[date] = None
+    # Verlegungsstatus
+    has_pending_transfer: bool = False        # BELEGT: Verlegungsanfrage läuft (PENDING)
+    has_confirmed_transfer: bool = False      # BELEGT: Transfer bestätigt, Ausbuchung ausstehend (CONFIRMED)
+    pending_reservation_id: Optional[UUID] = None  # FREI: Bett ist suggested_bed in PENDING-Anfrage
 
 
 class RoomBedStatus(BaseModel):
     room_id: UUID
     room_name: str
     geschlechts_designation: str
+    room_type: str = "STANDARD"  # STANDARD | WARTEBEREICH
     beds: list[BedStatusItem]
-    pending_count: int = 0  # Offene Reservierungsanfragen für diesen Raum
+    pending_count: int = 0
     labels: list[str] = []
     valid_from: Optional[date] = None
     valid_until: Optional[date] = None

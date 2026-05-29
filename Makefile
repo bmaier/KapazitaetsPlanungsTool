@@ -138,4 +138,14 @@ migrate:
 	@echo ">>> Migrationen abgeschlossen."
 
 seed: ## Seed Demo-Daten in die DB einfügen (idempotent)
+	@echo ">>> Warte auf PostgreSQL (Port 5432)..."
+	@elapsed=0; \
+	while ! nc -z localhost 5432 2>/dev/null; do \
+		if [ $$elapsed -ge 120 ]; then \
+			echo "!!! TIMEOUT: PostgreSQL nach 120s nicht erreichbar."; exit 1; \
+		fi; \
+		echo "  Warte... ($${elapsed}s)"; \
+		sleep 3; elapsed=$$((elapsed + 3)); \
+	done; \
+	echo ">>> PostgreSQL bereit — starte Seed..."
 	python3 backend/seeds/demo_data.py

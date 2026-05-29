@@ -261,7 +261,7 @@ async def get_locations_summary() -> List[LocationSummaryResponse]:
                         ELSE 0.0
                     END AS belegungsgrad_pct
                 FROM capacity.locations l
-                LEFT JOIN capacity.rooms r ON r.location_id = l.id AND r.is_active = true
+                LEFT JOIN capacity.rooms r ON r.location_id = l.id AND r.is_active = true AND r.room_type = 'STANDARD'
                 LEFT JOIN capacity.beds b ON b.room_id = r.id AND b.is_active = true
                 LEFT JOIN persons.occupants o ON o.bed_id = b.id
                 WHERE l.is_active = true
@@ -359,7 +359,7 @@ async def update_location(
                 SELECT COUNT(o.id) AS belegt
                 FROM persons.occupants o
                 JOIN capacity.beds b ON b.id = o.bed_id AND b.bett_typ = 'KONTINGENT'
-                JOIN capacity.rooms r ON r.id = b.room_id
+                JOIN capacity.rooms r ON r.id = b.room_id AND r.room_type = 'STANDARD'
                 WHERE r.location_id = :lid
                   AND o.belegung_start <= CURRENT_DATE
                   AND o.belegung_ende > CURRENT_DATE
@@ -413,19 +413,23 @@ async def get_bed_status(
     location_id: UUID,
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
+    exclude_ankunft: bool = False,
 ):
     """
     Gibt alle Räume mit Bett-Belegungsstatus für einen Zeitraum zurück.
     Betten ohne Belegungsüberschneidung → FREI, sonst → BELEGT.
+    exclude_ankunft=true: Wartebereiche ausblenden (für Verlegungsanfrage-Bett-Auswahl).
     """
     d_from = date_from or date.today()
     d_to = date_to or date(d_from.year + 1, d_from.month, d_from.day)
+    ankunft_filter = "AND r.room_type != 'WARTEBEREICH'" if exclude_ankunft else ""
     async with AsyncSessionFactory() as session:
-        result = await session.execute(text("""
+        result = await session.execute(text(f"""
             SELECT
               r.id        AS room_id,
               r.name      AS room_name,
               r.geschlechts_designation,
+              r.room_type,
               r.labels    AS room_labels,
               r.valid_from AS room_valid_from,
               r.valid_until AS room_valid_until,
@@ -458,7 +462,25 @@ async def get_bed_status(
                   AND req.status = 'PENDING'
                   AND (req.geschlecht = r.geschlechts_designation
                        OR r.geschlechts_designation = 'D')
-              ) AS pending_count
+              ) AS pending_count,
+              EXISTS(
+                SELECT 1 FROM reservations.requests pen_out
+                WHERE pen_out.azr_id = o.azr_id
+                  AND pen_out.status = 'PENDING'
+              ) AS has_pending_transfer,
+              EXISTS(
+                SELECT 1 FROM reservations.requests conf_out
+                WHERE conf_out.azr_id = o.azr_id
+                  AND conf_out.status = 'CONFIRMED'
+              ) AS has_confirmed_transfer,
+              (
+                SELECT pen_in.id FROM reservations.requests pen_in
+                WHERE pen_in.suggested_bed_id = b.id
+                  AND pen_in.status = 'PENDING'
+                  AND pen_in.belegung_start < :date_to
+                  AND pen_in.belegung_ende > :date_from
+                LIMIT 1
+              ) AS pending_reservation_id
             FROM capacity.rooms r
             JOIN capacity.beds b ON b.room_id = r.id AND b.is_active = true AND b.bett_typ != 'DOPPEL'
             LEFT JOIN persons.occupants o
@@ -472,7 +494,8 @@ async def get_bed_status(
               AND rr.belegung_ende > :date_from
             WHERE r.location_id = :location_id
               AND r.is_active = true
-            ORDER BY r.name, CASE WHEN b.bett_nummer ~ '^[0-9]+$' THEN b.bett_nummer::integer ELSE NULL END NULLS LAST, b.bett_nummer
+              {ankunft_filter}
+            ORDER BY r.room_type, r.name, CASE WHEN b.bett_nummer ~ '^[0-9]+$' THEN b.bett_nummer::integer ELSE NULL END NULLS LAST, b.bett_nummer
         """), {"location_id": str(location_id), "date_from": d_from, "date_to": d_to})
         rows = result.mappings().all()
 
@@ -485,6 +508,7 @@ async def get_bed_status(
                 "room_id": row["room_id"],
                 "room_name": row["room_name"],
                 "geschlechts_designation": row["geschlechts_designation"],
+                "room_type": row.get("room_type", "STANDARD"),
                 "labels": list(row["room_labels"] or []),
                 "beds": [],
                 "pending_count": int(row.get("pending_count") or 0),
@@ -514,6 +538,9 @@ async def get_bed_status(
             reservation_azr_id=row.get("reservation_azr_id"),
             reservation_start=row.get("reservation_start"),
             reservation_ende=row.get("reservation_ende"),
+            has_pending_transfer=bool(row.get("has_pending_transfer") or False),
+            has_confirmed_transfer=bool(row.get("has_confirmed_transfer") or False),
+            pending_reservation_id=row.get("pending_reservation_id"),
         ))
     return [RoomBedStatus(**rooms_map[rid]) for rid in rooms_order]
 
@@ -673,6 +700,7 @@ async def create_room(
         location_id=location_id,
         name=body.name,
         geschlechts_designation=body.geschlechts_designation,
+        room_type=body.room_type,
         is_active=True,
     )
     room_repo = SqlRoomRepo(session)
@@ -682,6 +710,7 @@ async def create_room(
         location_id=created.location_id,
         name=created.name,
         geschlechts_designation=created.geschlechts_designation,
+        room_type=created.room_type,
         is_active=created.is_active,
     )
 
@@ -707,6 +736,7 @@ async def list_rooms(
             location_id=r.location_id,
             name=r.name,
             geschlechts_designation=r.geschlechts_designation,
+            room_type=r.room_type,
             is_active=r.is_active,
             labels=list(r.labels or []),
             valid_from=r.valid_from,

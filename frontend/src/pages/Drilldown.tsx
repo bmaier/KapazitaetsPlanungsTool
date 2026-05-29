@@ -39,6 +39,9 @@ import AddCircleIcon from '@mui/icons-material/AddCircle'
 import AddIcon from '@mui/icons-material/Add'
 import MeetingRoomIcon from '@mui/icons-material/MeetingRoom'
 import BlockIcon from '@mui/icons-material/Block'
+import ChairAltIcon from '@mui/icons-material/ChairAlt'
+import CheckBoxIcon from '@mui/icons-material/CheckBox'
+import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank'
 import { extractApiError, useApiClient } from '../api/client'
 import { useKeycloak } from '../auth/KeycloakProvider'
 import { useSseNotifications } from '../hooks/useSseNotifications'
@@ -91,12 +94,16 @@ interface BedStatus {
   reservation_azr_id?: string
   reservation_start?: string
   reservation_ende?: string
+  has_pending_transfer?: boolean
+  has_confirmed_transfer?: boolean
+  pending_reservation_id?: string
 }
 
 interface RoomStatus {
   room_id: string
   room_name: string
   geschlechts_designation: string
+  room_type: string  // STANDARD | WARTEBEREICH
   beds: BedStatus[]
   pending_count: number
   labels?: string[]
@@ -108,6 +115,7 @@ interface RoomMgmt {
   id: string
   name: string
   geschlechts_designation: string
+  room_type: string  // STANDARD | WARTEBEREICH
   is_active: boolean
   labels: string[]
   beds: { id: string; bett_nummer: string; bett_typ: string; is_active: boolean; deaktiviert_ab?: string | null }[]
@@ -218,9 +226,12 @@ function BedGrid({ room, canEdit, onBedClick, refDate }: BedGridProps) {
           const isBelegt = bed.status === 'BELEGT'
           const isVorgemerkt = bed.status === 'VORGEMERKT'
           const bedActive = bedIsActive(bed, refDate)
-          const bedColor = !bedActive ? '#9e9e9e' : isVorgemerkt ? '#6a1b9a' : isBelegt ? '#c62828' : '#2e7d32'
-          const bedBg = !bedActive ? '#f5f5f5' : isVorgemerkt ? '#f3e5f5' : isBelegt ? '#ffebee' : '#e8f5e9'
-          const bedBorder = !bedActive ? '#bdbdbd' : isVorgemerkt ? '#7b1fa2' : isBelegt ? '#e53935' : '#43a047'
+          const hasConfirmedTransfer = isBelegt && !!bed.has_confirmed_transfer
+          const hasPendingTransfer = isBelegt && !hasConfirmedTransfer && !!bed.has_pending_transfer
+          const hasPendingRequest = !isBelegt && !isVorgemerkt && !!bed.pending_reservation_id
+          const bedColor = !bedActive ? '#9e9e9e' : isVorgemerkt ? '#6a1b9a' : hasPendingRequest ? '#7b1fa2' : hasConfirmedTransfer ? '#0d47a1' : hasPendingTransfer ? '#e65100' : isBelegt ? '#c62828' : '#2e7d32'
+          const bedBg = !bedActive ? '#f5f5f5' : isVorgemerkt ? '#f3e5f5' : hasPendingRequest ? '#f3e5f5' : hasConfirmedTransfer ? '#e3f2fd' : hasPendingTransfer ? '#fff3e0' : isBelegt ? '#ffebee' : '#e8f5e9'
+          const bedBorder = !bedActive ? '#bdbdbd' : isVorgemerkt ? '#7b1fa2' : hasPendingRequest ? '#ab47bc' : hasConfirmedTransfer ? '#1565c0' : hasPendingTransfer ? '#fb8c00' : isBelegt ? '#e53935' : '#43a047'
           const isClickable = canEdit && bedActive && (isBelegt || isVorgemerkt || (!isBelegt && !isVorgemerkt))
           return (
             <Tooltip
@@ -231,8 +242,10 @@ function BedGrid({ room, canEdit, onBedClick, refDate }: BedGridProps) {
                     ? (bed.bed_valid_from && refDate < bed.bed_valid_from ? `Verfügbar ab ${bed.bed_valid_from}` : `Deaktiviert ab ${bed.deaktiviert_ab}`)
                     : isVorgemerkt
                     ? `Vorgemerkt für: ${bed.reservation_azr_id ?? '–'} · ${bed.reservation_start} – ${bed.reservation_ende}`
+                    : hasPendingRequest
+                    ? 'Verlegungsanfrage vorhanden — Bett vorgeschlagen'
                     : isBelegt
-                    ? `${bed.azr_id || '–'}${bed.alias_id ? ' · ' + bed.alias_id : ''} · ${bed.belegung_start} – ${bed.belegung_ende}`
+                    ? `${bed.azr_id || '–'}${bed.alias_id ? ' · ' + bed.alias_id : ''} · ${bed.belegung_start} – ${bed.belegung_ende}${hasConfirmedTransfer ? ' · Verlegung genehmigt — Eincheck ausstehend' : hasPendingTransfer ? ' · Verlegungsanfrage läuft' : ''}`
                     : 'Bett frei'}
                   {(bed.bed_labels ?? []).length > 0 && ` · ${bed.bed_labels!.join(', ')}`}
                   {isBelegt && (bed.occ_labels ?? []).length > 0 && ` · ${bed.occ_labels!.join(', ')}`}
@@ -244,6 +257,7 @@ function BedGrid({ room, canEdit, onBedClick, refDate }: BedGridProps) {
               <Box
                 onClick={() => isClickable && onBedClick(bed, room)}
                 sx={{
+                  position: 'relative',
                   width: 58,
                   height: 58,
                   borderRadius: 1.5,
@@ -252,7 +266,7 @@ function BedGrid({ room, canEdit, onBedClick, refDate }: BedGridProps) {
                   alignItems: 'center',
                   justifyContent: 'center',
                   bgcolor: bedBg,
-                  border: `2px solid ${bedBorder}`,
+                  border: `2px ${hasPendingRequest || hasPendingTransfer || hasConfirmedTransfer ? 'dashed' : 'solid'} ${bedBorder}`,
                   cursor: isClickable ? 'pointer' : 'default',
                   opacity: bedActive ? 1 : 0.5,
                   transition: 'all 0.15s',
@@ -264,7 +278,7 @@ function BedGrid({ room, canEdit, onBedClick, refDate }: BedGridProps) {
                   {bed.bett_nummer}
                 </Typography>
                 {isBelegt && bed.azr_id && (
-                  <Typography sx={{ fontSize: 7, color: '#c62828', lineHeight: 1, maxWidth: 52, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', px: 0.3 }}>
+                  <Typography sx={{ fontSize: 7, color: bedColor, lineHeight: 1, maxWidth: 52, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', px: 0.3 }}>
                     {bed.azr_id.slice(-6)}
                   </Typography>
                 )}
@@ -288,12 +302,24 @@ function BedGrid({ room, canEdit, onBedClick, refDate }: BedGridProps) {
           <Box sx={{ width: 10, height: 10, borderRadius: 0.5, bgcolor: '#e53935' }} />
           <Typography variant="caption" color="text.secondary">Belegt{canEdit && ' (klicken)'}</Typography>
         </Box>
+        <Box display="flex" alignItems="center" gap={0.5}>
+          <Box sx={{ width: 10, height: 10, borderRadius: 0.5, bgcolor: '#fff3e0', border: '1.5px dashed #fb8c00' }} />
+          <Typography variant="caption" color="text.secondary">Verlegungsanfrage läuft</Typography>
+        </Box>
+        <Box display="flex" alignItems="center" gap={0.5}>
+          <Box sx={{ width: 10, height: 10, borderRadius: 0.5, bgcolor: '#e3f2fd', border: '1.5px dashed #1565c0' }} />
+          <Typography variant="caption" color="text.secondary">Verlegung genehmigt</Typography>
+        </Box>
         {vorgemerkt > 0 && (
           <Box display="flex" alignItems="center" gap={0.5}>
             <Box sx={{ width: 10, height: 10, borderRadius: 0.5, bgcolor: '#7b1fa2' }} />
             <Typography variant="caption" color="text.secondary">Vorgemerkt{canEdit && ' (zur Reservierung)'}</Typography>
           </Box>
         )}
+        <Box display="flex" alignItems="center" gap={0.5}>
+          <Box sx={{ width: 10, height: 10, borderRadius: 0.5, border: '1.5px dashed #ab47bc' }} />
+          <Typography variant="caption" color="text.secondary">Anfrage-Zielbett</Typography>
+        </Box>
       </Box>
     </Paper>
   )
@@ -334,6 +360,8 @@ export default function Drilldown() {
   const [mgmtLoading, setMgmtLoading] = useState(false)
   const [newRoomName, setNewRoomName] = useState('')
   const [addingRoom, setAddingRoom] = useState(false)
+  const [newWarteRoomName, setNewWarteRoomName] = useState('')
+  const [addingWarteRoom, setAddingWarteRoom] = useState(false)
   const [addBedRoomId, setAddBedRoomId] = useState<string | null>(null)
   const [newBedNummer, setNewBedNummer] = useState('')
   const [newBedTyp, setNewBedTyp] = useState('KONTINGENT')
@@ -366,6 +394,12 @@ export default function Drilldown() {
   const [pendingOpen, setPendingOpen] = useState(false)
   const [pendingLoading, setPendingLoading] = useState(false)
   const [assignBed, setAssignBed] = useState<BedStatus | null>(null)
+
+  // Verlegungsanfrage-Dialog (kontextsensitiv)
+
+  // Mehrfachauswahl Wartebereich
+  const [multiSelect, setMultiSelect] = useState(false)
+  const [selectedAnkunftBeds, setSelectedAnkunftBeds] = useState<Set<string>>(new Set())
 
   // Edit dialog extra fields
   const [editLat, setEditLat] = useState('')
@@ -436,7 +470,7 @@ export default function Drilldown() {
     if (!id) return
     setMgmtLoading(true)
     try {
-      const roomList = await get<{ id: string; name: string; geschlechts_designation: string; is_active: boolean; labels: string[] }[]>(
+      const roomList = await get<{ id: string; name: string; geschlechts_designation: string; room_type: string; is_active: boolean; labels: string[] }[]>(
         `/api/locations/${id}/rooms?include_inactive=true`
       )
       const withBeds = await Promise.all(
@@ -517,7 +551,7 @@ export default function Drilldown() {
     if (!id || !newRoomName.trim()) return
     setAddingRoom(true)
     try {
-      await post(`/api/locations/${id}/rooms`, { name: newRoomName, geschlechts_designation: 'D' })
+      await post(`/api/locations/${id}/rooms`, { name: newRoomName, geschlechts_designation: 'D', room_type: 'STANDARD' })
       setNewRoomName('')
       await loadMgmtRooms()
       loadBedStatus()
@@ -526,6 +560,22 @@ export default function Drilldown() {
       setSnackbar({ open: true, message: 'Raum anlegen fehlgeschlagen.', severity: 'error' })
     } finally {
       setAddingRoom(false)
+    }
+  }
+
+  async function handleAddWarteRoom() {
+    if (!id || !newWarteRoomName.trim()) return
+    setAddingWarteRoom(true)
+    try {
+      await post(`/api/locations/${id}/rooms`, { name: newWarteRoomName, geschlechts_designation: 'D', room_type: 'WARTEBEREICH' })
+      setNewWarteRoomName('')
+      await loadMgmtRooms()
+      loadBedStatus()
+      setSnackbar({ open: true, message: `Wartebereich "${newWarteRoomName}" angelegt.`, severity: 'success' })
+    } catch {
+      setSnackbar({ open: true, message: 'Wartebereich anlegen fehlgeschlagen.', severity: 'error' })
+    } finally {
+      setAddingWarteRoom(false)
     }
   }
 
@@ -560,18 +610,19 @@ export default function Drilldown() {
     }
   }
 
-  async function handleAddBed(roomId: string) {
+  async function handleAddBed(roomId: string, isWarte = false) {
     if (!newBedNummer.trim()) return
     setAddingBed(true)
+    const typ = isWarte ? 'WARTEPLATZ' : newBedTyp
     try {
-      await post(`/api/rooms/${roomId}/beds`, { bett_nummer: newBedNummer, bett_typ: newBedTyp })
+      await post(`/api/rooms/${roomId}/beds`, { bett_nummer: newBedNummer, bett_typ: typ })
       setAddBedRoomId(null)
       setNewBedNummer('')
       setNewBedTyp('KONTINGENT')
       await loadMgmtRooms()
       loadBedStatus()
     } catch {
-      setSnackbar({ open: true, message: 'Bett hinzufügen fehlgeschlagen.', severity: 'error' })
+      setSnackbar({ open: true, message: 'Platz hinzufügen fehlgeschlagen.', severity: 'error' })
     } finally {
       setAddingBed(false)
     }
@@ -641,7 +692,9 @@ export default function Drilldown() {
       setAzrId('')
       setAliasId('')
       setBelegStart(today)
-      setBelegEnde(in14)
+      // Notbett: max 1 Tag — Enddatum automatisch auf morgen setzen
+      const in1 = new Date(Date.now() + 1 * 86400000).toISOString().slice(0, 10)
+      setBelegEnde(bed.is_notbett ? in1 : in14)
       setBelegLabels([])
       setWarn12w(false)
       setBelegBed({ bed, room })
@@ -727,13 +780,22 @@ export default function Drilldown() {
     if (!manageBed?.bed.occupancy_id || !verlegenTargetBed) return
     setVerlegenSaving(true)
     const src = manageBed.bed
+    const targetBedInfo = freiBeds.find((b) => b.bed_id === verlegenTargetBed)
+    let verlBelegStart = src.belegung_start ?? today
+    let verlBelegEnde = src.belegung_ende ?? in14
+    if (targetBedInfo?.is_notbett) {
+      // Notbett: max 1 Nacht — auf heute/morgen setzen
+      verlBelegStart = today
+      const d = new Date(Date.now() + 86400000)
+      verlBelegEnde = d.toISOString().slice(0, 10)
+    }
     try {
       await post(`/api/beds/${verlegenTargetBed}/occupancy`, {
         azr_id: src.azr_id,
         alias_id: src.alias_id || null,
         geschlecht: src.occ_geschlecht || 'M',
-        belegung_start: src.belegung_start,
-        belegung_ende: src.belegung_ende,
+        belegung_start: verlBelegStart,
+        belegung_ende: verlBelegEnde,
       })
       await del(`/api/beds/${src.bed_id}/occupancy/${src.occupancy_id}`)
       setVerlegenOpen(false)
@@ -747,11 +809,35 @@ export default function Drilldown() {
     }
   }
 
-  function navigateToSuggestion() {
-    const bed = manageBed?.bed
-    if (!bed) return
+  function openVerlegung(bed?: BedStatus) {
+    if (bed?.azr_id) {
+      navigate(`/suggestions?azrId=${encodeURIComponent(bed.azr_id)}&geschlecht=${bed.occ_geschlecht ?? 'M'}&cross=1`)
+    } else {
+      navigate('/suggestions?cross=1')
+    }
     setManageBed(null)
-    navigate(`/suggestions?azrId=${encodeURIComponent(bed.azr_id ?? '')}&geschlecht=${bed.occ_geschlecht ?? 'M'}&aliasId=${encodeURIComponent(bed.alias_id ?? '')}`)
+  }
+
+  function toggleAnkunftSelect(bedId: string) {
+    setSelectedAnkunftBeds((prev) => {
+      const next = new Set(prev)
+      if (next.has(bedId)) next.delete(bedId)
+      else next.add(bedId)
+      return next
+    })
+  }
+
+  function openGruppenVerlegung(ankunftRooms: RoomStatus[]) {
+    const persons: string[] = []
+    for (const room of ankunftRooms) {
+      for (const bed of room.beds) {
+        if (selectedAnkunftBeds.has(bed.bed_id) && bed.azr_id) {
+          persons.push(`${bed.azr_id}:${bed.occ_geschlecht ?? 'M'}`)
+        }
+      }
+    }
+    if (persons.length === 0) return
+    navigate(`/suggestions?group=${encodeURIComponent(persons.join(','))}&cross=1`)
   }
 
   return (
@@ -832,9 +918,9 @@ export default function Drilldown() {
         </Button>
         {canEdit && (
           <Button variant="contained" size="small" startIcon={<AddCircleIcon />}
-            onClick={() => navigate('/suggestions')}
-            sx={{ ml: 'auto' }}>
-            Reservierungsanfrage
+            onClick={() => openVerlegung()}
+            sx={{ ml: 'auto', bgcolor: '#6a1b9a', '&:hover': { bgcolor: '#4a148c' } }}>
+            Verlegungsanfrage
           </Button>
         )}
       </Paper>
@@ -845,10 +931,114 @@ export default function Drilldown() {
       ) : rooms.length === 0 ? (
         <Alert severity="info">Keine Räume für diese Einrichtung gefunden.</Alert>
       ) : (() => {
-        const notbettRooms = rooms.filter((r) => r.beds.some((b) => b.is_notbett))
-        const kontingentRooms = rooms.filter((r) => !r.beds.some((b) => b.is_notbett))
+        const ankunftRooms = rooms.filter((r) => r.room_type === 'WARTEBEREICH')
+        const notbettRooms = rooms.filter((r) => r.room_type !== 'WARTEBEREICH' && r.beds.some((b) => b.is_notbett))
+        const kontingentRooms = rooms.filter((r) => r.room_type !== 'WARTEBEREICH' && !r.beds.some((b) => b.is_notbett))
         return (
           <>
+            {/* Wartebereich */}
+            {ankunftRooms.length > 0 && (
+              <Box mb={4}>
+                <Box display="flex" alignItems="center" gap={1} mb={2} flexWrap="wrap">
+                  <ChairAltIcon sx={{ color: '#e65100' }} />
+                  <Typography variant="h6" fontWeight={700} sx={{ color: '#e65100' }}>
+                    Wartebereich
+                  </Typography>
+                  <Chip label="Warteplätze — nicht im Kontingent" size="small"
+                    sx={{ bgcolor: '#fff3e0', color: '#e65100', fontWeight: 600 }} />
+                  <Box sx={{ flexGrow: 1 }} />
+                  {canEdit && (
+                    <Button size="small" variant={multiSelect ? 'contained' : 'outlined'}
+                      startIcon={multiSelect ? <CheckBoxIcon /> : <CheckBoxOutlineBlankIcon />}
+                      sx={multiSelect
+                        ? { bgcolor: '#e65100', '&:hover': { bgcolor: '#bf360c' } }
+                        : { borderColor: '#e65100', color: '#e65100' }}
+                      onClick={() => { setMultiSelect((v) => !v); setSelectedAnkunftBeds(new Set()) }}>
+                      {multiSelect ? 'Auswahl aufheben' : 'Gruppe auswählen'}
+                    </Button>
+                  )}
+                  {multiSelect && selectedAnkunftBeds.size > 0 && (
+                    <Button size="small" variant="contained"
+                      startIcon={<SwapHorizIcon />}
+                      sx={{ bgcolor: '#6a1b9a', '&:hover': { bgcolor: '#4a148c' } }}
+                      onClick={() => openGruppenVerlegung(ankunftRooms)}>
+                      {selectedAnkunftBeds.size} Personen verlegen
+                    </Button>
+                  )}
+                </Box>
+                <Paper elevation={0} sx={{ p: 2.5, borderRadius: 3, bgcolor: '#fff8f0', border: '2px solid #ffcc80' }}>
+                  {ankunftRooms.map((room) => (
+                    <Box key={room.room_id} mb={2}>
+                      <Typography variant="subtitle2" fontWeight={700} sx={{ color: '#e65100', mb: 1 }}>
+                        {room.room_name}
+                      </Typography>
+                      <Box display="flex" flexWrap="wrap" gap={1}>
+                        {room.beds.map((bed) => {
+                          const isBelegt = bed.status === 'BELEGT'
+                          const isSelected = selectedAnkunftBeds.has(bed.bed_id)
+                          const hasPendingTransferAnk = isBelegt && !!bed.has_pending_transfer
+                          return (
+                            <Tooltip key={bed.bed_id} arrow title={
+                              isBelegt
+                                ? `${bed.azr_id} · ${bed.belegung_start} – ${bed.belegung_ende}${hasPendingTransferAnk ? ' · Verlegungsanfrage läuft' : ''}`
+                                : 'Warteplatz frei'
+                            }>
+                              <Box
+                                onClick={() => {
+                                  if (multiSelect && isBelegt) { toggleAnkunftSelect(bed.bed_id); return }
+                                  handleBedClick(bed, room)
+                                }}
+                                sx={{
+                                  position: 'relative',
+                                  width: 68, height: 68, borderRadius: 2, display: 'flex', flexDirection: 'column',
+                                  alignItems: 'center', justifyContent: 'center', cursor: canEdit ? 'pointer' : 'default',
+                                  bgcolor: isSelected ? '#ede7f6' : hasPendingTransferAnk ? '#f3e5f5' : isBelegt ? '#fff3e0' : '#f1f8e9',
+                                  border: isSelected ? '2px solid #6a1b9a'
+                                    : hasPendingTransferAnk ? '2px dashed #9c27b0'
+                                    : isBelegt ? '2px solid #ff9800'
+                                    : '2px solid #aed581',
+                                  transition: 'all 0.15s',
+                                  '&:hover': canEdit ? { transform: 'scale(1.05)', boxShadow: 2 } : {},
+                                }}
+                              >
+                                <ChairAltIcon sx={{ fontSize: 18, color: isSelected ? '#6a1b9a' : hasPendingTransferAnk ? '#7b1fa2' : isBelegt ? '#e65100' : '#7cb342', mb: 0.2 }} />
+                                <Typography variant="caption" fontWeight={700}
+                                  sx={{ fontSize: 9, color: isSelected ? '#6a1b9a' : hasPendingTransferAnk ? '#7b1fa2' : isBelegt ? '#e65100' : '#7cb342', lineHeight: 1 }}>
+                                  {bed.bett_nummer}
+                                </Typography>
+                                {isBelegt && bed.azr_id && (
+                                  <Typography sx={{ fontSize: 7, color: hasPendingTransferAnk ? '#7b1fa2' : '#e65100', lineHeight: 1, maxWidth: 62, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', px: 0.3 }}>
+                                    {bed.azr_id.slice(-6)}
+                                  </Typography>
+                                )}
+                                {hasPendingTransferAnk && (
+                                  <Box sx={{ position: 'absolute', top: 3, right: 3, width: 8, height: 8, borderRadius: '50%', bgcolor: '#6a1b9a', border: '1.5px solid white' }} />
+                                )}
+                              </Box>
+                            </Tooltip>
+                          )
+                        })}
+                      </Box>
+                    </Box>
+                  ))}
+                  <Box display="flex" gap={2} mt={1} flexWrap="wrap">
+                    <Box display="flex" alignItems="center" gap={0.5}>
+                      <Box sx={{ width: 10, height: 10, borderRadius: 0.5, bgcolor: '#ff9800' }} />
+                      <Typography variant="caption" color="text.secondary">Belegt</Typography>
+                    </Box>
+                    <Box display="flex" alignItems="center" gap={0.5}>
+                      <Box sx={{ width: 10, height: 10, borderRadius: 0.5, border: '1.5px dashed #9c27b0', bgcolor: '#f3e5f5' }} />
+                      <Typography variant="caption" color="text.secondary">Verlegungsanfrage läuft</Typography>
+                    </Box>
+                    <Box display="flex" alignItems="center" gap={0.5}>
+                      <Box sx={{ width: 10, height: 10, borderRadius: 0.5, bgcolor: '#aed581' }} />
+                      <Typography variant="caption" color="text.secondary">Frei</Typography>
+                    </Box>
+                  </Box>
+                </Paper>
+              </Box>
+            )}
+
             <Grid container spacing={3}>
               {kontingentRooms.map((room) => (
                 <Grid item xs={12} md={6} key={room.room_id}>
@@ -1001,6 +1191,9 @@ export default function Drilldown() {
             />
           </Box>
 
+          {belegBed?.bed.is_notbett && (
+            <Alert severity="info">Notbett: Belegung auf max. 1 Nacht begrenzt — Enddatum wurde automatisch gesetzt.</Alert>
+          )}
           {warn12w && (
             <Alert severity="warning">Belegungsdauer überschreitet 12 Wochen.</Alert>
           )}
@@ -1080,9 +1273,10 @@ export default function Drilldown() {
                 onClick={() => { setVerlegenTargetBed(''); setVerlegenOpen(true) }}>
                 Intern verlegen (anderes Bett in dieser Einrichtung)
               </Button>
-              <Button fullWidth variant="outlined" color="secondary" startIcon={<SwapHorizIcon />}
-                onClick={navigateToSuggestion}>
-                Zu anderer Einrichtung verlegen (Reservierungsanfrage)
+              <Button fullWidth variant="outlined" startIcon={<SwapHorizIcon />}
+                sx={{ borderColor: '#6a1b9a', color: '#6a1b9a', '&:hover': { borderColor: '#4a148c', bgcolor: '#f3e5f5' } }}
+                onClick={() => openVerlegung(manageBed?.bed)}>
+                Zu anderer Einrichtung verlegen (Verlegungsanfrage)
               </Button>
             </Box>
           ) : (
@@ -1121,31 +1315,47 @@ export default function Drilldown() {
       <Dialog open={verlegenOpen} onClose={() => setVerlegenOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle fontWeight={700}>Intern verlegen — Zielbett wählen</DialogTitle>
         <DialogContent sx={{ pt: 2 }}>
-          {freiBeds.length === 0 ? (
+          {freiBeds.filter((b) => b.bed_id !== manageBed?.bed.bed_id).length === 0 ? (
             <Alert severity="warning">Keine freien Betten in dieser Einrichtung verfügbar.</Alert>
           ) : (
             <Box>
+              {verlegenTargetBed && freiBeds.find((b) => b.bed_id === verlegenTargetBed)?.is_notbett && (
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  Notbett: Belegung wird auf heute + 1 Nacht angepasst (max. 1 Tag).
+                </Alert>
+              )}
+              {verlegenTargetBed && freiBeds.find((b) => b.bed_id === verlegenTargetBed)?.bett_typ === 'WARTEPLATZ' && (
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  Warteplatz: Person wird in den Wartebereich verlegt.
+                </Alert>
+              )}
               <Typography variant="body2" color="text.secondary" mb={2}>
-                Freie Betten in dieser Einrichtung:
+                Freie Plätze und Betten in dieser Einrichtung:
               </Typography>
               <Box display="flex" flexDirection="column" gap={1}>
-                {freiBeds.map((b) => (
+                {freiBeds.filter((b) => b.bed_id !== manageBed?.bed.bed_id).map((b) => (
                   <Paper
                     key={b.bed_id}
                     elevation={verlegenTargetBed === b.bed_id ? 4 : 1}
                     onClick={() => setVerlegenTargetBed(b.bed_id)}
                     sx={{
                       p: 1.5, borderRadius: 2, cursor: 'pointer',
-                      border: verlegenTargetBed === b.bed_id ? '2px solid #003366' : '2px solid transparent',
-                      bgcolor: verlegenTargetBed === b.bed_id ? '#e3f2fd' : 'white',
+                      border: verlegenTargetBed === b.bed_id
+                        ? `2px solid ${b.is_notbett ? '#ff9800' : b.bett_typ === 'WARTEPLATZ' ? '#e65100' : '#003366'}`
+                        : '2px solid transparent',
+                      bgcolor: verlegenTargetBed === b.bed_id
+                        ? b.is_notbett ? '#fff3e0' : b.bett_typ === 'WARTEPLATZ' ? '#fff8f0' : '#e3f2fd'
+                        : 'white',
                       transition: 'all 0.15s',
                     }}
                   >
                     <Box display="flex" alignItems="center" gap={1}>
-                      <BedIcon sx={{ color: '#43a047' }} />
-                      <Typography fontWeight={600}>{b.room_name} — Bett {b.bett_nummer}</Typography>
-                      <Chip label={genderLabel(b.geschlecht)} size="small"
-                        sx={{ bgcolor: genderColor(b.geschlecht) + '15', color: genderColor(b.geschlecht) }} />
+                      <BedIcon sx={{ color: b.is_notbett ? '#ff9800' : b.bett_typ === 'WARTEPLATZ' ? '#e65100' : '#43a047' }} />
+                      <Typography fontWeight={600}>{b.room_name} — {b.bett_typ === 'WARTEPLATZ' ? 'Platz' : 'Bett'} {b.bett_nummer}</Typography>
+                      {b.is_notbett && <Chip label="Notbett" size="small" sx={{ bgcolor: '#fff3e0', color: '#e65100', fontWeight: 600, height: 20 }} />}
+                      {b.bett_typ === 'WARTEPLATZ' && <Chip label="Warteplatz" size="small" sx={{ bgcolor: '#fff3e0', color: '#e65100', fontWeight: 600, height: 20 }} />}
+                      {b.bett_typ !== 'WARTEPLATZ' && <Chip label={genderLabel(b.geschlecht)} size="small"
+                        sx={{ bgcolor: genderColor(b.geschlecht) + '15', color: genderColor(b.geschlecht) }} />}
                     </Box>
                   </Paper>
                 ))}
@@ -1255,8 +1465,11 @@ export default function Drilldown() {
                         opacity: room.is_active ? 1 : 0.55,
                       }}>
                         <Box display="flex" alignItems="center" gap={1} mb={1} flexWrap="wrap">
-                          <MeetingRoomIcon sx={{ fontSize: 18, color: room.is_active ? '#003366' : '#888' }} />
+                          <MeetingRoomIcon sx={{ fontSize: 18, color: room.is_active ? (room.room_type === 'WARTEBEREICH' ? '#e65100' : '#003366') : '#888' }} />
                           <Typography fontWeight={700}>{room.name}</Typography>
+                          {room.room_type === 'WARTEBEREICH' && (
+                            <Chip label="Wartebereich" size="small" sx={{ bgcolor: '#fff3e0', color: '#e65100', fontWeight: 600 }} />
+                          )}
                           {hasGenderLabel(room.labels ?? []) && (
                             <Chip label={genderLabel(deriveGenderFromLabels(room.labels ?? []))} size="small"
                               sx={{ bgcolor: genderColor(deriveGenderFromLabels(room.labels ?? [])) + '15', color: genderColor(deriveGenderFromLabels(room.labels ?? [])) }} />
@@ -1273,7 +1486,7 @@ export default function Drilldown() {
                             <>
                               <Button size="small" startIcon={<AddIcon />}
                                 onClick={() => { setAddBedRoomId(room.id); setNewBedNummer(''); setNewBedTyp('KONTINGENT') }}>
-                                Bett
+                                {room.room_type === 'WARTEBEREICH' ? 'Warteplatz' : 'Bett'}
                               </Button>
                               <Tooltip title="Raum deaktivieren">
                                 <IconButton size="small" color="error"
@@ -1349,25 +1562,34 @@ export default function Drilldown() {
                             )
                           })}
                           {room.beds.length === 0 && (
-                            <Typography variant="caption" color="text.secondary">Keine Betten</Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {room.room_type === 'WARTEBEREICH' ? 'Keine Warteplätze' : 'Keine Betten'}
+                            </Typography>
                           )}
                         </Box>
 
-                        {/* Add bed inline form */}
+                        {/* Add bed/Warteplatz inline form */}
                         {addBedRoomId === room.id && (
                           <Box display="flex" gap={1} alignItems="center" mt={1} flexWrap="wrap">
-                            <TextField label="Bett-Nr *" size="small" value={newBedNummer}
+                            <TextField
+                              label={room.room_type === 'WARTEBEREICH' ? 'Platz-Nr *' : 'Bett-Nr *'}
+                              size="small" value={newBedNummer}
                               onChange={(e) => setNewBedNummer(e.target.value)}
                               sx={{ width: 100 }} />
-                            <FormControl size="small" sx={{ width: 130 }}>
-                              <InputLabel>Typ</InputLabel>
-                              <Select value={newBedTyp} label="Typ" onChange={(e) => setNewBedTyp(e.target.value)}>
-                                <MenuItem value="KONTINGENT">Standard</MenuItem>
-                                <MenuItem value="NOTBETT">Notbett</MenuItem>
-                              </Select>
-                            </FormControl>
+                            {room.room_type !== 'WARTEBEREICH' && (
+                              <FormControl size="small" sx={{ width: 130 }}>
+                                <InputLabel>Typ</InputLabel>
+                                <Select value={newBedTyp} label="Typ" onChange={(e) => setNewBedTyp(e.target.value)}>
+                                  <MenuItem value="KONTINGENT">Standard</MenuItem>
+                                  <MenuItem value="NOTBETT">Notbett</MenuItem>
+                                </Select>
+                              </FormControl>
+                            )}
+                            {room.room_type === 'WARTEBEREICH' && (
+                              <Chip label="Typ: Warteplatz (auto)" size="small" sx={{ bgcolor: '#fff3e0', color: '#e65100' }} />
+                            )}
                             <Button size="small" variant="contained" disabled={!newBedNummer.trim() || addingBed}
-                              onClick={() => handleAddBed(room.id)}>
+                              onClick={() => handleAddBed(room.id, room.room_type === 'WARTEBEREICH')}>
                               {addingBed ? <CircularProgress size={14} /> : 'Hinzufügen'}
                             </Button>
                             <Button size="small" onClick={() => setAddBedRoomId(null)}>Abbrechen</Button>
@@ -1381,9 +1603,9 @@ export default function Drilldown() {
 
                   {/* New Room form */}
                   <Typography variant="body2" fontWeight={700} color="text.secondary" mb={1.5}>
-                    Neuen Raum anlegen
+                    Neuen Wohnraum anlegen
                   </Typography>
-                  <Box display="flex" gap={1.5} alignItems="flex-end" flexWrap="wrap">
+                  <Box display="flex" gap={1.5} alignItems="flex-end" flexWrap="wrap" mb={2}>
                     <TextField label="Raumname *" size="small" value={newRoomName}
                       onChange={(e) => setNewRoomName(e.target.value)}
                       placeholder="z.B. Raum E" sx={{ flex: 1, minWidth: 150 }} />
@@ -1391,6 +1613,25 @@ export default function Drilldown() {
                       disabled={!newRoomName.trim() || addingRoom}
                       onClick={handleAddRoom}>
                       {addingRoom ? <CircularProgress size={16} /> : 'Raum anlegen'}
+                    </Button>
+                  </Box>
+
+                  {/* New Wartebereich form */}
+                  <Typography variant="body2" fontWeight={700} sx={{ color: '#e65100', mb: 1.5 }}>
+                    Neuen Wartebereich anlegen
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                    Warteplätze zählen nicht gegen das Kontingent und erhalten automatisch den Typ „Warteplatz".
+                  </Typography>
+                  <Box display="flex" gap={1.5} alignItems="flex-end" flexWrap="wrap">
+                    <TextField label="Bereichsname *" size="small" value={newWarteRoomName}
+                      onChange={(e) => setNewWarteRoomName(e.target.value)}
+                      placeholder="z.B. Wartebereich" sx={{ flex: 1, minWidth: 150 }} />
+                    <Button variant="contained" startIcon={<AddIcon />}
+                      disabled={!newWarteRoomName.trim() || addingWarteRoom}
+                      onClick={handleAddWarteRoom}
+                      sx={{ bgcolor: '#e65100', '&:hover': { bgcolor: '#bf360c' } }}>
+                      {addingWarteRoom ? <CircularProgress size={16} /> : 'Wartebereich anlegen'}
                     </Button>
                   </Box>
                 </>
@@ -1498,7 +1739,7 @@ export default function Drilldown() {
         <DialogTitle fontWeight={700}>
           <Box display="flex" alignItems="center" gap={1}>
             <WarningAmberIcon sx={{ color: '#e65100' }} />
-            Offene Reservierungsanfragen
+            Offene Verlegungsanfragen
           </Box>
         </DialogTitle>
         <DialogContent sx={{ pt: 1 }}>
@@ -1548,7 +1789,7 @@ export default function Drilldown() {
           <Button onClick={() => { setPendingOpen(false); setAssignBed(null) }}>Schließen</Button>
           {canEdit && (
             <Button variant="contained" onClick={() => navigate('/suggestions')}>
-              Neue Reservierungsanfrage
+              Neue Verlegungsanfrage
             </Button>
           )}
         </DialogActions>

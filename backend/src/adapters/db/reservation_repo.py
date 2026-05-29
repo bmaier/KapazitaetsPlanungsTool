@@ -38,6 +38,7 @@ def _to_entity(model: ReservationRequestModel) -> ReservationRequest:
         belegung_ende=model.belegung_ende,
         status=ReservationStatus(model.status),
         confirmed_bed_id=model.confirmed_bed_id,
+        suggested_bed_id=model.suggested_bed_id,
         confirmed_at=model.confirmed_at,
         created_at=model.created_at,
         updated_at=model.updated_at,
@@ -66,6 +67,7 @@ class SqlReservationRepo(AbstractReservationRepo):
             belegung_ende=body.belegung_ende,
             status="PENDING",
             confirmed_bed_id=None,
+            suggested_bed_id=body.suggested_bed_id if hasattr(body, 'suggested_bed_id') else None,
             created_at=now,
             updated_at=now,
         )
@@ -78,8 +80,8 @@ class SqlReservationRepo(AbstractReservationRepo):
             reservation_id=model.id,
             task_type=TaskType.RESERVATION_RECEIVED,
             priority=TaskPriority.HIGH,
-            title="Neue Reservierungsanfrage",
-            body=f"Einrichtung hat eine Reservierungsanfrage für AZR-ID {body.azr_id} gestellt.",
+            title="Neue Verlegungsanfrage",
+            body=f"Einrichtung hat eine Verlegungsanfrage für AZR-ID {body.azr_id} gestellt.",
         )
 
         # Audit
@@ -285,6 +287,19 @@ class SqlReservationRepo(AbstractReservationRepo):
                 status_code=409, detail="Bett ist im Zeitraum bereits belegt"
             )
 
+        # Auto-Ausbuchung aus Quellbett — verhindert Doppelbelegung
+        existing = await self._session.execute(
+            select(OccupantModel).where(
+                OccupantModel.azr_id == model.azr_id,
+                OccupantModel.belegung_start < model.belegung_ende,
+                OccupantModel.belegung_ende > model.belegung_start,
+                OccupantModel.bed_id != model.confirmed_bed_id,
+            )
+        )
+        source_occupant = existing.scalar_one_or_none()
+        if source_occupant is not None:
+            await self._session.delete(source_occupant)
+
         now = datetime.now(timezone.utc)
         occupant = OccupantModel(
             id=uuid4(),
@@ -398,8 +413,8 @@ class SqlReservationRepo(AbstractReservationRepo):
                 reservation_id=model.id,
                 task_type=TaskType.RESERVATION_CONFIRMED,
                 priority=TaskPriority.HIGH,
-                title="Reservierung bestätigt",
-                body=f"Ihre Reservierungsanfrage für AZR-ID {model.azr_id} wurde bestätigt.",
+                title="Verlegungsanfrage bestätigt",
+                body=f"Ihre Verlegungsanfrage für AZR-ID {model.azr_id} wurde bestätigt.",
             )
         elif new_status == "REJECTED":
             await self._create_task(
@@ -407,8 +422,8 @@ class SqlReservationRepo(AbstractReservationRepo):
                 reservation_id=model.id,
                 task_type=TaskType.RESERVATION_REJECTED,
                 priority=TaskPriority.HIGH,
-                title="Reservierung abgelehnt",
-                body=f"Ihre Reservierungsanfrage für AZR-ID {model.azr_id} wurde abgelehnt.",
+                title="Verlegungsanfrage abgelehnt",
+                body=f"Ihre Verlegungsanfrage für AZR-ID {model.azr_id} wurde abgelehnt.",
             )
         elif new_status == "CANCELLED":
             # Task für beide beteiligten Einrichtungen
@@ -417,25 +432,25 @@ class SqlReservationRepo(AbstractReservationRepo):
                 reservation_id=model.id,
                 task_type=TaskType.RESERVATION_CANCELLED,
                 priority=TaskPriority.MEDIUM,
-                title="Reservierung abgebrochen",
-                body=f"Reservierungsanfrage für AZR-ID {model.azr_id} wurde abgebrochen.",
+                title="Verlegungsanfrage abgebrochen",
+                body=f"Verlegungsanfrage für AZR-ID {model.azr_id} wurde abgebrochen.",
             )
             await self._create_task(
                 location_id=model.target_location_id,
                 reservation_id=model.id,
                 task_type=TaskType.RESERVATION_CANCELLED,
                 priority=TaskPriority.MEDIUM,
-                title="Reservierung abgebrochen",
-                body=f"Reservierungsanfrage für AZR-ID {model.azr_id} wurde abgebrochen.",
+                title="Verlegungsanfrage abgebrochen",
+                body=f"Verlegungsanfrage für AZR-ID {model.azr_id} wurde abgebrochen.",
             )
         elif new_status == "TRANSFERRED":
             await self._create_task(
                 location_id=model.requester_location_id,
                 reservation_id=model.id,
                 task_type=TaskType.RESERVATION_TRANSFERRED,
-                priority=TaskPriority.HIGH,
-                title="Person transferiert — Ausbuchung prüfen",
-                body=f"AZR-ID {model.azr_id} wurde zur Zieleinrichtung transferiert. Bitte prüfen, ob die Person noch manuell ausgebucht werden muss.",
+                priority=TaskPriority.MEDIUM,
+                title="Person transferiert — automatisch ausgebucht",
+                body=f"AZR-ID {model.azr_id} wurde zur Zieleinrichtung transferiert und automatisch aus dem Quellbett ausgebucht.",
             )
             await self._create_task(
                 location_id=model.target_location_id,
