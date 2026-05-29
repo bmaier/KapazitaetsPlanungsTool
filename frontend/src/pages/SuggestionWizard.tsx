@@ -131,9 +131,12 @@ export default function SuggestionWizard() {
   const [labelFilter, setLabelFilter] = useState<string[]>([])
   const [roomLabelCatalog, setRoomLabelCatalog] = useState<string[]>([])
 
-  // Optional person data for "Belegung vormerken" (no person context)
-  const [confirmAzrId, setConfirmAzrId] = useState('')
-  const [confirmAzrGeschlecht, setConfirmAzrGeschlecht] = useState('M')
+  // Per-bed assignments for "Belegung vormerken" (no person context)
+  interface BedAssignment { bed_id: string; azr_id: string; geschlecht: string; labels: string[]; searching: boolean }
+  const [bedAssignments, setBedAssignments] = useState<BedAssignment[]>([])
+  // Person labels for hasPerson confirm dialog
+  const [confirmPersonLabels, setConfirmPersonLabels] = useState<string[]>([])
+  const [groupPersonLabels, setGroupPersonLabels] = useState<Record<string, string[]>>({})
 
   useEffect(() => {
     get<{ items: Array<{ name: string; entity_types: string[] }> }>('/api/labels')
@@ -242,6 +245,51 @@ export default function SuggestionWizard() {
     }
   }
 
+  async function handleOpenConfirm() {
+    if (!selectedVariantData) return
+    if (!hasPerson) {
+      setBedAssignments(selectedVariantData.beds.map(b => ({
+        bed_id: b.bed_id, azr_id: '', geschlecht: 'M', labels: [], searching: false,
+      })))
+    } else if (isGroupMode && modus !== 'einzeln') {
+      const map: Record<string, string[]> = {}
+      for (const person of preGroup) {
+        try {
+          type OccRes = { azr_id: string; occ_labels: string[] }
+          const res = await get<OccRes[]>(`/api/occupants/search?q=${encodeURIComponent(person.azr_id)}`)
+          const found = res.find(r => r.azr_id === person.azr_id) ?? res[0]
+          if (found) map[person.azr_id] = (found.occ_labels as string[]) ?? []
+        } catch {}
+      }
+      setGroupPersonLabels(map)
+    } else if (currentPerson) {
+      try {
+        type OccRes = { azr_id: string; occ_labels: string[] }
+        const res = await get<OccRes[]>(`/api/occupants/search?q=${encodeURIComponent(currentPerson.azr_id)}`)
+        const found = res.find(r => r.azr_id === currentPerson.azr_id) ?? res[0]
+        setConfirmPersonLabels((found?.occ_labels as string[]) ?? [])
+      } catch { setConfirmPersonLabels([]) }
+    }
+    setConfirmOpen(true)
+  }
+
+  async function searchPersonForBed(idx: number) {
+    const azrId = bedAssignments[idx]?.azr_id.trim()
+    if (!azrId) return
+    setBedAssignments(prev => prev.map((a, i) => i === idx ? { ...a, searching: true } : a))
+    try {
+      type OccRes = { azr_id: string; occ_labels: string[]; geschlecht: string }
+      const res = await get<OccRes[]>(`/api/occupants/search?q=${encodeURIComponent(azrId)}`)
+      const found = res.find(r => r.azr_id === azrId) ?? res[0]
+      setBedAssignments(prev => prev.map((a, i) => i === idx ? {
+        ...a, labels: (found?.occ_labels as string[]) ?? [],
+        geschlecht: found?.geschlecht ?? a.geschlecht, searching: false,
+      } : a))
+    } catch {
+      setBedAssignments(prev => prev.map((a, i) => i === idx ? { ...a, searching: false } : a))
+    }
+  }
+
   async function handleAccept() {
     if (!suggestion || selectedVariant === null) return
     const variant = suggestion.variants[selectedVariant]
@@ -330,16 +378,17 @@ export default function SuggestionWizard() {
     } else {
       // No person context: Belegung vormerken
       try {
-        if (confirmAzrId.trim() && selectedVariantData?.beds[0]) {
-          // AZR-ID provided — create actual occupancy
-          await post(`/api/beds/${selectedVariantData.beds[0].bed_id}/occupancy`, {
-            azr_id: confirmAzrId.trim(),
-            geschlecht: confirmAzrGeschlecht,
-            belegung_start: today,
-            belegung_ende: ende,
-          })
+        const assigned = bedAssignments.filter(a => a.azr_id.trim())
+        if (assigned.length > 0) {
+          for (const a of assigned) {
+            await post(`/api/beds/${a.bed_id}/occupancy`, {
+              azr_id: a.azr_id.trim(),
+              geschlecht: a.geschlecht,
+              belegung_start: today,
+              belegung_ende: ende,
+            })
+          }
         } else {
-          // No AZR-ID — just log suggestion acceptance
           await post(`/api/suggestions/${suggestion.suggestion_id}/accept`, { variant_index: selectedVariant })
         }
         setConfirmOpen(false)
@@ -789,7 +838,7 @@ export default function SuggestionWizard() {
 
                 <Box display="flex" gap={2}>
                   <Button variant="outlined" onClick={() => setActiveStep(0)}>Zurück</Button>
-                  <Button variant="contained" onClick={() => setConfirmOpen(true)}
+                  <Button variant="contained" onClick={handleOpenConfirm}
                     disabled={selectedVariant === null}
                     size="large"
                     sx={hasPerson ? { bgcolor: accentColor, '&:hover': { bgcolor: '#4a148c' } } : {}}>
@@ -832,7 +881,11 @@ export default function SuggestionWizard() {
       )}
 
       {/* Confirm Dialog */}
-      <Dialog open={confirmOpen} onClose={() => { setConfirmOpen(false); setConfirmAzrId(''); setConfirmAzrGeschlecht('M') }} maxWidth="sm" fullWidth>
+      <Dialog
+        open={confirmOpen}
+        onClose={() => { setConfirmOpen(false); setBedAssignments([]); setConfirmPersonLabels([]); setGroupPersonLabels({}) }}
+        maxWidth="sm" fullWidth
+      >
         <DialogTitle fontWeight={700}>
           <Box display="flex" alignItems="center" gap={1}>
             {hasPerson ? <FlightIcon sx={{ color: '#6a1b9a' }} /> : <CheckCircleIcon sx={{ color: '#003366' }} />}
@@ -846,25 +899,52 @@ export default function SuggestionWizard() {
           </Box>
         </DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
-          {/* Gruppe */}
-          {isGroupMode && modus !== 'einzeln' && (
-            <Paper elevation={0} sx={{ p: 1.5, bgcolor: '#f3e5f5', borderRadius: 1.5, border: '1px solid #ce93d8' }}>
-              <Typography variant="caption" fontWeight={700} color="#6a1b9a" sx={{ display: 'block', mb: 0.5 }}>
-                Gruppe ({preGroup.length} Personen)
-              </Typography>
-              <Box display="flex" gap={1} flexWrap="wrap">
-                {preGroup.map((p) => (
-                  <Box key={p.azr_id} display="flex" alignItems="center" gap={0.5}>
-                    <Typography variant="body2" fontWeight={700} fontFamily="monospace">{p.azr_id}</Typography>
-                    <GenderChip g={p.geschlecht} />
-                  </Box>
-                ))}
-              </Box>
-            </Paper>
+
+          {/* ── hasPerson: Gruppe (alle Personen auf einmal) ── */}
+          {hasPerson && isGroupMode && modus !== 'einzeln' && selectedVariantData && (
+            <>
+              <Paper elevation={0} sx={{ p: 1.5, bgcolor: '#f3e5f5', borderRadius: 1.5, border: '1px solid #ce93d8' }}>
+                <Typography variant="caption" fontWeight={700} color="#6a1b9a" sx={{ display: 'block', mb: 1 }}>
+                  Gruppe ({preGroup.length} Personen) → {selectedVariantData.location_name || selectedVariantData.beds[0]?.location_name}
+                </Typography>
+                <Box display="flex" flexDirection="column" gap={1}>
+                  {preGroup.map((p, i) => {
+                    const bed = selectedVariantData.beds[i]
+                    const pLabels = groupPersonLabels[p.azr_id] ?? []
+                    return (
+                      <Box key={p.azr_id} sx={{ p: 1, border: '1px solid #ce93d8', borderRadius: 1, bgcolor: 'white' }}>
+                        <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                          <PersonIcon sx={{ fontSize: 16, color: '#6a1b9a' }} />
+                          <Typography variant="body2" fontWeight={700} fontFamily="monospace">{p.azr_id}</Typography>
+                          <GenderChip g={p.geschlecht} />
+                          {bed && (
+                            <>
+                              <Typography variant="caption" color="text.secondary">→</Typography>
+                              <BedIcon sx={{ fontSize: 14, color: '#2e7d32' }} />
+                              <Typography variant="body2" fontWeight={600}>{bed.room_name} · {bed.bett_nummer}</Typography>
+                            </>
+                          )}
+                        </Box>
+                        {pLabels.length > 0 && (
+                          <Box mt={0.5} display="flex" gap={0.4} flexWrap="wrap">
+                            {pLabels.map(lbl => <Chip key={lbl} label={lbl} size="small" sx={{ height: 16, fontSize: 9, fontWeight: 600, bgcolor: '#ede7f6', color: '#6a1b9a' }} />)}
+                          </Box>
+                        )}
+                        {bed && (bed.room_labels ?? []).length > 0 && (
+                          <Box mt={0.4} display="flex" gap={0.4} flexWrap="wrap">
+                            {bed.room_labels.map(lbl => <Chip key={lbl} label={lbl} size="small" sx={{ height: 16, fontSize: 9, fontWeight: 600, bgcolor: '#e3f2fd', color: '#1565c0' }} />)}
+                          </Box>
+                        )}
+                      </Box>
+                    )
+                  })}
+                </Box>
+              </Paper>
+            </>
           )}
 
-          {/* Einzelperson */}
-          {currentPerson && (!isGroupMode || modus === 'einzeln') && (
+          {/* ── hasPerson: Einzelperson ── */}
+          {hasPerson && currentPerson && (!isGroupMode || modus === 'einzeln') && (
             <Paper elevation={0} sx={{ p: 1.5, bgcolor: '#f3e5f5', borderRadius: 1.5, border: '1px solid #ce93d8' }}>
               <Typography variant="caption" fontWeight={700} color="#6a1b9a" sx={{ display: 'block', mb: 0.5 }}>
                 Person
@@ -873,62 +953,117 @@ export default function SuggestionWizard() {
                 <Typography fontWeight={700} fontFamily="monospace">{currentPerson.azr_id}</Typography>
                 <GenderChip g={currentPerson.geschlecht} />
               </Box>
+              {confirmPersonLabels.length > 0 && (
+                <Box mt={0.8} display="flex" gap={0.5} flexWrap="wrap">
+                  {confirmPersonLabels.map(lbl => (
+                    <Chip key={lbl} label={lbl} size="small" sx={{ height: 18, fontSize: 10, fontWeight: 600, bgcolor: '#ede7f6', color: '#6a1b9a' }} />
+                  ))}
+                </Box>
+              )}
             </Paper>
           )}
 
-          {/* Target + beds */}
-          {selectedVariantData && (
+          {/* ── hasPerson: Ziel-Einrichtung + Betten mit Labels ── */}
+          {hasPerson && (!isGroupMode || modus === 'einzeln') && selectedVariantData && (
             <Box>
               <Box display="flex" alignItems="center" gap={1} mb={1}>
-                <LocationOnIcon sx={{ color: hasPerson ? '#6a1b9a' : '#003366', fontSize: 18 }} />
-                <Typography fontWeight={700} color={hasPerson ? '#6a1b9a' : '#003366'}>
+                <LocationOnIcon sx={{ color: '#6a1b9a', fontSize: 18 }} />
+                <Typography fontWeight={700} color="#6a1b9a">
                   {selectedVariantData.location_name || selectedVariantData.beds[0]?.location_name}
                 </Typography>
               </Box>
               {selectedVariantData.beds.map((b) => (
-                <Box key={b.bed_id} display="flex" alignItems="center" gap={1} mb={0.8}>
-                  <BedIcon sx={{ color: '#2e7d32', fontSize: 18 }} />
-                  <Typography variant="body2">{b.room_name} · Bett {b.bett_nummer}</Typography>
+                <Box key={b.bed_id} mb={0.8}>
+                  <Box display="flex" alignItems="center" gap={1}>
+                    <BedIcon sx={{ color: '#2e7d32', fontSize: 18 }} />
+                    <Typography variant="body2">{b.room_name} · Bett {b.bett_nummer}</Typography>
+                  </Box>
+                  {(b.room_labels ?? []).length > 0 && (
+                    <Box ml={3.5} mt={0.3} display="flex" gap={0.4} flexWrap="wrap">
+                      {b.room_labels.map(lbl => <Chip key={lbl} label={lbl} size="small" sx={{ height: 16, fontSize: 9, fontWeight: 600, bgcolor: '#e3f2fd', color: '#1565c0' }} />)}
+                    </Box>
+                  )}
                 </Box>
               ))}
             </Box>
+          )}
+
+          {/* ── !hasPerson: Pro-Bett-Zuweisung ── */}
+          {!hasPerson && selectedVariantData && (
+            <>
+              <Box display="flex" alignItems="center" gap={1}>
+                <LocationOnIcon sx={{ color: '#003366', fontSize: 18 }} />
+                <Typography fontWeight={700} color="#003366">
+                  {selectedVariantData.location_name || selectedVariantData.beds[0]?.location_name}
+                </Typography>
+              </Box>
+              {bedAssignments.map((assignment, idx) => {
+                const bed = selectedVariantData.beds[idx]
+                if (!bed) return null
+                return (
+                  <Paper key={assignment.bed_id} elevation={0} sx={{ p: 1.5, border: '1px solid #e0e0e0', borderRadius: 1.5 }}>
+                    {/* Bett-Info + Raum-Labels */}
+                    <Box display="flex" alignItems="center" gap={1} mb={0.5}>
+                      <BedIcon sx={{ color: '#2e7d32', fontSize: 18 }} />
+                      <Typography variant="body2" fontWeight={700}>{bed.room_name} · Bett {bed.bett_nummer}</Typography>
+                    </Box>
+                    {(bed.room_labels ?? []).length > 0 && (
+                      <Box mb={1} display="flex" gap={0.4} flexWrap="wrap">
+                        {bed.room_labels.map(lbl => <Chip key={lbl} label={lbl} size="small" sx={{ height: 16, fontSize: 9, fontWeight: 600, bgcolor: '#e3f2fd', color: '#1565c0' }} />)}
+                      </Box>
+                    )}
+                    {/* AZR + Geschlecht + Suche */}
+                    <Box display="flex" gap={1} alignItems="flex-start" flexWrap="wrap">
+                      <TextField
+                        label="AZR-ID" size="small" value={assignment.azr_id}
+                        onChange={(e) => setBedAssignments(prev => prev.map((a, i) => i === idx ? { ...a, azr_id: e.target.value } : a))}
+                        onKeyDown={(e) => { if (e.key === 'Enter') searchPersonForBed(idx) }}
+                        placeholder="AZR-2024-0001-M01"
+                        sx={{ flex: 2, minWidth: 150 }}
+                      />
+                      <FormControl size="small" sx={{ flex: 1, minWidth: 100 }}>
+                        <InputLabel>Geschlecht</InputLabel>
+                        <Select value={assignment.geschlecht} label="Geschlecht"
+                          onChange={(e) => setBedAssignments(prev => prev.map((a, i) => i === idx ? { ...a, geschlecht: e.target.value as string } : a))}>
+                          <MenuItem value="M">Männlich</MenuItem>
+                          <MenuItem value="W">Weiblich</MenuItem>
+                          <MenuItem value="D">Divers</MenuItem>
+                        </Select>
+                      </FormControl>
+                      <Button size="small" variant="outlined" onClick={() => searchPersonForBed(idx)}
+                        disabled={!assignment.azr_id.trim() || assignment.searching}
+                        startIcon={assignment.searching ? <CircularProgress size={14} /> : <SearchIcon />}
+                        sx={{ mt: 0.5, whiteSpace: 'nowrap' }}>
+                        Suchen
+                      </Button>
+                    </Box>
+                    {/* Personen-Labels nach Suche */}
+                    {assignment.labels.length > 0 && (
+                      <Box mt={0.8} display="flex" gap={0.4} flexWrap="wrap" alignItems="center">
+                        <Typography variant="caption" color="text.secondary">Labels:</Typography>
+                        {assignment.labels.map(lbl => <Chip key={lbl} label={lbl} size="small" sx={{ height: 17, fontSize: 9, fontWeight: 600, bgcolor: '#ede7f6', color: '#6a1b9a' }} />)}
+                      </Box>
+                    )}
+                    {assignment.azr_id.trim() && assignment.labels.length === 0 && !assignment.searching && (
+                      <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block', fontStyle: 'italic' }}>
+                        → Suchen um Personen-Labels zu laden
+                      </Typography>
+                    )}
+                  </Paper>
+                )
+              })}
+              {bedAssignments.some(a => a.azr_id.trim()) && (
+                <Alert severity="info" sx={{ py: 0.5, fontSize: 12 }}>
+                  Eingebuchte Belegungen werden direkt im Protokoll erfasst.
+                </Alert>
+              )}
+            </>
           )}
 
           <Box display="flex" gap={2}>
             <Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center' }}>Zeitraum:</Typography>
             <Typography variant="body2" fontWeight={600}>{start} – {ende}</Typography>
           </Box>
-
-          {/* Optional person assignment for "Belegung vormerken" */}
-          {!hasPerson && (
-            <Paper elevation={0} sx={{ p: 1.5, border: '1px solid #e0e0e0', borderRadius: 1.5 }}>
-              <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                PERSON ZUWEISEN (OPTIONAL)
-              </Typography>
-              <Box display="flex" gap={1.5} flexWrap="wrap">
-                <TextField
-                  label="AZR-ID" size="small" value={confirmAzrId}
-                  onChange={(e) => setConfirmAzrId(e.target.value)}
-                  placeholder="AZR-2024-0001-M01"
-                  sx={{ flex: 2, minWidth: 160 }}
-                />
-                <FormControl size="small" sx={{ flex: 1, minWidth: 110 }}>
-                  <InputLabel>Geschlecht</InputLabel>
-                  <Select value={confirmAzrGeschlecht} label="Geschlecht"
-                    onChange={(e) => setConfirmAzrGeschlecht(e.target.value as string)}>
-                    <MenuItem value="M">Männlich</MenuItem>
-                    <MenuItem value="W">Weiblich</MenuItem>
-                    <MenuItem value="D">Divers</MenuItem>
-                  </Select>
-                </FormControl>
-              </Box>
-              {confirmAzrId.trim() && (
-                <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-                  Belegung wird direkt eingebucht und im Protokoll erfasst.
-                </Typography>
-              )}
-            </Paper>
-          )}
 
           {hasPerson && (
             <Alert severity="info" sx={{ py: 0.5, fontSize: 12 }}>
@@ -937,10 +1072,14 @@ export default function SuggestionWizard() {
           )}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => { setConfirmOpen(false); setConfirmAzrId(''); setConfirmAzrGeschlecht('M') }}>Abbrechen</Button>
+          <Button onClick={() => { setConfirmOpen(false); setBedAssignments([]); setConfirmPersonLabels([]); setGroupPersonLabels({}) }}>
+            Abbrechen
+          </Button>
           <Button variant="contained" onClick={handleAccept} disabled={loading}
             sx={hasPerson ? { bgcolor: '#6a1b9a', '&:hover': { bgcolor: '#4a148c' } } : {}}>
-            {loading ? <CircularProgress size={18} /> : hasPerson ? 'Verlegungsanfrage senden' : (confirmAzrId.trim() ? 'Jetzt einbuchen' : 'Jetzt vormerken')}
+            {loading ? <CircularProgress size={18} /> : hasPerson
+              ? 'Verlegungsanfrage senden'
+              : bedAssignments.some(a => a.azr_id.trim()) ? 'Jetzt einbuchen' : 'Jetzt vormerken'}
           </Button>
         </DialogActions>
       </Dialog>
