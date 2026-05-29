@@ -132,7 +132,11 @@ export default function SuggestionWizard() {
   const [roomLabelCatalog, setRoomLabelCatalog] = useState<string[]>([])
 
   // Per-bed assignments for "Belegung vormerken" (no person context)
-  interface BedAssignment { bed_id: string; azr_id: string; geschlecht: string; labels: string[]; searching: boolean }
+  interface BedAssignment {
+    bed_id: string; azr_id: string; geschlecht: string; labels: string[];
+    searching: boolean; searchDone: boolean; searchFound: boolean
+    foundLocation?: string; foundEnde?: string
+  }
   const [bedAssignments, setBedAssignments] = useState<BedAssignment[]>([])
   // Person labels for hasPerson confirm dialog
   const [confirmPersonLabels, setConfirmPersonLabels] = useState<string[]>([])
@@ -249,7 +253,8 @@ export default function SuggestionWizard() {
     if (!selectedVariantData) return
     if (!hasPerson) {
       setBedAssignments(selectedVariantData.beds.map(b => ({
-        bed_id: b.bed_id, azr_id: '', geschlecht: 'M', labels: [], searching: false,
+        bed_id: b.bed_id, azr_id: '', geschlecht: 'M', labels: [],
+        searching: false, searchDone: false, searchFound: false,
       })))
     } else if (isGroupMode && modus !== 'einzeln') {
       const map: Record<string, string[]> = {}
@@ -276,17 +281,34 @@ export default function SuggestionWizard() {
   async function searchPersonForBed(idx: number) {
     const azrId = bedAssignments[idx]?.azr_id.trim()
     if (!azrId) return
-    setBedAssignments(prev => prev.map((a, i) => i === idx ? { ...a, searching: true } : a))
+    setBedAssignments(prev => prev.map((a, i) => i === idx ? { ...a, searching: true, searchDone: false } : a))
     try {
-      type OccRes = { azr_id: string; occ_labels: string[]; geschlecht: string }
+      type OccRes = {
+        azr_id: string; occ_labels: string[] | null; geschlecht: string;
+        location_name: string; belegung_ende: string
+      }
       const res = await get<OccRes[]>(`/api/occupants/search?q=${encodeURIComponent(azrId)}`)
-      const found = res.find(r => r.azr_id === azrId) ?? res[0]
-      setBedAssignments(prev => prev.map((a, i) => i === idx ? {
-        ...a, labels: (found?.occ_labels as string[]) ?? [],
-        geschlecht: found?.geschlecht ?? a.geschlecht, searching: false,
-      } : a))
+      // Prefer exact match (case-insensitive), fall back to first result
+      const found = res.find(r => r.azr_id.toLowerCase() === azrId.toLowerCase()) ?? res[0]
+      if (found) {
+        setBedAssignments(prev => prev.map((a, i) => i === idx ? {
+          ...a,
+          labels: Array.isArray(found.occ_labels) ? found.occ_labels : [],
+          geschlecht: found.geschlecht ?? a.geschlecht,
+          foundLocation: found.location_name,
+          foundEnde: found.belegung_ende,
+          searching: false, searchDone: true, searchFound: true,
+        } : a))
+      } else {
+        setBedAssignments(prev => prev.map((a, i) => i === idx ? {
+          ...a, labels: [], searching: false, searchDone: true, searchFound: false,
+          foundLocation: undefined, foundEnde: undefined,
+        } : a))
+      }
     } catch {
-      setBedAssignments(prev => prev.map((a, i) => i === idx ? { ...a, searching: false } : a))
+      setBedAssignments(prev => prev.map((a, i) => i === idx ? {
+        ...a, searching: false, searchDone: true, searchFound: false,
+      } : a))
     }
   }
 
@@ -1016,7 +1038,7 @@ export default function SuggestionWizard() {
                     <Box display="flex" gap={1} alignItems="flex-start" flexWrap="wrap">
                       <TextField
                         label="AZR-ID" size="small" value={assignment.azr_id}
-                        onChange={(e) => setBedAssignments(prev => prev.map((a, i) => i === idx ? { ...a, azr_id: e.target.value } : a))}
+                        onChange={(e) => setBedAssignments(prev => prev.map((a, i) => i === idx ? { ...a, azr_id: e.target.value, searchDone: false, searchFound: false, labels: [], foundLocation: undefined, foundEnde: undefined } : a))}
                         onKeyDown={(e) => { if (e.key === 'Enter') searchPersonForBed(idx) }}
                         placeholder="AZR-2024-0001-M01"
                         sx={{ flex: 2, minWidth: 150 }}
@@ -1037,16 +1059,40 @@ export default function SuggestionWizard() {
                         Suchen
                       </Button>
                     </Box>
-                    {/* Personen-Labels nach Suche */}
-                    {assignment.labels.length > 0 && (
-                      <Box mt={0.8} display="flex" gap={0.4} flexWrap="wrap" alignItems="center">
-                        <Typography variant="caption" color="text.secondary">Labels:</Typography>
-                        {assignment.labels.map(lbl => <Chip key={lbl} label={lbl} size="small" sx={{ height: 17, fontSize: 9, fontWeight: 600, bgcolor: '#ede7f6', color: '#6a1b9a' }} />)}
+                    {/* Suchergebnis-Feedback */}
+                    {assignment.searchDone && assignment.searchFound && (
+                      <Box mt={0.8} sx={{ p: 0.8, bgcolor: '#f1f8e9', border: '1px solid #a5d6a7', borderRadius: 1 }}>
+                        <Box display="flex" alignItems="center" gap={0.5} flexWrap="wrap">
+                          <CheckCircleIcon sx={{ fontSize: 14, color: '#2e7d32' }} />
+                          <Typography variant="caption" fontWeight={700} color="#2e7d32">Person gefunden</Typography>
+                          {assignment.foundLocation && (
+                            <Typography variant="caption" color="text.secondary">
+                              · aktuell: {assignment.foundLocation}
+                              {assignment.foundEnde && ` bis ${assignment.foundEnde}`}
+                            </Typography>
+                          )}
+                        </Box>
+                        {assignment.labels.length > 0 ? (
+                          <Box mt={0.4} display="flex" gap={0.4} flexWrap="wrap">
+                            {assignment.labels.map(lbl => <Chip key={lbl} label={lbl} size="small" sx={{ height: 17, fontSize: 9, fontWeight: 600, bgcolor: '#ede7f6', color: '#6a1b9a' }} />)}
+                          </Box>
+                        ) : (
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.3 }}>
+                            Keine Labels hinterlegt
+                          </Typography>
+                        )}
                       </Box>
                     )}
-                    {assignment.azr_id.trim() && assignment.labels.length === 0 && !assignment.searching && (
+                    {assignment.searchDone && !assignment.searchFound && (
+                      <Box mt={0.8} sx={{ p: 0.8, bgcolor: '#fff8e1', border: '1px solid #ffe082', borderRadius: 1 }}>
+                        <Typography variant="caption" color="#e65100" fontWeight={600}>
+                          Person nicht im System gefunden — Geschlecht bitte manuell eintragen
+                        </Typography>
+                      </Box>
+                    )}
+                    {!assignment.searchDone && !assignment.searching && assignment.azr_id.trim() && (
                       <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block', fontStyle: 'italic' }}>
-                        → Suchen um Personen-Labels zu laden
+                        → „Suchen" klicken oder Enter drücken um Person zu laden
                       </Typography>
                     )}
                   </Paper>
