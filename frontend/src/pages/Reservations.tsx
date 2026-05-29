@@ -48,6 +48,7 @@ interface Reservation {
   belegung_ende: string
   status: string
   confirmed_bed_id?: string | null
+  suggested_bed_id?: string | null
   confirmed_at?: string | null
   created_at: string
 }
@@ -57,14 +58,15 @@ interface FreeBed {
   bett_nummer: string
   room_name: string
   geschlechts_designation: string
+  is_suggested?: boolean
 }
 
-const STATUS_CONFIG: Record<string, { color: 'default' | 'warning' | 'success' | 'error' | 'info'; label: string }> = {
-  PENDING:     { color: 'warning', label: 'Ausstehend' },
-  CONFIRMED:   { color: 'success', label: 'Bestätigt' },
-  REJECTED:    { color: 'error',   label: 'Abgelehnt' },
-  CANCELLED:   { color: 'default', label: 'Storniert' },
-  TRANSFERRED: { color: 'info',    label: 'Verlegt' },
+const STATUS_CONFIG: Record<string, { bg: string; color: string; label: string }> = {
+  PENDING:     { bg: '#ede7f6', color: '#6a1b9a', label: 'Ausstehend' },
+  CONFIRMED:   { bg: '#e3f2fd', color: '#1565c0', label: 'Bestätigt' },
+  REJECTED:    { bg: '#ffebee', color: '#b71c1c', label: 'Abgelehnt' },
+  CANCELLED:   { bg: '#f5f5f5', color: '#757575', label: 'Storniert' },
+  TRANSFERRED: { bg: '#e0f2f1', color: '#00695c', label: 'Verlegt' },
 }
 
 function shortId(id: string) {
@@ -141,19 +143,22 @@ export default function Reservations() {
 
   async function openConfirmDialog(res: Reservation) {
     setConfirmRes(res)
-    setSelectedBedId(null)
+    setSelectedBedId(res.confirmed_bed_id ?? res.suggested_bed_id ?? null)
     setBedsLoading(true)
     try {
       type RoomBedStatus = { room_id: string; room_name: string; geschlechts_designation: string; beds: { bed_id: string; bett_nummer: string; status: string }[] }
       const rooms = await get<RoomBedStatus[]>(
-        `/api/locations/${res.target_location_id}/bed-status?date_from=${res.belegung_start}&date_to=${res.belegung_ende}`
+        `/api/locations/${res.target_location_id}/bed-status?date_from=${res.belegung_start}&date_to=${res.belegung_ende}&exclude_ankunft=true`
       )
       const beds: FreeBed[] = rooms.flatMap((room) =>
         room.beds
-          .filter((b) => b.status === 'FREI')
-          .map((b) => ({ bed_id: b.bed_id, bett_nummer: b.bett_nummer, room_name: room.room_name, geschlechts_designation: room.geschlechts_designation }))
+          .filter((b) => b.status === 'FREI' || b.bed_id === res.confirmed_bed_id || b.bed_id === res.suggested_bed_id)
+          .map((b) => ({ bed_id: b.bed_id, bett_nummer: b.bett_nummer, room_name: room.room_name, geschlechts_designation: room.geschlechts_designation, is_suggested: b.bed_id === res.suggested_bed_id }))
       )
       setFreeBeds(beds)
+      if ((res.suggested_bed_id || res.confirmed_bed_id) && !beds.find((b) => b.bed_id === (res.confirmed_bed_id ?? res.suggested_bed_id))) {
+        setSelectedBedId(null)
+      }
     } catch {
       setFreeBeds([])
     } finally {
@@ -167,7 +172,7 @@ export default function Reservations() {
     try {
       await post(`/api/reservations/${confirmRes.id}/confirm`, { confirmed_bed_id: selectedBedId })
       setConfirmRes(null)
-      setSnackbar({ open: true, message: 'Reservierung bestätigt, Bett vorgemerkt.', severity: 'success' })
+      setSnackbar({ open: true, message: 'Verlegungsanfrage bestätigt, Bett vorgemerkt.', severity: 'success' })
       loadAll()
     } catch {
       setSnackbar({ open: true, message: 'Bestätigung fehlgeschlagen.', severity: 'error' })
@@ -179,7 +184,7 @@ export default function Reservations() {
   async function handleReject(resId: string) {
     try {
       await post(`/api/reservations/${resId}/reject`, {})
-      setSnackbar({ open: true, message: 'Reservierung abgelehnt.', severity: 'success' })
+      setSnackbar({ open: true, message: 'Verlegungsanfrage abgelehnt.', severity: 'success' })
       loadAll()
     } catch {
       setSnackbar({ open: true, message: 'Ablehnen fehlgeschlagen.', severity: 'error' })
@@ -189,7 +194,7 @@ export default function Reservations() {
   async function handleCancel(resId: string) {
     try {
       await del(`/api/reservations/${resId}`)
-      setSnackbar({ open: true, message: 'Reservierung storniert.', severity: 'success' })
+      setSnackbar({ open: true, message: 'Verlegungsanfrage storniert.', severity: 'success' })
       loadAll()
     } catch {
       setSnackbar({ open: true, message: 'Stornierung fehlgeschlagen.', severity: 'error' })
@@ -210,7 +215,7 @@ export default function Reservations() {
 
   const ReservationTable = ({ rows, showActions }: { rows: Reservation[]; showActions: boolean }) => (
     rows.length === 0 ? (
-      <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>Keine Reservierungen vorhanden.</Typography>
+      <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>Keine Verlegungsanfragen vorhanden.</Typography>
     ) : (
       <Table size="small">
         <TableHead>
@@ -269,7 +274,8 @@ export default function Reservations() {
                   </Box>
                 </TableCell>
                 <TableCell>
-                  <Chip label={cfg.label} color={cfg.color} size="small" />
+                  <Chip label={cfg.label} size="small"
+                    sx={{ bgcolor: cfg.bg, color: cfg.color, fontWeight: 700 }} />
                 </TableCell>
                 {showActions && (
                   <TableCell>
@@ -316,15 +322,15 @@ export default function Reservations() {
     <Box sx={{ p: 3 }}>
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
         <Typography variant="h5" sx={{ color: '#003366', fontWeight: 700 }}>
-          Reservierungen
+          Verlegungsanfragen
         </Typography>
         <Button variant="contained" startIcon={<AddIcon />} onClick={() => setDialogOpen(true)}>
-          Neue Anfrage
+          Neue Verlegungsanfrage
         </Button>
       </Box>
 
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2, borderBottom: '1px solid #e0e0e0' }}>
-        <Tab label={`Alle Anfragen (${reservations.length})`} />
+        <Tab label={`Alle Verlegungsanfragen (${reservations.length})`} />
         <Tab label={
           <Box display="flex" alignItems="center" gap={1}>
             Aktionen erforderlich
@@ -333,11 +339,30 @@ export default function Reservations() {
             )}
           </Box>
         } />
+        <Tab label={
+          <Box display="flex" alignItems="center" gap={1}>
+            Meine Verlegungsanfragen
+            {reservations.filter(r => r.requester_location_id === locationId && r.status === 'PENDING').length > 0 && (
+              <Chip
+                label={reservations.filter(r => r.requester_location_id === locationId && r.status === 'PENDING').length}
+                size="small"
+                sx={{ height: 18, fontSize: 10, bgcolor: '#ede7f6', color: '#6a1b9a' }}
+              />
+            )}
+          </Box>
+        } />
       </Tabs>
 
       <Paper elevation={0} sx={{ borderRadius: 2, border: '1px solid #e0e0e0', overflow: 'hidden' }}>
         {tab === 0 && <ReservationTable rows={reservations} showActions={true} />}
         {tab === 1 && <ReservationTable rows={incoming} showActions={true} />}
+        {tab === 2 && (
+          isSystemAdmin
+            ? <ReservationTable rows={reservations} showActions={true} />
+            : locationId
+              ? <ReservationTable rows={reservations.filter(r => r.requester_location_id === locationId)} showActions={true} />
+              : <Typography color="text.secondary" sx={{ p: 3 }}>Keine Einrichtung zugeordnet.</Typography>
+        )}
       </Paper>
 
       {/* ── Bett-Auswahl Dialog (für Bestätigung) ── */}
@@ -345,14 +370,38 @@ export default function Reservations() {
         <DialogTitle fontWeight={700}>
           <Box display="flex" alignItems="center" gap={1}>
             <BedIcon sx={{ color: '#2e7d32' }} />
-            Reservierung bestätigen — Bett zuweisen
+            Verlegungsanfrage bestätigen — Bett zuweisen
           </Box>
         </DialogTitle>
         <DialogContent sx={{ pt: 1.5 }}>
           {confirmRes && (
-            <Alert severity="info" sx={{ mb: 2, py: 0.5 }}>
-              AZR-ID <strong>{confirmRes.azr_id}</strong> · {confirmRes.belegung_start} – {confirmRes.belegung_ende}
-            </Alert>
+            <Paper elevation={0} sx={{ p: 1.5, mb: 2, bgcolor: '#f3e5f5', borderRadius: 1.5, border: '1px solid #ce93d8' }}>
+              <Typography variant="caption" fontWeight={700} sx={{ color: '#6a1b9a', display: 'block', mb: 1 }}>
+                Person — Anfrage für Bett-Zuweisung
+              </Typography>
+              <Box display="flex" gap={2} flexWrap="wrap" alignItems="center">
+                <Box>
+                  <Typography variant="caption" color="text.secondary">AZR-ID</Typography>
+                  <Typography variant="body2" fontWeight={700} fontFamily="monospace">{confirmRes.azr_id}</Typography>
+                </Box>
+                <Box>
+                  <Typography variant="caption" color="text.secondary" display="block">Geschlecht</Typography>
+                  <GenderChip g={confirmRes.geschlecht} />
+                </Box>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Geburtsjahr</Typography>
+                  <Typography variant="body2" fontWeight={600}>*{confirmRes.geburtsjahr}</Typography>
+                </Box>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Herkunftsland</Typography>
+                  <Typography variant="body2" fontWeight={600}>{confirmRes.herkunftsland}</Typography>
+                </Box>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Zeitraum</Typography>
+                  <Typography variant="body2" fontWeight={600}>{confirmRes.belegung_start} – {confirmRes.belegung_ende}</Typography>
+                </Box>
+              </Box>
+            </Paper>
           )}
           {bedsLoading ? (
             <Box display="flex" justifyContent="center" py={4}><CircularProgress /></Box>
@@ -361,26 +410,34 @@ export default function Reservations() {
           ) : (
             <Box display="flex" flexDirection="column" gap={1}>
               <Typography variant="body2" color="text.secondary" mb={1}>
-                Freies Bett wählen:
+                Bett wählen — vorgeschlagenes Bett ist vorausgewählt:
               </Typography>
-              {freeBeds.map((b) => (
-                <Paper
-                  key={b.bed_id}
-                  elevation={selectedBedId === b.bed_id ? 3 : 1}
-                  onClick={() => setSelectedBedId(b.bed_id)}
-                  sx={{
-                    p: 1.5, borderRadius: 2, cursor: 'pointer',
-                    border: selectedBedId === b.bed_id ? '2px solid #2e7d32' : '2px solid transparent',
-                    bgcolor: selectedBedId === b.bed_id ? '#e8f5e9' : 'white',
-                    transition: 'all 0.15s',
-                  }}
-                >
-                  <Box display="flex" alignItems="center" gap={1}>
-                    <BedIcon sx={{ color: '#43a047', fontSize: 20 }} />
-                    <Typography fontWeight={600}>{b.room_name} — Bett {b.bett_nummer}</Typography>
-                  </Box>
-                </Paper>
-              ))}
+              {freeBeds.map((b) => {
+                const isSelected = selectedBedId === b.bed_id
+                const isSuggested = !!b.is_suggested
+                return (
+                  <Paper
+                    key={b.bed_id}
+                    elevation={isSelected ? 3 : 1}
+                    onClick={() => setSelectedBedId(b.bed_id)}
+                    sx={{
+                      p: 1.5, borderRadius: 2, cursor: 'pointer',
+                      border: isSelected ? '2px solid #2e7d32' : isSuggested ? '2px dashed #9c27b0' : '2px solid transparent',
+                      bgcolor: isSelected ? '#e8f5e9' : isSuggested ? '#f3e5f5' : 'white',
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    <Box display="flex" alignItems="center" gap={1}>
+                      <BedIcon sx={{ color: isSelected ? '#2e7d32' : isSuggested ? '#7b1fa2' : '#43a047', fontSize: 20 }} />
+                      <Typography fontWeight={600}>{b.room_name} — Bett {b.bett_nummer}</Typography>
+                      {isSuggested && !isSelected && (
+                        <Chip label="Vorgeschlagen" size="small"
+                          sx={{ bgcolor: '#ede7f6', color: '#6a1b9a', fontWeight: 600, height: 18, fontSize: 10 }} />
+                      )}
+                    </Box>
+                  </Paper>
+                )
+              })}
             </Box>
           )}
         </DialogContent>
@@ -396,7 +453,7 @@ export default function Reservations() {
       <ReservationCreateDialog
         open={dialogOpen}
         onClose={() => setDialogOpen(false)}
-        onCreated={() => { loadAll(); setSnackbar({ open: true, message: 'Reservierungsanfrage gesendet.', severity: 'success' }) }}
+        onCreated={() => { loadAll(); setSnackbar({ open: true, message: 'Verlegungsanfrage gesendet.', severity: 'success' }) }}
         locations={locations}
       />
 

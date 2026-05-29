@@ -15,3 +15,5 @@ class GenderDesignation(str, Enum):
 class BedType(str, Enum):
     KONTINGENT = "KONTINGENT"
     NOTBETT = "NOTBETT"
+    DOPPEL = "DOPPEL"
+    WARTEPLATZ = "WARTEPLATZ"  # Platz im Wartebereich — zählt nicht gegen Kontingent

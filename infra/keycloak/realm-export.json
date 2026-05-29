@@ -387,6 +387,58 @@
       "clientRoles": {}
     },
     {
+      "id": "b1c2d3e4-0010-0010-0010-000000000010",
+      "createdTimestamp": 1716400000000,
+      "username": "sb_kiefersfelden",
+      "email": "sb.kiefersfelden@bordercap.local",
+      "firstName": "Sachbearbeiter",
+      "lastName": "Kiefersfelden",
+      "enabled": true,
+      "emailVerified": false,
+      "attributes": {
+        "location_id": [
+          "a1b2c3d4-0005-0005-0005-000000000005"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "SbKif2024!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "writer"
+      ],
+      "clientRoles": {}
+    },
+    {
+      "id": "b1c2d3e4-0011-0011-0011-000000000011",
+      "createdTimestamp": 1716400000000,
+      "username": "loc_admin_kiefersfelden",
+      "email": "loc.admin.kif@bordercap.local",
+      "firstName": "Standort-Admin",
+      "lastName": "Kiefersfelden",
+      "enabled": true,
+      "emailVerified": false,
+      "attributes": {
+        "location_id": [
+          "a1b2c3d4-0005-0005-0005-000000000005"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "LocAdminKif2024!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "location-admin"
+      ],
+      "clientRoles": {}
+    },
+    {
       "id": "b1c2d3e4-0009-0009-0009-000000000009",
       "createdTimestamp": 1716400000000,
       "username": "leser_bund",

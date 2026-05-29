@@ -86,9 +86,10 @@ LOCATIONS = [
 ]
 
 # ─── Räume + Betten pro Standort ─────────────────────────────────────────────
-# Format: name, designation (M/W/D), beds, labels, bett_typ (KONTINGENT|NOTBETT), valid_from, valid_until
+# Format: name, designation (M/W/D), beds, labels, bett_typ (KONTINGENT|NOTBETT|WARTEPLATZ),
+#         room_type (STANDARD|WARTEBEREICH), valid_from, valid_until
 ROOMS_CONFIG = {
-    # Frankfurt: 10+10+8+6+6=40 Kontingent + 8 Notbetten
+    # Frankfurt: 10+10+8+6+6=40 Kontingent + 8 Notbetten + Wartebereich
     "a1b2c3d4-0001-0001-0001-000000000001": [
         {"name": "Raum A",       "designation": "M", "beds": 10,
          "labels": ["Erdgeschoss", "Rollstuhlgerecht", "Männer"]},
@@ -102,8 +103,10 @@ ROOMS_CONFIG = {
          "labels": ["Obergeschoss", "Frauen"]},
         {"name": "Notbettenraum",          "designation": "D", "beds": 8,
          "labels": ["Notbetten"], "bett_typ": "NOTBETT"},
+        {"name": "Wartebereich", "designation": "D", "beds": 5,
+         "labels": ["Wartebereich"], "room_type": "WARTEBEREICH", "bett_typ": "WARTEPLATZ"},
     ],
-    # München: 8+8+8+6=30 Kontingent + 6 Notbetten
+    # München: 8+8+8+6=30 Kontingent + 6 Notbetten + Wartebereich
     "a1b2c3d4-0002-0002-0002-000000000002": [
         {"name": "Raum A",       "designation": "M", "beds": 8,
          "labels": ["Klimaanlage", "Männer"]},
@@ -115,8 +118,10 @@ ROOMS_CONFIG = {
          "labels": ["Frauen"]},
         {"name": "Notbettenraum",          "designation": "D", "beds": 6,
          "labels": ["Notbetten"], "bett_typ": "NOTBETT"},
+        {"name": "Wartebereich", "designation": "D", "beds": 5,
+         "labels": ["Wartebereich"], "room_type": "WARTEBEREICH", "bett_typ": "WARTEPLATZ"},
     ],
-    # Passau: 5+5+5+5=20 Kontingent + 4 Notbetten
+    # Passau: 5+5+5+5=20 Kontingent + 4 Notbetten + Wartebereich
     "a1b2c3d4-0003-0003-0003-000000000003": [
         {"name": "Raum A",       "designation": "M", "beds": 5,
          "labels": ["Erdgeschoss", "Barrierefreiheit", "Männer"]},
@@ -128,8 +133,10 @@ ROOMS_CONFIG = {
          "labels": ["Familienraum", "Familie"]},
         {"name": "Notbettenraum",          "designation": "D", "beds": 4,
          "labels": ["Notbetten"], "bett_typ": "NOTBETT"},
+        {"name": "Wartebereich", "designation": "D", "beds": 5,
+         "labels": ["Wartebereich"], "room_type": "WARTEBEREICH", "bett_typ": "WARTEPLATZ"},
     ],
-    # Hamburg: 6+6+6+7=25 Kontingent + 5 Notbetten
+    # Hamburg: 6+6+6+7=25 Kontingent + 5 Notbetten + Wartebereich
     "a1b2c3d4-0004-0004-0004-000000000004": [
         {"name": "Raum A",       "designation": "M", "beds": 6,
          "labels": ["Männer", "Meerblick"]},
@@ -141,8 +148,10 @@ ROOMS_CONFIG = {
          "labels": ["Männer"]},
         {"name": "Notbettenraum",          "designation": "D", "beds": 5,
          "labels": ["Notbetten"], "bett_typ": "NOTBETT"},
+        {"name": "Wartebereich", "designation": "D", "beds": 5,
+         "labels": ["Wartebereich"], "room_type": "WARTEBEREICH", "bett_typ": "WARTEPLATZ"},
     ],
-    # Kiefersfelden: 4+4+4+3=15 Kontingent + 3 Notbetten  (geplant ab -90d)
+    # Kiefersfelden: 4+4+4+3=15 Kontingent + 3 Notbetten + Wartebereich  (geplant ab -90d)
     "a1b2c3d4-0005-0005-0005-000000000005": [
         {"name": "Raum A",       "designation": "M", "beds": 4,
          "labels": ["Männer", "Alpenblick"]},
@@ -154,6 +163,36 @@ ROOMS_CONFIG = {
          "labels": ["Gemischt"]},
         {"name": "Notbettenraum",          "designation": "D", "beds": 3,
          "labels": ["Notbetten"], "bett_typ": "NOTBETT"},
+        {"name": "Wartebereich", "designation": "D", "beds": 5,
+         "labels": ["Wartebereich"], "room_type": "WARTEBEREICH", "bett_typ": "WARTEPLATZ"},
+    ],
+}
+
+# ─── Wartebereich-Belegungen pro Standort ────────────────────────────────────
+# Personen die noch auf Bett-Zuweisung warten (kein festes Kontingent-Bett)
+ANKUNFT_OCCUPANCY = {
+    "a1b2c3d4-0001-0001-0001-000000000001": [
+        {"geschlecht": "M", "country": "SYR"},
+        {"geschlecht": "W", "country": "AFG"},
+        {"geschlecht": "M", "country": "IRQ"},
+    ],
+    "a1b2c3d4-0002-0002-0002-000000000002": [
+        {"geschlecht": "M", "country": "ERI"},
+        {"geschlecht": "W", "country": "SOM"},
+        {"geschlecht": "D", "country": "ETH"},
+    ],
+    "a1b2c3d4-0003-0003-0003-000000000003": [
+        {"geschlecht": "M", "country": "PAK"},
+        {"geschlecht": "W", "country": "IRN"},
+    ],
+    "a1b2c3d4-0004-0004-0004-000000000004": [
+        {"geschlecht": "M", "country": "NGA"},
+        {"geschlecht": "W", "country": "TUR"},
+        {"geschlecht": "M", "country": "SYR"},
+    ],
+    "a1b2c3d4-0005-0005-0005-000000000005": [
+        {"geschlecht": "M", "country": "AFG"},
+        {"geschlecht": "W", "country": "SYR"},
     ],
 }
 
@@ -166,11 +205,11 @@ ROOMS_CONFIG = {
 #   Kiefersfelden:   8/15 = 53 % (Gelb)
 OCCUPANCY_CONFIG = {
     "a1b2c3d4-0001-0001-0001-000000000001": {
-        "Raum A":    {"count": 8, "geschlecht": "M"},
-        "Raum B":    {"count": 9, "geschlecht": "W"},
-        "Raum C OG": {"count": 7, "geschlecht": "M"},
-        "Raum D – Familie":   {"count": 4, "geschlecht": "D"},
-        "Raum E OG": {"count": 2, "geschlecht": "W"},
+        "Raum A": {"count": 8, "geschlecht": "M"},
+        "Raum B": {"count": 9, "geschlecht": "W"},
+        "Raum C": {"count": 7, "geschlecht": "M"},
+        "Raum D": {"count": 4, "geschlecht": "D"},
+        "Raum E": {"count": 2, "geschlecht": "W"},
     },
     "a1b2c3d4-0002-0002-0002-000000000002": {
         "Raum A":  {"count": 8, "geschlecht": "M"},
@@ -302,13 +341,14 @@ def main() -> None:
 
             for room_def in rooms_cfg:
                 room_id = _room_id(loc["id"], room_def["name"])
+                room_type = room_def.get("room_type", "STANDARD")
                 cur.execute("""
                     INSERT INTO capacity.rooms
                         (id, location_id, name, geschlechts_designation,
-                         labels, is_active, created_at, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, TRUE, NOW(), NOW())
+                         labels, room_type, is_active, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, TRUE, NOW(), NOW())
                 """, (room_id, loc["id"], room_def["name"],
-                      room_def["designation"], room_def.get("labels", [])))
+                      room_def["designation"], room_def.get("labels", []), room_type))
                 n_rooms += 1
 
                 bett_typ = room_def.get("bett_typ", "KONTINGENT")
@@ -316,6 +356,8 @@ def main() -> None:
                     bed_id = _bed_id(room_id, bett_nr)
                     if bett_typ == "NOTBETT":
                         bed_labels: list[str] = ["Notbett"]
+                    elif bett_typ == "WARTEPLATZ":
+                        bed_labels = ["Wartebereich"]
                     elif bett_nr % 3 == 0:
                         bed_labels = ["Einzelbett"]
                     elif bett_nr % 2 == 1:
@@ -330,6 +372,10 @@ def main() -> None:
                         VALUES (%s, %s, %s, %s, %s, TRUE, NOW(), NOW())
                     """, (bed_id, room_id, str(bett_nr), bett_typ, bed_labels))
                     n_beds += 1
+
+                # Warteplätze bekommen keine regulären Belegungen hier
+                if room_type == "WARTEBEREICH":
+                    continue
 
                 occ_def = occ_cfg.get(room_def["name"])
                 if not occ_def:
@@ -369,6 +415,37 @@ def main() -> None:
                           start, ende, occ_labels))
                     n_occ += 1
                     occ_global_idx += 1
+
+            # Wartebereich-Belegungen (Personen warten auf Bett-Zuweisung)
+            ankunft_room_id = _room_id(loc["id"], "Wartebereich")
+            ankunft_persons = ANKUNFT_OCCUPANCY.get(loc["id"], [])
+            loc_codes = {
+                "a1b2c3d4-0001-0001-0001-000000000001": "FFM",
+                "a1b2c3d4-0002-0002-0002-000000000002": "MUC",
+                "a1b2c3d4-0003-0003-0003-000000000003": "PAS",
+                "a1b2c3d4-0004-0004-0004-000000000004": "HAM",
+                "a1b2c3d4-0005-0005-0005-000000000005": "KIF",
+            }
+            code = loc_codes.get(loc["id"], "UNK")
+            for i, ap in enumerate(ankunft_persons, start=1):
+                bed_id_ankunft = _bed_id(ankunft_room_id, i)
+                g = ap["geschlecht"] if ap["geschlecht"] in ("M", "W") else "X"
+                azr = f"AZR-2024-{code}-ANK{g}{i:02d}"
+                alias = f"AL-ANK-{code}-{i:02d}"
+                occ_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"ankunft-occ::{bed_id_ankunft}"))
+                occ_labels = []
+                if ap["country"] in ("SYR", "AFG"):
+                    occ_labels.append("Arabisch")
+                elif ap["country"] in ("IRN", "PAK"):
+                    occ_labels.append("Farsi/Dari")
+                cur.execute("""
+                    INSERT INTO persons.occupants
+                        (id, bed_id, azr_id, alias_id, geschlecht,
+                         belegung_start, belegung_ende, labels, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                """, (occ_id, bed_id_ankunft, azr, alias, ap["geschlecht"],
+                      today, today + timedelta(days=30), occ_labels))
+                n_occ += 1
 
         # EU-Gesamtquote
         cur.execute("""
@@ -413,6 +490,11 @@ def main() -> None:
             # München → Hamburg: 1 REJECTED
             (_res_id("muc-ham-1"), loc_muc, loc_ham, "AZR-2024-MUC-W-RES09",
              "W", 1985, "ETH", today - timedelta(days=5), today + timedelta(days=30), "REJECTED"),
+            # Wartebereich-Personen: PENDING Verlegungsanfragen (lila Dot im Wartebereich)
+            (_res_id("ffm-ank-1"), loc_ffm, loc_pas, "AZR-2024-FFM-ANKM01",
+             "M", 1995, "SYR", today, today + timedelta(days=30), "PENDING"),
+            (_res_id("muc-ank-1"), loc_muc, loc_ham, "AZR-2024-MUC-ANKM01",
+             "M", 1988, "ERI", today, today + timedelta(days=30), "PENDING"),
         ]
 
         for (rid, req_loc, tgt_loc, azr, g, gj, land, start, ende, status) in reservations:
@@ -465,7 +547,7 @@ def main() -> None:
             (_task_id("ffm-cap-1"), loc_ffm, None, "RESERVATION_CONFIRMED", "LOW",
              "Kapazität: Frankfurt bei 75 % (30/40 Plätze)",
              f"Noch 10 freie Kontingentplätze. "
-             f"6 offene eingehende Reservierungsanfragen noch nicht bearbeitet."),
+             f"6 offene eingehende Verlegungsanfragen noch nicht bearbeitet."),
             # München: kritisch
             (_task_id("muc-cap-1"), loc_muc, None, "RESERVATION_CONFIRMED", "HIGH",
              "Kapazität kritisch: München bei 97 % (29/30 Plätze)",
@@ -477,12 +559,12 @@ def main() -> None:
              f"(weiblich, Somalia, *1999). Zeitraum: {today+timedelta(7)} – {today+timedelta(50)}."),
             # Passau: ausgehende Anfrage bestätigt
             (_task_id("pas-out-1"), loc_pas, _res_id("ffm-pas-1"), "RESERVATION_CONFIRMED", "LOW",
-             "Reservierung bestätigt: AZR-2024-FFM-M-RES08 → Passau",
+             "Verlegungsanfrage bestätigt: AZR-2024-FFM-M-RES08 → Passau",
              f"Frankfurt hat die Übernahme von AZR-2024-FFM-M-RES08 (männlich, Pakistan, *1990) "
              f"zum {today-timedelta(3)} bestätigt. Bett bitte freigeben."),
             # Hamburg: abgelehnte ausgehende Anfrage
             (_task_id("ham-rej-1"), loc_muc, _res_id("muc-ham-1"), "RESERVATION_CONFIRMED", "LOW",
-             "Reservierung abgelehnt: AZR-2024-MUC-W-RES09",
+             "Verlegungsanfrage abgelehnt: AZR-2024-MUC-W-RES09",
              f"Hamburg hat die Anfrage für AZR-2024-MUC-W-RES09 (weiblich, Äthiopien, *1985) "
              f"abgelehnt. Bitte alternative Einrichtung suchen."),
             # Kiefersfelden: Kapazitätsmeldung
@@ -506,16 +588,17 @@ def main() -> None:
         n_confirmed = sum(1 for r in reservations if r[-1] == "CONFIRMED")
         n_rejected  = sum(1 for r in reservations if r[-1] == "REJECTED")
 
+        n_warte = sum(len(v) for v in ANKUNFT_OCCUPANCY.values())
         print(
             f"\n✓ Seed abgeschlossen:\n"
             f"  {len(LOCATIONS)} Standorte\n"
-            f"  {n_rooms} Räume, {n_beds} Betten\n"
-            f"  {n_occ} Belegungen\n"
-            f"  {n_reservations} Reservierungsanfragen "
+            f"  {n_rooms} Räume (inkl. je 1 Wartebereich pro Standort), {n_beds} Betten\n"
+            f"  {n_occ} Belegungen (inkl. {n_warte} Personen im Wartebereich)\n"
+            f"  {n_reservations} Verlegungsanfragen "
             f"({n_pending} PENDING · {n_confirmed} CONFIRMED · {n_rejected} REJECTED)\n"
             f"  {len(tasks)} Postkorb-Aufgaben\n"
             f"  EU-Gesamtquote = {EU_GESAMTQUOTE}\n"
-            f"\nBelegungsgrade:\n"
+            f"\nBelegungsgrade (Kontingent):\n"
             f"  Frankfurt:      30/40 = 75 %  (Gelb)\n"
             f"  München:        29/30 = 97 %  (Rot)\n"
             f"  Passau:          6/20 = 30 %  (Grün)\n"

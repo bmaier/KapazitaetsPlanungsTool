@@ -55,6 +55,7 @@ class RoomModel(Base):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     geschlechts_designation: Mapped[str] = mapped_column(String(10), nullable=False)
+    room_type: Mapped[str] = mapped_column(String(20), nullable=False, default="STANDARD")  # STANDARD | WARTEBEREICH
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     labels: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
     valid_from: Mapped[Optional[date]] = mapped_column(nullable=True)
@@ -82,7 +83,7 @@ class BedModel(Base):
     bett_nummer: Mapped[str] = mapped_column(String(50), nullable=False)
     bett_typ: Mapped[str] = mapped_column(
         String(20), nullable=False
-    )  # KONTINGENT | NOTBETT
+    )  # KONTINGENT | NOTBETT | WARTEPLATZ
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     labels: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
     deaktiviert_ab: Mapped[Optional[date]] = mapped_column(nullable=True)
@@ -172,6 +173,11 @@ class ReservationRequestModel(Base):
     belegung_ende: Mapped[date] = mapped_column(Date, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING")
     confirmed_bed_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("capacity.beds.id"),
+        nullable=True,
+    )
+    suggested_bed_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("capacity.beds.id"),
         nullable=True,

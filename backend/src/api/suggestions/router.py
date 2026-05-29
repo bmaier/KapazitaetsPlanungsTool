@@ -35,6 +35,7 @@ _BED_SELECT = """
       AND b.is_active = true
       AND b.bett_typ != 'NOTBETT'
       AND b.bett_typ != 'DOPPEL'
+      AND r.room_type != 'WARTEBEREICH'
       AND (b.deaktiviert_ab IS NULL OR b.deaktiviert_ab > :period_start)
       AND (l.valid_from IS NULL OR l.valid_from <= :period_start)
       AND (l.valid_until IS NULL OR l.valid_until > :period_start)
@@ -101,6 +102,7 @@ _BED_SELECT_NO_GENDER = """
       AND b.is_active = true
       AND b.bett_typ != 'NOTBETT'
       AND b.bett_typ != 'DOPPEL'
+      AND r.room_type != 'WARTEBEREICH'
       AND (b.deaktiviert_ab IS NULL OR b.deaktiviert_ab > :period_start)
       AND (l.valid_from IS NULL OR l.valid_from <= :period_start)
       AND (l.valid_until IS NULL OR l.valid_until > :period_start)

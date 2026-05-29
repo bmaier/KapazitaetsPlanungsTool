@@ -109,7 +109,7 @@ export default function ReservationCreateDialog({ open, onClose, onCreated, loca
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Neue Reservierungsanfrage</DialogTitle>
+      <DialogTitle>Neue Verlegungsanfrage</DialogTitle>
       <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
         {apiError && <Alert severity="error">{apiError}</Alert>}
 
@@ -196,7 +196,7 @@ export default function ReservationCreateDialog({ open, onClose, onCreated, loca
           variant="contained"
           onClick={handleSubmit}
           disabled={!isValid || submitting}
-          aria-label="Reservierungsanfrage absenden"
+          aria-label="Verlegungsanfrage absenden"
         >
           Anfrage senden
         </Button>

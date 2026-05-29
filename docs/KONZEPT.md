@@ -14,7 +14,7 @@ Das KapzitätsPlanungsTool dient zur Verwaltung von Kapazitäten und Belegungen 
 |-------|-------------|
 | `system-admin` | Voller Zugriff auf alle Einrichtungen, kann neue Einrichtungen anlegen |
 | `location-admin` | Admin-Zugriff auf eigene Einrichtung (Räume, Betten, Labels) |
-| `location-user` | Kann Betten belegen/ausbuchen, Reservierungsanfragen stellen |
+| `location-user` | Kann Betten belegen/ausbuchen, Verlegungsanfragen stellen |
 | Viewer | Lesezugriff auf Dashboard |
 
 Benutzer erhalten ihre Einrichtungszuordnung als `location_id` User-Attribut in Keycloak, das per JWT übertragen wird.
@@ -141,7 +141,7 @@ Wenn eine Person (M/W) einem Bett in einem Raum ohne Geschlechts-Label zugewiese
 | Dashboard anzeigen | ✓ | ✓ | ✓ | ✓ |
 | Belegungsansicht anzeigen | ✓ | ✓ | ✓ | ✓ |
 | Bett belegen / ausbuchen | — | ✓ | ✓ | ✓ |
-| Reservierungsanfrage stellen | — | ✓ | ✓ | ✓ |
+| Verlegungsanfrage stellen | — | ✓ | ✓ | ✓ |
 | Reservierung stornieren | — | Nur eigene | Eigene + Eingehende | Alle |
 | Reservierung bestätigen/ablehnen | — | — | ✓ (nur eingehende) | ✓ (alle) |
 | Stammdaten bearbeiten | — | — | ✓ | ✓ |
@@ -170,16 +170,28 @@ Wenn eine Person (M/W) einem Bett in einem Raum ohne Geschlechts-Label zugewiese
 
 ---
 
-## 5. Reservierungssystem
+## 5. Verlegungssystem
+
+### Terminologie
+- **Verlegungsanfrage** (ehemals "Reservierungsanfrage"): Antrag einer Einrichtung, eine Person aufzunehmen
+- **Wartebereich**: Transitraum (`room_type = 'WARTEBEREICH'`) — zählt nicht gegen Kontingent, nicht als Verlegungsziel
+- **Warteplatz**: Platz im Wartebereich (`bett_typ = 'WARTEPLATZ'`) — gleiche DB-Tabelle wie Betten, Typ wird automatisch gesetzt
 
 ### Ablauf
-1. **Reservierungsanfrage**: Einrichtung A stellt Anfrage für Person X an Einrichtung B
-2. **Status PENDING**: Anfrage wartet auf Bestätigung
+1. **Verlegungsanfrage**: Einrichtung A stellt Anfrage für Person X an Einrichtung B
+2. **Status PENDING**: Anfrage wartet auf Bestätigung (lila Markierung an Bett/Warteplatz)
 3. **Bestätigung/Ablehnung** durch Einrichtung B (Target)
 4. **Verlegung**: Bei Bestätigung wird Person transferiert (Status TRANSFERRED)
 
+### Wartebereich-Workflow
+1. Person trifft ein → wird im Wartebereich platziert (kein festes Bett)
+2. Sachbearbeiter erstellt Verlegungsanfrage für die Person
+3. Sobald Anfrage bestätigt → Person erhält festes Bett, Warteplatz wird frei
+4. Gruppen-Verlegung: Mehrfachauswahl im Wartebereich, eine Anfrage pro Person
+5. Stammdaten: Sachbearbeiter kann Warteplätze anlegen/entfernen — Typ WARTEPLATZ wird automatisch gesetzt
+
 ### Suchwizard (SuggestionWizard)
-Der Wizard sucht freie Betten für eine Reservierungsanfrage:
+Der Wizard sucht freie Betten für eine Verlegungsanfrage:
 
 **Suchmodi:**
 - **Einzelperson**: Geschlecht + 1 Bett
@@ -200,7 +212,7 @@ Der Wizard sucht freie Betten für eine Reservierungsanfrage:
 ### Schemas
 - `capacity`: Einrichtungen, Räume, Betten
 - `persons`: Belegungen (Occupants)
-- `reservations`: Reservierungsanfragen, Tasks/Aufgaben
+- `reservations`: Verlegungsanfragen, Tasks/Aufgaben
 - `alembic_version`: Migrationsversionierung
 
 ### Migrationsverlauf (Alembic)
@@ -214,6 +226,11 @@ Der Wizard sucht freie Betten für eine Reservierungsanfrage:
 | 0006 | Labels-Spalten an rooms, beds, occupants |
 | 0007 | Locations: labels, lat, lon, valid_from, valid_until; Beds: deaktiviert_ab |
 | 0008 | Rooms: valid_from, valid_until; Beds: valid_from |
+| 0009 | Reservierungen: confirmed_at, assigned_bed_id; Rooms: room_type |
+| 0010 | Occupants: geburtsjahr, herkunftsland, extended_once |
+| 0011 | Rooms: room_type VARCHAR(20) DEFAULT 'STANDARD' für Wartebereich |
+| 0012 | Reservierungen: suggested_bed_id UUID nullable |
+| 0013 | Rename room_type ANKUNFT→WARTEBEREICH; CHECK-Constraint bett_typ um WARTEPLATZ erweitert |
 
 ### Wichtige SQL-Muster
 ```sql
@@ -259,7 +276,7 @@ AND (l.valid_until IS NULL OR l.valid_until > :period_start)
 | Method | Endpoint | Beschreibung |
 |--------|----------|-------------|
 | POST | `/` | Bett-Vorschläge berechnen |
-| POST | `/{id}/accept` | Variante bestätigen → Reservierungsanfrage erstellen |
+| POST | `/{id}/accept` | Variante bestätigen → Verlegungsanfrage erstellen |
 | POST | `/{id}/reject` | Anfrage ablehnen mit Begründung |
 
 ### SuggestionRequest-Parameter
@@ -298,8 +315,9 @@ AND (l.valid_until IS NULL OR l.valid_until > :period_start)
 | `Dashboard` | Grid- + Kartenansicht aller Einrichtungen mit Ampelstatus |
 | `Drilldown` | Detailansicht einer Einrichtung: Bett-Grid, Belegen, Stammdaten, Raum-Management |
 | `SuggestionWizard` | 3-Schritt-Wizard: Suche → Variante wählen → Bestätigen |
-| `Reservations` | Liste aller eigenen Reservierungsanfragen |
-| `TaskInbox` | Eingehende Reservierungsanfragen bestätigen/ablehnen |
+| `Reservations` | Liste aller eigenen Verlegungsanfragen |
+| `TaskInbox` | Eingehende Verlegungsanfragen bestätigen/ablehnen |
+| `VerlegungsanfrageDialog` | Kontextsensitiver Dialog für Einzelpersonen- und Gruppenverlegungen |
 | `LabelChips` | Wiederverwendbare Label-Auswahl-Komponente (entityId='new' = nur lokal) |
 | `MapView` | Leaflet-Karte mit Marker pro Einrichtung (nutzt lat/lon aus DB) |
 

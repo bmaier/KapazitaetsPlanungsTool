@@ -19,8 +19,8 @@ import { useApiClient } from '../api/client'
 
 const NAV_LINKS = [
   { label: 'Dashboard', path: '/', Icon: DashboardIcon },
-  { label: 'Reservierungen', path: '/reservations', Icon: SwapHorizIcon },
-  { label: 'Reservierungsanfrage', path: '/suggestions', Icon: SearchIcon },
+  { label: 'Verlegungsanfragen', path: '/reservations', Icon: SwapHorizIcon },
+  { label: 'Bettsuche', path: '/suggestions', Icon: SearchIcon },
 ]
 
 interface OccupantResult {

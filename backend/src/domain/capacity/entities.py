@@ -27,6 +27,7 @@ class Room:
     name: str
     geschlechts_designation: GenderDesignation
     is_active: bool
+    room_type: str = "STANDARD"  # STANDARD | WARTEBEREICH
     labels: List[str] = field(default_factory=list)
     valid_from: Optional[date] = None
     valid_until: Optional[date] = None

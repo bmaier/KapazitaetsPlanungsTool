@@ -11,7 +11,7 @@ technisch durchsetzbar.
 |--------|-------|------------------------|
 | `capacity` | Einrichtungen, Räume, Betten, Systemeinstellungen | SELECT, INSERT, UPDATE, DELETE |
 | `persons` | Belegungen (Personendaten) | SELECT, INSERT, UPDATE, DELETE |
-| `reservations` | Reservierungsanfragen zwischen Einrichtungen | SELECT, INSERT, UPDATE, DELETE |
+| `reservations` | Verlegungsanfragen zwischen Einrichtungen | SELECT, INSERT, UPDATE, DELETE |
 | `tasks` | Postkorb-Aufgaben (Task Inbox) | SELECT, INSERT, UPDATE, DELETE |
 | `audit` | Unveränderliches Ereignisprotokoll | **INSERT only** — kein UPDATE/DELETE |
 | `reference_data` | Codelisten (aktuell über SKOS-Service, nicht in DB) | SELECT, INSERT, UPDATE, DELETE |
@@ -45,6 +45,7 @@ erDiagram
         uuid    location_id     FK
         string  name
         string  geschlechts_designation  "M|W|F|D"
+        string  room_type                "STANDARD|WARTEBEREICH"
         bool    is_active
         array   labels                   "TEXT[]"
         date    valid_from
@@ -57,7 +58,7 @@ erDiagram
         uuid    id              PK
         uuid    room_id         FK
         string  bett_nummer
-        string  bett_typ        "KONTINGENT|NOTBETT"
+        string  bett_typ        "KONTINGENT|NOTBETT|WARTEPLATZ"
         bool    is_active
         array   labels          "TEXT[]"
         date    deaktiviert_ab
@@ -171,12 +172,20 @@ Räume innerhalb einer Einrichtung. Primär für Geschlechter-Segregation.
 | Spalte | Typ | Bedeutung |
 |--------|-----|-----------|
 | `geschlechts_designation` | VARCHAR(10) | `M` Männer · `W` Frauen · `F` Familie · `D` Divers |
+| `room_type` | VARCHAR(20) | `STANDARD` — normaler Wohnraum · `WARTEBEREICH` — Wartebereich (s.u.) |
 | `is_active` | BOOL | Soft-Delete |
 | `labels` | TEXT[] | Raum-Hinweise (s. Label-System) |
 | `valid_from` / `valid_until` | DATE | Planungszeitraum (z.B. saisonale Öffnung) |
 
 **Designentscheidung:** Räume haben keine direkten Personenbezüge. Die Zuordnung
 läuft über `beds → occupants`. So können Betten flexibel umgezogen werden.
+
+**Wartebereich (`room_type = 'WARTEBEREICH'`):** Jede Einrichtung legt einen speziellen
+Wartebereich-Raum an. Hier werden Neuankömmlinge temporär platziert, solange noch
+kein festes Kontingent- oder Notbett zugewiesen ist. Die Plätze im Wartebereich
+(„Warteplätze", `bett_typ = 'WARTEPLATZ'`) zählen **nicht** gegen das EU-Kontingent
+und erscheinen **nicht** als Zieloption in Verlegungsanfragen. Sobald eine Person ein
+festes Bett erhält, wird der Warteplatz freigegeben.
 
 ---
 
@@ -186,15 +195,17 @@ Atomare Belegungseinheit. Jede Belegung hängt an genau einem Bett.
 
 | Spalte | Typ | Bedeutung |
 |--------|-----|-----------|
-| `bett_typ` | VARCHAR(20) | `KONTINGENT` — zählt gegen EU-Quote · `NOTBETT` — temporäre Überkapazität |
+| `bett_typ` | VARCHAR(20) | `KONTINGENT` — zählt gegen EU-Quote · `NOTBETT` — temporäre Überkapazität · `WARTEPLATZ` — Platz im Wartebereich |
 | `bett_nummer` | VARCHAR(50) | Freitext-Label (z.B. "A-01", "Oben links") |
 | `deaktiviert_ab` | DATE | Geplantes Deaktivierungsdatum |
 | `valid_from` | DATE | Ab wann das Bett verfügbar ist |
 | `labels` | TEXT[] | Bett-Hinweise (s. Label-System) |
 
-**Designentscheidung:** Die Trennung `KONTINGENT` / `NOTBETT` ist eine fachliche
-Anforderung aus dem GEAS-Rahmenwerk. Notbetten dürfen max. 1 Tag belegt werden
-(Domainregel in `capacity/rules.py`).
+**Designentscheidung:** Die Trennung `KONTINGENT` / `NOTBETT` / `WARTEPLATZ` ist eine
+fachliche Anforderung aus dem GEAS-Rahmenwerk. Notbetten dürfen max. 1 Tag belegt werden
+(Domainregel in `capacity/rules.py`). Warteplätze gehören immer zu einem Raum mit
+`room_type = 'WARTEBEREICH'` und werden beim Anlegen über die Stammdatenpflege automatisch
+mit dem korrekten Typ versehen.
 
 ---
 
@@ -275,7 +286,7 @@ Aufgaben für Sachbearbeiter, generiert durch Systemereignisse oder manuell.
 | Spalte | Typ | Bedeutung |
 |--------|-----|-----------|
 | `location_id` | UUID FK | Einrichtung, für die die Aufgabe gilt |
-| `related_reservation_id` | UUID FK (nullable) | Verknüpfte Reservierungsanfrage |
+| `related_reservation_id` | UUID FK (nullable) | Verknüpfte Verlegungsanfrage |
 | `task_type` | VARCHAR(50) | Art der Aufgabe (s. Wertelisten) |
 | `priority` | VARCHAR(10) | `LOW` · `MEDIUM` · `HIGH` |
 | `status` | VARCHAR(20) | `OPEN` · `IN_PROGRESS` · `DONE` · `DISMISSED` |
@@ -378,6 +389,7 @@ Migrationen bei Erweiterungen zu vermeiden).
 |------|-----------|
 | `KONTINGENT` | Reguläres Bett, zählt gegen EU-Kontingentquote |
 | `NOTBETT` | Temporäres Notbett, max. 1 Tag Belegungsdauer |
+| `WARTEPLATZ` | Platz im Wartebereich, zählt nicht gegen Kontingent |
 
 ### `ReservationStatus` (`reservations.requests.status`)
 

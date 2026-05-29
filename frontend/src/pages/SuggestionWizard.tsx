@@ -30,11 +30,13 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import PeopleIcon from '@mui/icons-material/People'
 import LocationOnIcon from '@mui/icons-material/LocationOn'
 import StarIcon from '@mui/icons-material/Star'
+import FlightIcon from '@mui/icons-material/Flight'
+import PersonIcon from '@mui/icons-material/Person'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useApiClient } from '../api/client'
 import { useKeycloak } from '../auth/KeycloakProvider'
 
-const STEPS = ['Anfrage stellen', 'Option wählen', 'Bestätigen']
+const STEPS = ['Suche', 'Option wählen', 'Bestätigen']
 
 interface BedOption {
   bed_id: string
@@ -42,6 +44,7 @@ interface BedOption {
   room_name: string
   bett_typ: string
   location_name: string
+  location_id: string
   room_labels: string[]
 }
 interface Variant {
@@ -58,20 +61,55 @@ interface SuggestionResponse {
 
 type Modus = 'einzeln' | 'gruppe' | 'familie'
 
+interface GroupPerson {
+  azr_id: string
+  geschlecht: string
+}
+
+function parseGroup(raw: string): GroupPerson[] {
+  if (!raw) return []
+  return raw.split(',').map((s) => {
+    const [azr_id, geschlecht] = s.trim().split(':')
+    return { azr_id: azr_id ?? '', geschlecht: geschlecht ?? 'M' }
+  }).filter((p) => p.azr_id)
+}
+
+function GenderChip({ g }: { g: string }) {
+  const label = g === 'M' ? 'Männlich' : g === 'W' ? 'Weiblich' : 'Divers'
+  const color = g === 'M' ? '#1565c0' : g === 'W' ? '#880e4f' : '#4a148c'
+  return <Chip label={label} size="small" sx={{ bgcolor: color + '15', color, fontWeight: 600, height: 20 }} />
+}
+
 export default function SuggestionWizard() {
   const { post, get } = useApiClient()
   const navigate = useNavigate()
   const { locationId } = useKeycloak()
   const [searchParams] = useSearchParams()
 
+  // URL params: person context
   const preAzrId = searchParams.get('azrId') ?? ''
   const preGeschlecht = searchParams.get('geschlecht') ?? 'M'
+  const preGroupRaw = searchParams.get('group') ?? ''
+  const preCross = searchParams.get('cross') === '1'
+
+  const preGroup = parseGroup(preGroupRaw)
+  const hasPerson = !!preAzrId || preGroup.length > 0
+  const isGroupMode = preGroup.length > 1
+
+  // Group cycling state
+  const [groupIndex, setGroupIndex] = useState(0)
+  const [groupResults, setGroupResults] = useState<{ azr_id: string; success: boolean }[]>([])
+
+  // Current person in focus — also covers single-person group URL (?group=X:M)
+  const currentPerson: GroupPerson | null = preGroup.length > 0
+    ? (preGroup[groupIndex] ?? null)
+    : preAzrId ? { azr_id: preAzrId, geschlecht: preGeschlecht } : null
 
   const today = new Date().toISOString().slice(0, 10)
-  const in14 = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10)
+  const in30 = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10)
 
   const [modus, setModus] = useState<Modus>('einzeln')
-  const [geschlecht, setGeschlecht] = useState(preGeschlecht || 'M')
+  const [geschlecht, setGeschlecht] = useState((currentPerson?.geschlecht ?? preGeschlecht) || 'M')
 
   // Single-gender group
   const [anzahl, setAnzahl] = useState(1)
@@ -87,19 +125,37 @@ export default function SuggestionWizard() {
   const [kinder, setKinder] = useState(1)
 
   const [start, setStart] = useState(today)
-  const [ende, setEnde] = useState(in14)
-  const [crossLocation, setCrossLocation] = useState(false)
+  const [ende, setEnde] = useState(in30)
+  const [crossLocation, setCrossLocation] = useState(preCross || hasPerson)
   const [ignoreGender, setIgnoreGender] = useState(false)
   const [labelFilter, setLabelFilter] = useState<string[]>([])
   const [roomLabelCatalog, setRoomLabelCatalog] = useState<string[]>([])
 
+  // Confirmation form extras (for Verlegungsanfrage)
+  const [confirmGeburtsjahr, setConfirmGeburtsjahr] = useState('')
+  const [confirmHerkunftsland, setConfirmHerkunftsland] = useState('')
+
   useEffect(() => {
     get<{ items: Array<{ name: string; entity_types: string[] }> }>('/api/labels')
       .then((res) => setRoomLabelCatalog(
-        res.items.filter((e: { name: string; entity_types: string[] }) => e.entity_types.includes('ROOM'))
-          .map((e: { name: string; entity_types: string[] }) => e.name)
+        res.items.filter((e) => e.entity_types.includes('ROOM')).map((e) => e.name)
       ))
-      .catch(() => {/* ignore */})
+      .catch(() => {})
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When groupIndex changes, update geschlecht for new person
+  useEffect(() => {
+    if (currentPerson) setGeschlecht(currentPerson.geschlecht)
+  }, [groupIndex]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-init gruppe fields from preGroup composition when navigating from multi-select
+  useEffect(() => {
+    if (isGroupMode) {
+      setModus('gruppe')
+      setAnzahlM(preGroup.filter((p) => p.geschlecht === 'M').length)
+      setAnzahlW(preGroup.filter((p) => p.geschlecht === 'W').length)
+      setAnzahlD(preGroup.filter((p) => p.geschlecht === 'D').length)
+    }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const [activeStep, setActiveStep] = useState(0)
@@ -107,8 +163,6 @@ export default function SuggestionWizard() {
   const [suggestion, setSuggestion] = useState<SuggestionResponse | null>(null)
   const [selectedVariant, setSelectedVariant] = useState<number | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
-  const [rejectOpen, setRejectOpen] = useState(false)
-  const [rejectReason, setRejectReason] = useState('')
   const [completed, setCompleted] = useState(false)
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
     open: false, message: '', severity: 'success',
@@ -129,7 +183,7 @@ export default function SuggestionWizard() {
     setStart(val)
     if (val) {
       const d = new Date(val)
-      d.setDate(d.getDate() + 14)
+      d.setDate(d.getDate() + 30)
       setEnde(d.toISOString().slice(0, 10))
     }
   }
@@ -137,7 +191,7 @@ export default function SuggestionWizard() {
   async function handleSearch() {
     setLoading(true)
     try {
-      let reqGeschlecht = geschlecht
+      let reqGeschlecht = currentPerson?.geschlecht ?? geschlecht
       let reqAnzahl = totalPersons
       let familienModus = false
       let minderjaehrige = 0
@@ -145,20 +199,20 @@ export default function SuggestionWizard() {
       let frauenAnzahl = 0
       let diversAnzahl = 0
 
-      if (modus === 'familie') {
+      if ((!hasPerson || isGroupMode) && modus === 'familie') {
         reqGeschlecht = 'D'
-        reqAnzahl = totalPersons
+        reqAnzahl = isGroupMode ? preGroup.length : totalPersons
         familienModus = true
-        minderjaehrige = kinder
-        maennerAnzahl = erwMaenner
-        frauenAnzahl = erwFrauen
-      } else if (modus === 'gruppe' && multiGender) {
-        reqGeschlecht = 'M'  // ignored in multi-gender mode
-        reqAnzahl = totalPersons
+        minderjaehrige = isGroupMode ? 0 : kinder
+        maennerAnzahl = isGroupMode ? preGroup.filter((p) => p.geschlecht === 'M').length : erwMaenner
+        frauenAnzahl = isGroupMode ? preGroup.filter((p) => p.geschlecht === 'W').length : erwFrauen
+      } else if ((!hasPerson || isGroupMode) && modus === 'gruppe' && multiGender) {
+        reqGeschlecht = 'M'
+        reqAnzahl = isGroupMode ? preGroup.length : totalPersons
         maennerAnzahl = anzahlM
         frauenAnzahl = anzahlW
         diversAnzahl = anzahlD
-      } else if (modus === 'einzeln') {
+      } else if (!hasPerson && modus === 'einzeln') {
         reqAnzahl = 1
       }
 
@@ -190,44 +244,128 @@ export default function SuggestionWizard() {
 
   async function handleAccept() {
     if (!suggestion || selectedVariant === null) return
+    const variant = suggestion.variants[selectedVariant]
     setLoading(true)
-    try {
-      await post(`/api/suggestions/${suggestion.suggestion_id}/accept`, { variant_index: selectedVariant })
+
+    // If person context: create Verlegungsanfrage (cross-location transfer request)
+    if (hasPerson && isGroupMode && modus !== 'einzeln') {
+      // Gruppenverlegung: alle Personen auf einmal — beds[i] → preGroup[i]
+      const targetLocationId = variant.beds[0]?.location_id
+      if (!targetLocationId) {
+        setSnackbar({ open: true, message: 'Keine Ziel-Einrichtung in der ausgewählten Option.', severity: 'error' })
+        setLoading(false)
+        return
+      }
+      const results: { azr_id: string; success: boolean }[] = []
+      for (let i = 0; i < preGroup.length; i++) {
+        const person = preGroup[i]
+        const bed = variant.beds[i]
+        try {
+          await post('/api/reservations', {
+            target_location_id: targetLocationId,
+            azr_id: person.azr_id,
+            geschlecht: person.geschlecht,
+            geburtsjahr: confirmGeburtsjahr ? parseInt(confirmGeburtsjahr, 10) : new Date().getFullYear() - 30,
+            herkunftsland: confirmHerkunftsland ? confirmHerkunftsland.toUpperCase() : 'UNK',
+            belegung_start: start,
+            belegung_ende: ende,
+            suggested_bed_id: bed?.bed_id ?? null,
+          })
+          results.push({ azr_id: person.azr_id, success: true })
+        } catch {
+          results.push({ azr_id: person.azr_id, success: false })
+        }
+      }
+      setGroupResults(results)
       setConfirmOpen(false)
-      setSnackbar({ open: true, message: 'Reservierungsanfrage bestätigt — Eintrag im Postkorb.', severity: 'success' })
       setCompleted(true)
       setActiveStep(2)
-    } catch {
-      setSnackbar({ open: true, message: 'Bestätigung fehlgeschlagen.', severity: 'error' })
-    } finally {
-      setLoading(false)
+      const failed = results.filter((r) => !r.success).length
+      if (failed > 0) {
+        setSnackbar({ open: true, message: `${failed} Verlegungsanfrage(n) fehlgeschlagen.`, severity: 'error' })
+      }
+    } else if (hasPerson && currentPerson) {
+      // Einzelperson oder Einzeln-Modus (zyklisch durch Gruppe)
+      const azrId = currentPerson.azr_id
+      const targetLocationId = variant.beds[0]?.location_id
+      if (!targetLocationId) {
+        setSnackbar({ open: true, message: 'Keine Ziel-Einrichtung in der ausgewählten Option.', severity: 'error' })
+        setLoading(false)
+        return
+      }
+      try {
+        await post('/api/reservations', {
+          target_location_id: targetLocationId,
+          azr_id: azrId,
+          geschlecht: currentPerson.geschlecht,
+          geburtsjahr: confirmGeburtsjahr ? parseInt(confirmGeburtsjahr, 10) : new Date().getFullYear() - 30,
+          herkunftsland: confirmHerkunftsland ? confirmHerkunftsland.toUpperCase() : 'UNK',
+          belegung_start: start,
+          belegung_ende: ende,
+          suggested_bed_id: variant.beds[0]?.bed_id ?? null,
+        })
+
+        if (isGroupMode && groupIndex + 1 < preGroup.length) {
+          // More persons in group — advance
+          const nextIdx = groupIndex + 1
+          setGroupResults((prev) => [...prev, { azr_id: azrId, success: true }])
+          setGroupIndex(nextIdx)
+          setConfirmOpen(false)
+          setActiveStep(0)
+          setSuggestion(null)
+          setSelectedVariant(null)
+          setGeschlecht(preGroup[nextIdx]?.geschlecht ?? 'M')
+          setSnackbar({ open: true, message: `Verlegungsanfrage für ${azrId} gesendet. Weiter mit Person ${nextIdx + 1}/${preGroup.length}.`, severity: 'success' })
+        } else {
+          // Done
+          setGroupResults((prev) => [...prev, { azr_id: azrId, success: true }])
+          setConfirmOpen(false)
+          setCompleted(true)
+          setActiveStep(2)
+        }
+      } catch {
+        setGroupResults((prev) => [...prev, { azr_id: azrId, success: false }])
+        setSnackbar({ open: true, message: `Verlegungsanfrage für ${azrId} fehlgeschlagen.`, severity: 'error' })
+      }
+    } else {
+      // No person: just audit log (local bed search)
+      try {
+        await post(`/api/suggestions/${suggestion.suggestion_id}/accept`, { variant_index: selectedVariant })
+        setConfirmOpen(false)
+        setCompleted(true)
+        setActiveStep(2)
+      } catch {
+        setSnackbar({ open: true, message: 'Bestätigung fehlgeschlagen.', severity: 'error' })
+      }
     }
+    setLoading(false)
   }
 
-  async function handleReject() {
-    if (!suggestion || !rejectReason.trim()) return
-    setLoading(true)
-    try {
-      await post(`/api/suggestions/${suggestion.suggestion_id}/reject`, { reason: rejectReason })
-      setRejectOpen(false)
-      setSnackbar({ open: true, message: 'Anfrage abgelehnt.', severity: 'success' })
-      setCompleted(true)
-      setActiveStep(2)
-    } catch {
-      setSnackbar({ open: true, message: 'Ablehnung fehlgeschlagen.', severity: 'error' })
-    } finally {
-      setLoading(false)
-    }
-  }
+  const selectedVariantData = suggestion && selectedVariant !== null ? suggestion.variants[selectedVariant] : null
 
   return (
     <Box sx={{ p: 3, maxWidth: 820, mx: 'auto' }}>
-      <Typography variant="h5" fontWeight={700} sx={{ color: '#003366', mb: 0.5 }}>
-        Reservierungsanfrage
-      </Typography>
+      <Box display="flex" alignItems="center" gap={1} mb={0.5}>
+        <FlightIcon sx={{ color: hasPerson ? '#6a1b9a' : '#003366' }} />
+        <Typography variant="h5" fontWeight={700} sx={{ color: hasPerson ? '#6a1b9a' : '#003366' }}>
+          {hasPerson ? 'Verlegungsanfrage' : 'Bettsuche'}
+        </Typography>
+      </Box>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Freie Plätze suchen, Option auswählen und Belegung vormerken
+        {hasPerson
+          ? 'Freie Plätze an anderen Einrichtungen finden und Verlegungsanfrage stellen'
+          : 'Freie Plätze suchen, Option auswählen und Belegung vormerken'}
       </Typography>
+
+      {/* Group progress */}
+      {isGroupMode && groupResults.length > 0 && (
+        <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
+          <strong>Gruppenverlegung:</strong> {groupResults.map((r) => (
+            <Chip key={r.azr_id} size="small" label={r.azr_id}
+              sx={{ mx: 0.3, bgcolor: r.success ? '#e8f5e9' : '#ffebee', color: r.success ? '#2e7d32' : '#b71c1c' }} />
+          ))}
+        </Alert>
+      )}
 
       <Stepper activeStep={activeStep} sx={{ mb: 4 }}>
         {STEPS.map((label) => (
@@ -238,37 +376,67 @@ export default function SuggestionWizard() {
       {/* Step 1: Search Form */}
       {activeStep === 0 && (
         <Box display="flex" flexDirection="column" gap={2.5}>
-          {preAzrId && (
-            <Alert severity="info" sx={{ borderRadius: 2 }}>
-              Verlegungsanfrage für <strong>{preAzrId}</strong> — wählen Sie die Zieleinrichtung und den Zeitraum.
-            </Alert>
+          {/* Person banner — Gruppe (Gruppe/Familie-Modus) */}
+          {isGroupMode && modus !== 'einzeln' && (
+            <Paper elevation={0} sx={{ p: 1.5, bgcolor: '#f3e5f5', borderRadius: 2, border: '1px solid #ce93d8' }}>
+              <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                <PeopleIcon sx={{ color: '#6a1b9a', fontSize: 20 }} />
+                <Typography variant="body2" fontWeight={700} color="#6a1b9a">
+                  Gruppe ({preGroup.length} Personen):
+                </Typography>
+                {preGroup.map((p) => (
+                  <Box key={p.azr_id} display="flex" alignItems="center" gap={0.5}>
+                    <Typography variant="body2" fontFamily="monospace" fontWeight={600}>{p.azr_id}</Typography>
+                    <GenderChip g={p.geschlecht} />
+                  </Box>
+                ))}
+                <Box sx={{ flexGrow: 1 }} />
+                <Chip label="Standortübergreifend aktiv" size="small"
+                  sx={{ bgcolor: '#6a1b9a', color: 'white', fontWeight: 600, fontSize: 11 }} />
+              </Box>
+            </Paper>
           )}
 
-          {/* Modus */}
-          <Paper elevation={0} sx={{ p: 2, border: '1px solid #e0e0e0', borderRadius: 2 }}>
-            <Typography variant="caption" fontWeight={600} color="text.secondary" sx={{ mb: 1, display: 'block' }}>
-              BUCHUNGSMODUS
-            </Typography>
-            <Box display="flex" gap={1} flexWrap="wrap">
-              {([
-                { key: 'einzeln', label: 'Einzelperson' },
-                { key: 'gruppe', label: 'Gruppe' },
-                { key: 'familie', label: 'Familie / Minderjährige' },
-              ] as { key: Modus; label: string }[]).map(({ key, label }) => (
-                <Chip
-                  key={key}
-                  label={label}
-                  onClick={() => setModus(key)}
-                  color={modus === key ? 'primary' : 'default'}
-                  variant={modus === key ? 'filled' : 'outlined'}
-                  sx={{ fontWeight: modus === key ? 700 : 400 }}
-                />
-              ))}
-            </Box>
-          </Paper>
+          {/* Person banner — Einzelperson oder Einzeln-Modus in Gruppe */}
+          {currentPerson && (!isGroupMode || modus === 'einzeln') && (
+            <Paper elevation={0} sx={{ p: 1.5, bgcolor: '#f3e5f5', borderRadius: 2, border: '1px solid #ce93d8' }}>
+              <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                <PersonIcon sx={{ color: '#6a1b9a', fontSize: 20 }} />
+                <Typography variant="body2" fontWeight={700} color="#6a1b9a">
+                  {isGroupMode ? `Person ${groupIndex + 1}/${preGroup.length}:` : 'Person:'}
+                </Typography>
+                <Typography variant="body2" fontWeight={700} fontFamily="monospace">{currentPerson.azr_id}</Typography>
+                <GenderChip g={currentPerson.geschlecht} />
+                <Box sx={{ flexGrow: 1 }} />
+                <Chip label="Standortübergreifend aktiv" size="small"
+                  sx={{ bgcolor: '#6a1b9a', color: 'white', fontWeight: 600, fontSize: 11 }} />
+              </Box>
+            </Paper>
+          )}
 
-          {/* Einzelperson */}
-          {modus === 'einzeln' && (
+          {/* Modus — sichtbar ohne Person-Kontext oder im Gruppenverlegungsmodus */}
+          {(!hasPerson || isGroupMode) && (
+            <Paper elevation={0} sx={{ p: 2, border: '1px solid #e0e0e0', borderRadius: 2 }}>
+              <Typography variant="caption" fontWeight={600} color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+                SUCHMODUS
+              </Typography>
+              <Box display="flex" gap={1} flexWrap="wrap">
+                {([
+                  { key: 'einzeln', label: 'Einzelperson' },
+                  { key: 'gruppe', label: 'Gruppe' },
+                  { key: 'familie', label: 'Familie / Minderjährige' },
+                ] as { key: Modus; label: string }[]).map(({ key, label }) => (
+                  <Chip key={key} label={label} onClick={() => setModus(key)}
+                    color={modus === key ? 'primary' : 'default'}
+                    variant={modus === key ? 'filled' : 'outlined'}
+                    sx={{ fontWeight: modus === key ? 700 : 400 }} />
+                ))}
+              </Box>
+            </Paper>
+          )}
+
+          {/* Geschlecht — nur ohne Person-Kontext */}
+          {!hasPerson && modus === 'einzeln' && (
             <FormControl fullWidth>
               <InputLabel>Geschlecht</InputLabel>
               <Select value={geschlecht} label="Geschlecht" onChange={(e) => setGeschlecht(e.target.value)}>
@@ -279,37 +447,22 @@ export default function SuggestionWizard() {
             </FormControl>
           )}
 
-          {/* Gruppe */}
-          {modus === 'gruppe' && (
+          {/* Gruppe — ohne Person-Kontext oder im Gruppenverlegungsmodus */}
+          {(!hasPerson || isGroupMode) && modus === 'gruppe' && (
             <Paper elevation={0} sx={{ p: 2, border: '1px solid #e0e0e0', borderRadius: 2 }}>
               <Typography variant="caption" fontWeight={600} color="text.secondary" sx={{ mb: 1.5, display: 'block' }}>
                 GRUPPENZUSAMMENSETZUNG
               </Typography>
               <Box display="flex" gap={1.5} flexWrap="wrap" mb={1.5}>
-                <TextField
-                  label="Männer"
-                  type="number"
-                  value={anzahlM}
+                <TextField label="Männer" type="number" value={anzahlM}
                   onChange={(e) => setAnzahlM(Math.max(0, Number(e.target.value)))}
-                  inputProps={{ min: 0, max: 100 }}
-                  sx={{ flex: 1, minWidth: 100 }}
-                />
-                <TextField
-                  label="Frauen"
-                  type="number"
-                  value={anzahlW}
+                  inputProps={{ min: 0, max: 100 }} sx={{ flex: 1, minWidth: 100 }} />
+                <TextField label="Frauen" type="number" value={anzahlW}
                   onChange={(e) => setAnzahlW(Math.max(0, Number(e.target.value)))}
-                  inputProps={{ min: 0, max: 100 }}
-                  sx={{ flex: 1, minWidth: 100 }}
-                />
-                <TextField
-                  label="Divers"
-                  type="number"
-                  value={anzahlD}
+                  inputProps={{ min: 0, max: 100 }} sx={{ flex: 1, minWidth: 100 }} />
+                <TextField label="Divers" type="number" value={anzahlD}
                   onChange={(e) => setAnzahlD(Math.max(0, Number(e.target.value)))}
-                  inputProps={{ min: 0, max: 100 }}
-                  sx={{ flex: 1, minWidth: 100 }}
-                />
+                  inputProps={{ min: 0, max: 100 }} sx={{ flex: 1, minWidth: 100 }} />
               </Box>
               {!multiGender && (
                 <Box display="flex" gap={1.5} flexWrap="wrap">
@@ -321,117 +474,79 @@ export default function SuggestionWizard() {
                       <MenuItem value="D">Gemischt</MenuItem>
                     </Select>
                   </FormControl>
-                  <TextField
-                    label="Anzahl Personen"
-                    type="number"
-                    value={anzahl}
+                  <TextField label="Anzahl" type="number" value={anzahl}
                     onChange={(e) => setAnzahl(Math.max(1, Number(e.target.value)))}
-                    inputProps={{ min: 1, max: 200 }}
-                    sx={{ flex: 1 }}
-                  />
+                    inputProps={{ min: 1, max: 200 }} sx={{ flex: 1 }} />
                 </Box>
               )}
-              <Box sx={{ mt: 1, p: 1.5, bgcolor: '#f3f6fb', borderRadius: 1.5 }}>
-                <Typography variant="caption" color="text.secondary">
-                  {multiGender
-                    ? <>Gesamt: <strong>{totalPersons} Personen</strong> ({anzahlM > 0 ? `${anzahlM} M` : ''}{anzahlW > 0 ? ` ${anzahlW} W` : ''}{anzahlD > 0 ? ` ${anzahlD} D` : ''}) — getrennte Zimmer nach Geschlecht.</>
-                    : <>Einzelnes Geschlecht angeben oder M/W/D-Felder oben nutzen für gemischte Gruppen.</>
-                  }
-                </Typography>
-              </Box>
             </Paper>
           )}
 
-          {/* Familie */}
-          {modus === 'familie' && (
+          {/* Familie — ohne Person-Kontext oder im Gruppenverlegungsmodus */}
+          {(!hasPerson || isGroupMode) && modus === 'familie' && (
             <Paper elevation={0} sx={{ p: 2, border: '1px solid #e0e0e0', borderRadius: 2 }}>
               <Typography variant="caption" fontWeight={600} color="text.secondary" sx={{ mb: 1.5, display: 'block' }}>
                 FAMILIENZUSAMMENSETZUNG
               </Typography>
               <Box display="flex" gap={2} flexWrap="wrap">
-                <TextField
-                  label="Erwachsene Männer"
-                  type="number"
-                  value={erwMaenner}
+                <TextField label="Erwachsene Männer" type="number" value={erwMaenner}
                   onChange={(e) => setErwMaenner(Math.max(0, Number(e.target.value)))}
-                  inputProps={{ min: 0, max: 20 }}
-                  sx={{ flex: 1, minWidth: 140 }}
-                />
-                <TextField
-                  label="Erwachsene Frauen"
-                  type="number"
-                  value={erwFrauen}
+                  inputProps={{ min: 0, max: 20 }} sx={{ flex: 1, minWidth: 140 }} />
+                <TextField label="Erwachsene Frauen" type="number" value={erwFrauen}
                   onChange={(e) => setErwFrauen(Math.max(0, Number(e.target.value)))}
-                  inputProps={{ min: 0, max: 20 }}
-                  sx={{ flex: 1, minWidth: 140 }}
-                />
-                <TextField
-                  label="Kinder"
-                  type="number"
-                  value={kinder}
+                  inputProps={{ min: 0, max: 20 }} sx={{ flex: 1, minWidth: 140 }} />
+                <TextField label="Kinder" type="number" value={kinder}
                   onChange={(e) => setKinder(Math.max(0, Number(e.target.value)))}
-                  inputProps={{ min: 0, max: 20 }}
-                  sx={{ flex: 1, minWidth: 140 }}
-                />
-              </Box>
-              <Box sx={{ mt: 1.5, p: 1.5, bgcolor: '#f3f6fb', borderRadius: 1.5 }}>
-                <Typography variant="caption" color="text.secondary">
-                  Gesamt: <strong>{totalPersons} Personen</strong> —
-                  System sucht zuerst Familienraum für alle, dann getrennte Lösung nach Geschlecht.
-                </Typography>
+                  inputProps={{ min: 0, max: 20 }} sx={{ flex: 1, minWidth: 140 }} />
               </Box>
             </Paper>
           )}
 
           {/* Dates */}
           <Box display="flex" gap={2}>
-            <TextField
-              label="Belegung von"
-              type="date"
-              value={start}
+            <TextField label="Belegung von" type="date" value={start}
               onChange={(e) => handleStartChange(e.target.value)}
-              InputLabelProps={{ shrink: true }}
-              required
-              sx={{ flex: 1 }}
-              inputProps={{ min: today }}
-            />
-            <TextField
-              label="Belegung bis"
-              type="date"
-              value={ende}
+              InputLabelProps={{ shrink: true }} required sx={{ flex: 1 }} inputProps={{ min: today }} />
+            <TextField label="Belegung bis" type="date" value={ende}
               onChange={(e) => setEnde(e.target.value)}
-              InputLabelProps={{ shrink: true }}
-              required
-              sx={{ flex: 1 }}
-              inputProps={{ min: start }}
+              InputLabelProps={{ shrink: true }} required sx={{ flex: 1 }} inputProps={{ min: start }}
               error={!!ende && !!start && ende <= start}
-              helperText={ende && start && ende <= start ? '"Bis" muss nach "Von" liegen' : ''}
-            />
+              helperText={ende && start && ende <= start ? '"Bis" muss nach "Von" liegen' : ''} />
           </Box>
 
-          {/* Cross-location toggle */}
+          {/* Cross-location toggle — gesperrt wenn Person-Kontext */}
           <Box display="flex" alignItems="center" justifyContent="space-between"
-            sx={{ p: 1.5, border: '1px solid #e0e0e0', borderRadius: 2 }}>
+            sx={{ p: 1.5, border: `1px solid ${crossLocation ? '#6a1b9a' : '#e0e0e0'}`, borderRadius: 2,
+              bgcolor: crossLocation ? '#faf5ff' : 'transparent' }}>
             <Box>
               <Typography variant="body2" fontWeight={600}>Standortübergreifend suchen</Typography>
               <Typography variant="caption" color="text.secondary">
-                Zeigt freie Plätze in allen aktiven Einrichtungen — eigene zuerst
+                {hasPerson
+                  ? 'Aktiv — Verlegungsanfragen sind immer standortübergreifend'
+                  : 'Zeigt freie Plätze in allen aktiven Einrichtungen'}
               </Typography>
             </Box>
-            <input type="checkbox" checked={crossLocation} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCrossLocation(e.target.checked)} style={{ width: 20, height: 20, cursor: 'pointer' }} />
+            <input type="checkbox" checked={crossLocation}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => !hasPerson && setCrossLocation(e.target.checked)}
+              style={{ width: 20, height: 20, cursor: hasPerson ? 'default' : 'pointer' }}
+              disabled={hasPerson} />
           </Box>
 
-          {/* Ignore gender toggle */}
-          <Box display="flex" alignItems="center" justifyContent="space-between"
-            sx={{ p: 1.5, border: '1px solid #e0e0e0', borderRadius: 2 }}>
-            <Box>
-              <Typography variant="body2" fontWeight={600}>Geschlechtertrennung ignorieren</Typography>
-              <Typography variant="caption" color="text.secondary">
-                Zeigt alle freien Betten unabhängig vom Raum-Geschlecht — nur bei explizitem Bedarf
-              </Typography>
+          {/* Ignore gender */}
+          {!hasPerson && (
+            <Box display="flex" alignItems="center" justifyContent="space-between"
+              sx={{ p: 1.5, border: '1px solid #e0e0e0', borderRadius: 2 }}>
+              <Box>
+                <Typography variant="body2" fontWeight={600}>Geschlechtertrennung ignorieren</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Zeigt alle freien Betten unabhängig vom Raum-Geschlecht
+                </Typography>
+              </Box>
+              <input type="checkbox" checked={ignoreGender}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setIgnoreGender(e.target.checked)}
+                style={{ width: 20, height: 20, cursor: 'pointer' }} />
             </Box>
-            <input type="checkbox" checked={ignoreGender} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setIgnoreGender(e.target.checked)} style={{ width: 20, height: 20, cursor: 'pointer' }} />
-          </Box>
+          )}
 
           {/* Room label filter */}
           <Paper elevation={0} sx={{ p: 2, border: '1px solid #e0e0e0', borderRadius: 2 }}>
@@ -442,17 +557,10 @@ export default function SuggestionWizard() {
               {roomLabelCatalog.map((lbl) => {
                 const active = labelFilter.includes(lbl)
                 return (
-                  <Chip
-                    key={lbl}
-                    label={lbl}
-                    size="small"
-                    onClick={() => setLabelFilter((prev) =>
-                      active ? prev.filter((l) => l !== lbl) : [...prev, lbl]
-                    )}
-                    color={active ? 'primary' : 'default'}
-                    variant={active ? 'filled' : 'outlined'}
-                    sx={{ fontWeight: active ? 700 : 400, fontSize: 12 }}
-                  />
+                  <Chip key={lbl} label={lbl} size="small"
+                    onClick={() => setLabelFilter((prev) => active ? prev.filter((l) => l !== lbl) : [...prev, lbl])}
+                    color={active ? 'primary' : 'default'} variant={active ? 'filled' : 'outlined'}
+                    sx={{ fontWeight: active ? 700 : 400, fontSize: 12 }} />
                 )
               })}
               {labelFilter.length > 0 && (
@@ -463,20 +571,16 @@ export default function SuggestionWizard() {
           </Paper>
 
           {!locationId && (
-            <Alert severity="warning" sx={{ borderRadius: 2 }}>
-              Kein Einrichtungs-Kontext erkannt. Bitte ab- und wieder anmelden.
-            </Alert>
+            <Alert severity="warning">Kein Einrichtungs-Kontext erkannt. Bitte ab- und wieder anmelden.</Alert>
           )}
 
           <Box display="flex" gap={2} mt={1}>
-            <Button variant="outlined" onClick={() => navigate('/')}>Abbrechen</Button>
-            <Button
-              variant="contained"
-              onClick={handleSearch}
+            <Button variant="outlined" onClick={() => navigate(-1)}>Zurück</Button>
+            <Button variant="contained" onClick={handleSearch}
               disabled={!formValid || loading || !locationId}
               startIcon={loading ? <CircularProgress size={16} /> : <SearchIcon />}
               size="large"
-            >
+              sx={hasPerson ? { bgcolor: '#6a1b9a', '&:hover': { bgcolor: '#4a148c' } } : {}}>
               Freie Plätze suchen
             </Button>
           </Box>
@@ -486,13 +590,29 @@ export default function SuggestionWizard() {
       {/* Step 2: Results */}
       {activeStep === 1 && suggestion && (
         <Box>
-          <Paper elevation={0} sx={{ p: 2, mb: 3, borderRadius: 2, bgcolor: '#f3f6fb', display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-            <Chip label={`${totalPersons} Person${totalPersons > 1 ? 'en' : ''}`} icon={<PeopleIcon />} size="small" />
-            <Chip label={`${start} – ${ende}`} size="small" />
-            {crossLocation && <Chip label="Standortübergreifend" size="small" color="info" />}
-            {multiGender && <Chip label="Gemischte Gruppe" size="small" color="secondary" />}
-            {ignoreGender && <Chip label="Geschlecht ignoriert" size="small" color="warning" />}
-          </Paper>
+          {/* Person reminder banner */}
+          {currentPerson && (
+            <Paper elevation={0} sx={{ p: 1.5, mb: 2, bgcolor: '#f3e5f5', borderRadius: 2, border: '1px solid #ce93d8' }}>
+              <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                <PersonIcon sx={{ color: '#6a1b9a', fontSize: 18 }} />
+                <Typography variant="body2" fontWeight={700} fontFamily="monospace" color="#6a1b9a">
+                  {currentPerson.azr_id}
+                </Typography>
+                <GenderChip g={currentPerson.geschlecht} />
+                <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                  {start} – {ende}
+                </Typography>
+              </Box>
+            </Paper>
+          )}
+
+          {!currentPerson && (
+            <Paper elevation={0} sx={{ p: 2, mb: 3, borderRadius: 2, bgcolor: '#f3f6fb', display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+              <Chip label={`${totalPersons} Person${totalPersons > 1 ? 'en' : ''}`} icon={<PeopleIcon />} size="small" />
+              <Chip label={`${start} – ${ende}`} size="small" />
+              {crossLocation && <Chip label="Standortübergreifend" size="small" color="info" />}
+            </Paper>
+          )}
 
           {suggestion.message && (
             <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>{suggestion.message}</Alert>
@@ -501,7 +621,7 @@ export default function SuggestionWizard() {
           {suggestion.variants.length === 0 ? (
             <Box>
               <Alert severity="warning" sx={{ mb: 2, borderRadius: 2 }}>
-                Keine freien Plätze verfügbar für die gewählten Kriterien.
+                Keine freien Plätze gefunden. Suchkriterien anpassen oder anderen Zeitraum wählen.
               </Alert>
               <Button variant="outlined" onClick={() => setActiveStep(0)}>Suche anpassen</Button>
             </Box>
@@ -509,50 +629,39 @@ export default function SuggestionWizard() {
             <Box>
               <Box display="flex" alignItems="center" gap={2} mb={2}>
                 <Typography variant="body2" color="text.secondary">
-                  {suggestion.variants.length} Option{suggestion.variants.length > 1 ? 'en' : ''} gefunden — bitte auswählen:
+                  {suggestion.variants.length} Option{suggestion.variants.length > 1 ? 'en' : ''} gefunden:
                 </Typography>
-                <Button size="small" variant="outlined" onClick={handleSearch} disabled={loading}
-                  sx={{ ml: 'auto', fontSize: 11 }}>
-                  Ergebnisse aktualisieren
+                <Button size="small" variant="outlined" onClick={handleSearch} disabled={loading} sx={{ ml: 'auto', fontSize: 11 }}>
+                  Aktualisieren
                 </Button>
               </Box>
               <Box display="flex" flexDirection="column" gap={2} mb={3}>
                 {suggestion.variants.map((v, idx) => {
                   const isSelected = selectedVariant === idx
-                  const locName = v.location_name || (crossLocation ? v.beds[0]?.location_name : '')
+                  const locName = v.location_name || v.beds[0]?.location_name || ''
                   const roomsInVariant = [...new Set(v.beds.map((b) => b.room_name))]
-                  const complete = v.beds.length >= totalPersons
+                  const complete = v.beds.length >= (hasPerson ? 1 : totalPersons)
+                  const isOwn = v.is_own
                   return (
-                    <Card
-                      key={idx}
-                      elevation={isSelected ? 4 : 1}
-                      sx={{
-                        border: `2px solid ${isSelected ? '#003366' : v.is_own ? '#1565c0' : 'transparent'}`,
-                        borderRadius: 2,
-                        transition: 'all 0.15s',
-                        opacity: complete ? 1 : 0.8,
-                      }}
-                    >
+                    <Card key={idx} elevation={isSelected ? 4 : 1}
+                      sx={{ border: `2px solid ${isSelected ? (hasPerson ? '#6a1b9a' : '#003366') : isOwn ? '#1565c0' : 'transparent'}`,
+                        borderRadius: 2, transition: 'all 0.15s', opacity: complete ? 1 : 0.8 }}>
                       <CardActionArea onClick={() => setSelectedVariant(idx)} sx={{ p: 0 }}>
                         <CardContent sx={{ pb: '16px !important' }}>
-                          {/* Location header */}
                           <Box display="flex" alignItems="center" gap={1} mb={1.5}>
-                            {isSelected && <CheckCircleIcon sx={{ color: '#003366', fontSize: 20 }} />}
-                            {v.is_own && !isSelected && <StarIcon sx={{ color: '#1565c0', fontSize: 18 }} />}
-                            <LocationOnIcon sx={{ color: v.is_own ? '#1565c0' : '#666', fontSize: 18 }} />
-                            <Typography fontWeight={700} color={isSelected ? '#003366' : v.is_own ? '#1565c0' : 'text.primary'}>
+                            {isSelected && <CheckCircleIcon sx={{ color: hasPerson ? '#6a1b9a' : '#003366', fontSize: 20 }} />}
+                            {isOwn && !isSelected && <StarIcon sx={{ color: '#1565c0', fontSize: 18 }} />}
+                            <LocationOnIcon sx={{ color: isOwn ? '#1565c0' : '#666', fontSize: 18 }} />
+                            <Typography fontWeight={700} color={isSelected ? (hasPerson ? '#6a1b9a' : '#003366') : isOwn ? '#1565c0' : 'text.primary'}>
                               {locName || `Option ${idx + 1}`}
                             </Typography>
-                            {v.is_own && (
-                              <Chip label="Meine Einrichtung" size="small"
-                                sx={{ bgcolor: '#e3f2fd', color: '#1565c0', fontWeight: 600, height: 20, fontSize: 11 }} />
-                            )}
+                            {isOwn && <Chip label="Diese Einrichtung" size="small"
+                              sx={{ bgcolor: '#e3f2fd', color: '#1565c0', fontWeight: 600, height: 20, fontSize: 11 }} />}
+                            {hasPerson && !isOwn && <Chip label="Verlegungsziel" size="small"
+                              sx={{ bgcolor: '#f3e5f5', color: '#6a1b9a', fontWeight: 600, height: 20, fontSize: 11 }} />}
                             <Box sx={{ flexGrow: 1 }} />
-                            <Chip
-                              label={roomsInVariant.length === 1 ? '1 Raum' : `${roomsInVariant.length} Räume`}
-                              size="small"
-                              color={roomsInVariant.length === 1 ? 'success' : 'default'}
-                            />
+                            <Chip label={roomsInVariant.length === 1 ? '1 Raum' : `${roomsInVariant.length} Räume`}
+                              size="small" color={roomsInVariant.length === 1 ? 'success' : 'default'} />
                             <Chip label={`${v.beds.length} Bett${v.beds.length > 1 ? 'en' : ''}`} size="small" />
                           </Box>
                           {v.description && (
@@ -560,21 +669,10 @@ export default function SuggestionWizard() {
                               {v.description}
                             </Typography>
                           )}
-                          {!complete && (
-                            <Alert severity="warning" sx={{ mb: 1, py: 0.3, fontSize: 12 }}>
-                              Nur {v.beds.length} von {totalPersons} Plätzen verfügbar
-                            </Alert>
-                          )}
                           <Box display="flex" flexWrap="wrap" gap={0.8}>
                             {v.beds.map((b) => (
-                              <Box
-                                key={b.bed_id}
-                                sx={{
-                                  display: 'flex', alignItems: 'center', gap: 0.5,
-                                  px: 1.2, py: 0.5, borderRadius: 1.5,
-                                  bgcolor: '#e8f5e9', border: '1px solid #a5d6a7',
-                                }}
-                              >
+                              <Box key={b.bed_id} sx={{ display: 'flex', alignItems: 'center', gap: 0.5,
+                                px: 1.2, py: 0.5, borderRadius: 1.5, bgcolor: '#e8f5e9', border: '1px solid #a5d6a7' }}>
                                 <BedIcon sx={{ fontSize: 13, color: '#2e7d32' }} />
                                 <Typography variant="caption" fontWeight={600} color="#1b5e20">
                                   {b.room_name} · {b.bett_nummer}
@@ -594,16 +692,11 @@ export default function SuggestionWizard() {
               </Box>
               <Box display="flex" gap={2}>
                 <Button variant="outlined" onClick={() => setActiveStep(0)}>Zurück</Button>
-                <Button
-                  variant="contained"
-                  onClick={() => setConfirmOpen(true)}
+                <Button variant="contained" onClick={() => setConfirmOpen(true)}
                   disabled={selectedVariant === null}
                   size="large"
-                >
-                  Option bestätigen →
-                </Button>
-                <Button color="error" variant="text" onClick={() => setRejectOpen(true)}>
-                  Alle ablehnen
+                  sx={hasPerson ? { bgcolor: '#6a1b9a', '&:hover': { bgcolor: '#4a148c' } } : {}}>
+                  {hasPerson ? 'Verlegungsanfrage stellen →' : 'Option bestätigen →'}
                 </Button>
               </Box>
             </Box>
@@ -616,11 +709,23 @@ export default function SuggestionWizard() {
         <Box textAlign="center" py={4}>
           <CheckCircleIcon sx={{ fontSize: 64, color: completed ? '#43a047' : '#bdbdbd', mb: 2 }} />
           <Typography variant="h6" fontWeight={700} sx={{ mb: 1 }}>
-            {completed ? 'Reservierungsanfrage dokumentiert' : 'Abgeschlossen'}
+            {isGroupMode && groupResults.length > 1
+              ? `${groupResults.filter((r) => r.success).length}/${groupResults.length} Verlegungsanfragen gesendet`
+              : hasPerson ? 'Verlegungsanfrage gesendet' : 'Abgeschlossen'}
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            Der Eintrag erscheint im Postkorb zur weiteren Bearbeitung.
+            {hasPerson
+              ? 'Die Anfrage erscheint im Postkorb der Ziel-Einrichtung zur Bestätigung.'
+              : 'Der Eintrag erscheint im Postkorb zur weiteren Bearbeitung.'}
           </Typography>
+          {isGroupMode && groupResults.length > 0 && (
+            <Box display="flex" flexWrap="wrap" gap={1} justifyContent="center" mb={3}>
+              {groupResults.map((r) => (
+                <Chip key={r.azr_id} label={r.azr_id}
+                  sx={{ bgcolor: r.success ? '#e8f5e9' : '#ffebee', color: r.success ? '#2e7d32' : '#b71c1c', fontWeight: 600 }} />
+              ))}
+            </Box>
+          )}
           <Box display="flex" gap={2} justifyContent="center">
             <Button variant="contained" onClick={() => navigate('/tasks')}>Zum Postkorb</Button>
             <Button variant="outlined" onClick={() => navigate('/')}>Zum Dashboard</Button>
@@ -630,67 +735,101 @@ export default function SuggestionWizard() {
 
       {/* Confirm Dialog */}
       <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle fontWeight={700}>Reservierungsanfrage bestätigen</DialogTitle>
-        <DialogContent>
-          {suggestion && selectedVariant !== null && (
-            <Box>
-              <Typography sx={{ mb: 2 }}>
-                Option {selectedVariant + 1} mit {suggestion.variants[selectedVariant].beds.length} Bett(en) vormerken:
+        <DialogTitle fontWeight={700}>
+          <Box display="flex" alignItems="center" gap={1}>
+            {hasPerson ? <FlightIcon sx={{ color: '#6a1b9a' }} /> : <CheckCircleIcon sx={{ color: '#003366' }} />}
+            {hasPerson
+              ? (isGroupMode && modus !== 'einzeln'
+                  ? `Gruppenverlegung — ${preGroup.length} Personen`
+                  : isGroupMode
+                  ? `Verlegungsanfrage ${groupIndex + 1}/${preGroup.length}`
+                  : 'Verlegungsanfrage bestätigen')
+              : 'Belegung vormerken'}
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+          {/* Gruppe */}
+          {isGroupMode && modus !== 'einzeln' && (
+            <Paper elevation={0} sx={{ p: 1.5, bgcolor: '#f3e5f5', borderRadius: 1.5, border: '1px solid #ce93d8' }}>
+              <Typography variant="caption" fontWeight={700} color="#6a1b9a" sx={{ display: 'block', mb: 0.5 }}>
+                Gruppe ({preGroup.length} Personen)
               </Typography>
-              {suggestion.variants[selectedVariant].location_name && (
-                <Box display="flex" alignItems="center" gap={1} mb={1.5}>
-                  <LocationOnIcon sx={{ color: '#003366', fontSize: 18 }} />
-                  <Typography fontWeight={700} color="#003366">
-                    {suggestion.variants[selectedVariant].location_name}
-                  </Typography>
-                </Box>
-              )}
-              {suggestion.variants[selectedVariant].beds.map((b) => (
+              <Box display="flex" gap={1} flexWrap="wrap">
+                {preGroup.map((p) => (
+                  <Box key={p.azr_id} display="flex" alignItems="center" gap={0.5}>
+                    <Typography variant="body2" fontWeight={700} fontFamily="monospace">{p.azr_id}</Typography>
+                    <GenderChip g={p.geschlecht} />
+                  </Box>
+                ))}
+              </Box>
+            </Paper>
+          )}
+
+          {/* Einzelperson */}
+          {currentPerson && (!isGroupMode || modus === 'einzeln') && (
+            <Paper elevation={0} sx={{ p: 1.5, bgcolor: '#f3e5f5', borderRadius: 1.5, border: '1px solid #ce93d8' }}>
+              <Typography variant="caption" fontWeight={700} color="#6a1b9a" sx={{ display: 'block', mb: 0.5 }}>
+                Person
+              </Typography>
+              <Box display="flex" gap={1.5} alignItems="center" flexWrap="wrap">
+                <Typography fontWeight={700} fontFamily="monospace">{currentPerson.azr_id}</Typography>
+                <GenderChip g={currentPerson.geschlecht} />
+              </Box>
+            </Paper>
+          )}
+
+          {/* Target + beds */}
+          {selectedVariantData && (
+            <Box>
+              <Box display="flex" alignItems="center" gap={1} mb={1}>
+                <LocationOnIcon sx={{ color: hasPerson ? '#6a1b9a' : '#003366', fontSize: 18 }} />
+                <Typography fontWeight={700} color={hasPerson ? '#6a1b9a' : '#003366'}>
+                  {selectedVariantData.location_name || selectedVariantData.beds[0]?.location_name}
+                </Typography>
+              </Box>
+              {selectedVariantData.beds.map((b) => (
                 <Box key={b.bed_id} display="flex" alignItems="center" gap={1} mb={0.8}>
                   <BedIcon sx={{ color: '#2e7d32', fontSize: 18 }} />
-                  <Typography variant="body2">
-                    {b.room_name} · Bett {b.bett_nummer}
-                  </Typography>
+                  <Typography variant="body2">{b.room_name} · Bett {b.bett_nummer}</Typography>
                 </Box>
               ))}
-              <Alert severity="info" sx={{ mt: 2 }}>
-                Die Reservierungsanfrage erscheint im Postkorb und muss von einem Berechtigten endgültig bestätigt werden.
-              </Alert>
             </Box>
+          )}
+
+          <Box display="flex" gap={2}>
+            <Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center' }}>Zeitraum:</Typography>
+            <Typography variant="body2" fontWeight={600}>{start} – {ende}</Typography>
+          </Box>
+
+          {/* Optional extras for Verlegungsanfrage */}
+          {hasPerson && (
+            <>
+              <TextField label="Geburtsjahr (optional)" type="number"
+                value={confirmGeburtsjahr} onChange={(e) => setConfirmGeburtsjahr(e.target.value)}
+                inputProps={{ min: 1901, max: new Date().getFullYear() }}
+                helperText="Erleichtert der Zieleinrichtung die Planung" size="small" />
+              <TextField label="Herkunftsland ISO-3 (optional)" value={confirmHerkunftsland}
+                onChange={(e) => setConfirmHerkunftsland(e.target.value)} inputProps={{ maxLength: 3 }}
+                helperText="z.B. SYR, AFG, IRQ" size="small" />
+            </>
+          )}
+
+          {hasPerson && (
+            <Alert severity="info" sx={{ py: 0.5, fontSize: 12 }}>
+              Die Anfrage erscheint im Postkorb der Ziel-Einrichtung und muss dort bestätigt werden.
+            </Alert>
           )}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={() => setConfirmOpen(false)}>Abbrechen</Button>
-          <Button variant="contained" onClick={handleAccept} disabled={loading}>
-            {loading ? <CircularProgress size={18} /> : 'Jetzt bestätigen'}
+          <Button variant="contained" onClick={handleAccept} disabled={loading}
+            sx={hasPerson ? { bgcolor: '#6a1b9a', '&:hover': { bgcolor: '#4a148c' } } : {}}>
+            {loading ? <CircularProgress size={18} /> : hasPerson ? 'Verlegungsanfrage senden' : 'Jetzt vormerken'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      {/* Reject Dialog */}
-      <Dialog open={rejectOpen} onClose={() => setRejectOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle fontWeight={700}>Anfrage ablehnen</DialogTitle>
-        <DialogContent>
-          <TextField
-            label="Begründung"
-            value={rejectReason}
-            onChange={(e) => setRejectReason(e.target.value)}
-            fullWidth
-            multiline
-            rows={3}
-            sx={{ mt: 1 }}
-            placeholder="Warum werden alle Optionen abgelehnt?"
-          />
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setRejectOpen(false)}>Zurück</Button>
-          <Button color="error" variant="contained" onClick={handleReject} disabled={!rejectReason.trim() || loading}>
-            Ablehnen
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <Snackbar open={snackbar.open} autoHideDuration={5000} onClose={() => setSnackbar((s) => ({ ...s, open: false }))}>
+      <Snackbar open={snackbar.open} autoHideDuration={6000} onClose={() => setSnackbar((s) => ({ ...s, open: false }))}>
         <Alert severity={snackbar.severity} onClose={() => setSnackbar((s) => ({ ...s, open: false }))}>
           {snackbar.message}
         </Alert>

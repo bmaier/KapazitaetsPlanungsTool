@@ -17,6 +17,7 @@ class ReservationCreate(BaseModel):
     herkunftsland: str  # ISO 3166-1 alpha-3 (3 Zeichen)
     belegung_start: date
     belegung_ende: date
+    suggested_bed_id: Optional[uuid.UUID] = None
 
     @field_validator("geburtsjahr")
     @classmethod
@@ -57,6 +58,7 @@ class ReservationResponse(BaseModel):
     belegung_ende: date
     status: str
     confirmed_bed_id: Optional[uuid.UUID]
+    suggested_bed_id: Optional[uuid.UUID] = None
     confirmed_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
