@@ -146,6 +146,12 @@ class AuditEventModel(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
+    # Extended fields (migration 0014) — nullable for backward compat
+    actor_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    actor_role: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    location_id: Mapped[Optional[uuid.UUID]] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
+    entity_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    entity_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
 
 class ReservationRequestModel(Base):

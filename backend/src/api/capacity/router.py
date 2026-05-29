@@ -1004,6 +1004,7 @@ async def create_occupancy(
     body: OccupancyCreate,
     response: Response,
     session: AsyncSession = Depends(get_session),
+    user: UserContext = Depends(get_current_user),
 ):
     """
     Erstellt eine Belegung für ein Bett.
@@ -1022,7 +1023,7 @@ async def create_occupancy(
 
     loc_validity = await session.execute(
         text("""
-            SELECT l.valid_from, l.valid_until
+            SELECT l.id, l.valid_from, l.valid_until
             FROM capacity.rooms r
             JOIN capacity.locations l ON l.id = r.location_id
             WHERE r.id = :room_id
@@ -1030,6 +1031,7 @@ async def create_occupancy(
         {"room_id": str(bed.room_id)},
     )
     loc_row = loc_validity.fetchone()
+    bed_location_id: Optional[UUID] = UUID(str(loc_row.id)) if loc_row else None
     if loc_row:
         if loc_row.valid_from and body.belegung_start < loc_row.valid_from:
             raise HTTPException(status_code=409, detail=f"Einrichtung ist erst ab {loc_row.valid_from} aktiv")
@@ -1057,7 +1059,7 @@ async def create_occupancy(
         belegung_start=body.belegung_start,
         belegung_ende=body.belegung_ende,
     )
-    created = await occ_repo.create(occupancy)
+    created = await occ_repo.create(occupancy, user=user, location_id=bed_location_id)
 
     if warn_12w:
         response.headers["X-12W-Warning"] = "true"
@@ -1114,6 +1116,7 @@ async def end_occupancy(
     occupancy_id: UUID,
     grund: Optional[str] = None,
     session: AsyncSession = Depends(get_session),
+    user: UserContext = Depends(get_current_user),
 ):
     """
     Beendet eine aktive Belegung — physisches Löschen aus persons.occupants.
@@ -1130,12 +1133,23 @@ async def end_occupancy(
             status_code=404,
             detail="Belegung gehört nicht zu diesem Bett",
         )
+    loc_row = await session.execute(
+        text("""
+            SELECT l.id FROM capacity.rooms r
+            JOIN capacity.locations l ON l.id = r.location_id
+            JOIN capacity.beds b ON b.room_id = r.id
+            WHERE b.id = :bed_id
+        """),
+        {"bed_id": str(bed_id)},
+    )
+    loc = loc_row.fetchone()
+    bed_location_id: Optional[UUID] = UUID(str(loc.id)) if loc else None
     if grund:
         import logging as _logging
         _logging.getLogger("capacity").info(
             "Ausbuchen: occ=%s azr_id=%s grund=%s", occupancy_id, occupancy.azr_id, grund
         )
-    await occ_repo.delete(occupancy_id)
+    await occ_repo.delete(occupancy_id, user=user, location_id=bed_location_id)
     return {"ended": True, "grund": grund}
 
 

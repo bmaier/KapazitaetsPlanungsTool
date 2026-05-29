@@ -6,8 +6,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 
+from src.adapters.db.audit_service import write_audit
 from src.adapters.db.engine import AsyncSessionFactory
-from src.adapters.keycloak.jwt import get_location_context
+from src.adapters.keycloak.jwt import UserContext, get_current_user, get_location_context
 from src.api.suggestions.schemas import (
     AcceptRequest,
     BedOption,
@@ -493,6 +494,7 @@ def _compute_family_variants(
 async def create_suggestion(
     body: SuggestionRequest,
     location=Depends(get_location_context),
+    user: UserContext = Depends(get_current_user),
 ):
     own_loc_id = str(location.id)
     is_multi_gender = body.maenner_anzahl + body.frauen_anzahl + body.divers_anzahl > 0
@@ -532,6 +534,7 @@ async def create_suggestion(
                     own_name = available[0].location_name  # all from same loc
                 variants, message = _compute_local_variants(available, body.anzahl, own_name, own_loc_id)
 
+        from src.adapters.db.audit_service import _highest_role
         event_id = str(uuid.uuid4())
         audit_payload = json.dumps({
             "location_id": own_loc_id,
@@ -545,10 +548,18 @@ async def create_suggestion(
         })
         await session.execute(
             text(
-                "INSERT INTO audit.events (id, event_type, payload) "
-                "VALUES (:event_id, 'SUGGESTION_CREATED', :audit_payload)"
+                "INSERT INTO audit.events "
+                "(id, event_type, payload, created_at, actor_id, actor_role, location_id, entity_type, entity_id) "
+                "VALUES (:eid, 'SUGGESTION_CREATED', :payload, NOW(), :actor_id, :actor_role, :loc_id, 'SUGGESTION', :entity_id)"
             ),
-            {"event_id": event_id, "audit_payload": audit_payload},
+            {
+                "eid": uuid.UUID(event_id),
+                "payload": audit_payload,
+                "actor_id": user.sub,
+                "actor_role": _highest_role(user.roles),
+                "loc_id": location.id,
+                "entity_id": event_id,
+            },
         )
         await session.commit()
 
@@ -565,6 +576,7 @@ async def accept_suggestion(
     suggestion_id: UUID,
     body: AcceptRequest,
     location=Depends(get_location_context),
+    user: UserContext = Depends(get_current_user),
 ):
     async with AsyncSessionFactory() as session:
         result = await session.execute(text("""
@@ -583,16 +595,24 @@ async def accept_suggestion(
                 status_code=422,
                 detail=f"variant_index muss < {variants_count} sein",
             )
+        from src.adapters.db.audit_service import _highest_role
         await session.execute(
             text(
-                "INSERT INTO audit.events (event_type, payload) "
-                "VALUES ('SUGGESTION_ACCEPTED', :payload)"
+                "INSERT INTO audit.events "
+                "(event_type, payload, created_at, actor_id, actor_role, location_id, entity_type, entity_id) "
+                "VALUES ('SUGGESTION_ACCEPTED', :payload, NOW(), :actor_id, :actor_role, :loc_id, 'SUGGESTION', :sid)"
             ),
-            {"payload": json.dumps({
-                "suggestion_id": str(suggestion_id),
-                "variant_index": body.variant_index,
-                "location_id": str(location.id),
-            })},
+            {
+                "payload": json.dumps({
+                    "suggestion_id": str(suggestion_id),
+                    "variant_index": body.variant_index,
+                    "location_id": str(location.id),
+                }),
+                "actor_id": user.sub,
+                "actor_role": _highest_role(user.roles),
+                "loc_id": location.id,
+                "sid": str(suggestion_id),
+            },
         )
         await session.commit()
     return {"status": "accepted"}
@@ -603,6 +623,7 @@ async def reject_suggestion(
     suggestion_id: UUID,
     body: RejectRequest,
     location=Depends(get_location_context),
+    user: UserContext = Depends(get_current_user),
 ):
     async with AsyncSessionFactory() as session:
         result = await session.execute(text("""
@@ -615,16 +636,24 @@ async def reject_suggestion(
         payload_data = _load_created_event(row)
         if payload_data.get("location_id") != str(location.id):
             raise HTTPException(status_code=403, detail="Zugriff verweigert")
+        from src.adapters.db.audit_service import _highest_role
         await session.execute(
             text(
-                "INSERT INTO audit.events (event_type, payload) "
-                "VALUES ('SUGGESTION_REJECTED', :payload)"
+                "INSERT INTO audit.events "
+                "(event_type, payload, created_at, actor_id, actor_role, location_id, entity_type, entity_id) "
+                "VALUES ('SUGGESTION_REJECTED', :payload, NOW(), :actor_id, :actor_role, :loc_id, 'SUGGESTION', :sid)"
             ),
-            {"payload": json.dumps({
-                "suggestion_id": str(suggestion_id),
-                "reason": body.reason,
-                "location_id": str(location.id),
-            })},
+            {
+                "payload": json.dumps({
+                    "suggestion_id": str(suggestion_id),
+                    "reason": body.reason,
+                    "location_id": str(location.id),
+                }),
+                "actor_id": user.sub,
+                "actor_role": _highest_role(user.roles),
+                "loc_id": location.id,
+                "sid": str(suggestion_id),
+            },
         )
         await session.commit()
     return {"status": "rejected"}

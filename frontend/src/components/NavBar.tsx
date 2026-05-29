@@ -11,6 +11,7 @@ import SearchIcon from '@mui/icons-material/Search'
 import LogoutIcon from '@mui/icons-material/Logout'
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline'
 import BedIcon from '@mui/icons-material/Hotel'
+import HistoryIcon from '@mui/icons-material/History'
 import { useLocation, useNavigate } from 'react-router-dom'
 import HelpDrawer from './HelpDrawer'
 import { useKeycloak } from '../auth/KeycloakProvider'
@@ -21,6 +22,10 @@ const NAV_LINKS = [
   { label: 'Dashboard', path: '/', Icon: DashboardIcon },
   { label: 'Verlegungsanfragen', path: '/reservations', Icon: SwapHorizIcon },
   { label: 'Bettsuche', path: '/suggestions', Icon: SearchIcon },
+]
+
+const ADMIN_NAV_LINKS = [
+  { label: 'Protokoll', path: '/audit', Icon: HistoryIcon },
 ]
 
 interface OccupantResult {
@@ -128,6 +133,24 @@ export default function NavBar() {
               </Button>
             )
           })}
+
+          {(roles.includes('location-admin') || roles.includes('system-admin')) &&
+            ADMIN_NAV_LINKS.map((link) => {
+              const active = location.pathname === link.path
+              return (
+                <Button key={link.path} color="inherit" onClick={() => navigate(link.path)}
+                  startIcon={<link.Icon sx={{ fontSize: 18 }} />}
+                  sx={{
+                    fontWeight: active ? 700 : 400,
+                    bgcolor: active ? 'rgba(255,255,255,0.12)' : 'transparent',
+                    borderRadius: 1.5, px: 1.5,
+                    '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' }, fontSize: 13,
+                  }}>
+                  {link.label}
+                </Button>
+              )
+            })
+          }
 
           <Box sx={{ flexGrow: 1 }} />
 

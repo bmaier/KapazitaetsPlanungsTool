@@ -8,6 +8,7 @@ import Drilldown from './pages/Drilldown'
 import Reservations from './pages/Reservations'
 import SuggestionWizard from './pages/SuggestionWizard'
 import TaskInbox from './pages/TaskInbox'
+import AuditLog from './pages/AuditLog'
 import { SseNotificationsProvider } from './hooks/SseNotificationsProvider'
 
 const theme = createTheme({
@@ -61,6 +62,7 @@ function AppRoutes() {
             <Route path="/reservations" element={<Reservations />} />
             <Route path="/tasks" element={<TaskInbox />} />
             <Route path="/suggestions" element={<SuggestionWizard />} />
+            <Route path="/audit" element={<AuditLog />} />
           </Routes>
         </Box>
       </SseNotificationsProvider>

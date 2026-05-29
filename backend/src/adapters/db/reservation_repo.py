@@ -7,13 +7,13 @@ from datetime import datetime, timezone
 from typing import List, Optional
 from uuid import UUID, uuid4
 
-import json
-
 from fastapi import HTTPException
 from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.adapters.db.audit_service import write_audit
 from src.adapters.db.models import OccupantModel, ReservationRequestModel, TaskModel
+from src.adapters.keycloak.jwt import UserContext
 from src.domain.reservations.entities import ReservationRequest, ReservationStatus
 from src.domain.reservations.rules import (
     InvalidStateTransitionError,
@@ -85,7 +85,8 @@ class SqlReservationRepo(AbstractReservationRepo):
         )
 
         # Audit
-        await self._write_audit(model.id, "CREATED", None)
+        await self._write_audit(model.id, "CREATED", body.target_location_id,
+                                azr_id=body.azr_id, user=None)
 
         return _to_entity(model)
 
@@ -113,6 +114,7 @@ class SqlReservationRepo(AbstractReservationRepo):
         new_status: str,
         location_id: Optional[UUID] = None,
         is_system_admin: bool = False,
+        user: Optional[UserContext] = None,
     ) -> ReservationRequest:
         """
         SELECT FOR UPDATE verhindert gleichzeitige Doppel-Bestätigungen.
@@ -137,12 +139,16 @@ class SqlReservationRepo(AbstractReservationRepo):
         model.status = new_status
         model.updated_at = datetime.now(timezone.utc)
 
-        await self._create_task_and_audit(model, new_status, location_id)
+        await self._create_task_and_audit(model, new_status, location_id, user=user)
         await self._session.flush()
         return _to_entity(model)
 
     async def confirm(
-        self, reservation_id: UUID, location_id: UUID, confirmed_bed_id: UUID
+        self,
+        reservation_id: UUID,
+        location_id: UUID,
+        confirmed_bed_id: UUID,
+        user: Optional[UserContext] = None,
     ) -> ReservationRequest:
         """
         Bestätigt eine Reservierung und weist ein Bett zu (VORGEMERKT).
@@ -214,12 +220,15 @@ class SqlReservationRepo(AbstractReservationRepo):
         model.confirmed_at = now
         model.updated_at = now
 
-        await self._create_task_and_audit(model, "CONFIRMED", location_id)
+        await self._create_task_and_audit(model, "CONFIRMED", location_id, user=user)
         await self._session.flush()
         return _to_entity(model)
 
     async def reject(
-        self, reservation_id: UUID, location_id: UUID
+        self,
+        reservation_id: UUID,
+        location_id: UUID,
+        user: Optional[UserContext] = None,
     ) -> ReservationRequest:
         """Lehnt eine Reservierung ab — prüft ob location_id == target_location_id."""
         result = await self._session.execute(
@@ -241,12 +250,15 @@ class SqlReservationRepo(AbstractReservationRepo):
         model.status = "REJECTED"
         model.updated_at = datetime.now(timezone.utc)
 
-        await self._create_task_and_audit(model, "REJECTED", location_id)
+        await self._create_task_and_audit(model, "REJECTED", location_id, user=user)
         await self._session.flush()
         return _to_entity(model)
 
     async def transfer(
-        self, reservation_id: UUID, location_id: UUID
+        self,
+        reservation_id: UUID,
+        location_id: UUID,
+        user: Optional[UserContext] = None,
     ) -> ReservationRequest:
         """
         Zieleinrichtung checkt Person ein: erstellt Occupant am confirmed_bed_id, setzt TRANSFERRED.
@@ -318,7 +330,7 @@ class SqlReservationRepo(AbstractReservationRepo):
         model.status = "TRANSFERRED"
         model.updated_at = now
 
-        await self._create_task_and_audit(model, "TRANSFERRED", location_id)
+        await self._create_task_and_audit(model, "TRANSFERRED", location_id, user=user)
         await self._session.flush()
         return _to_entity(model)
 
@@ -381,20 +393,24 @@ class SqlReservationRepo(AbstractReservationRepo):
         self._session.add(task)
 
     async def _write_audit(
-        self, reservation_id: UUID, action: str, actor_id: Optional[UUID]
+        self,
+        reservation_id: UUID,
+        action: str,
+        location_id: Optional[UUID],
+        azr_id: Optional[str] = None,
+        user: Optional[UserContext] = None,
     ) -> None:
-        payload = json.dumps({"reservation_id": str(reservation_id), "action": action})
-        await self._session.execute(
-            text(
-                "INSERT INTO audit.events (id, event_type, payload, created_at) "
-                "VALUES (:id, :event_type, :payload, :created_at)"
-            ),
-            {
-                "id": str(uuid4()),
-                "event_type": f"reservation.{action.lower()}",
-                "payload": payload,
-                "created_at": datetime.now(timezone.utc),
-            },
+        payload = {"reservation_id": str(reservation_id), "action": action}
+        if azr_id:
+            payload["azr_id"] = azr_id
+        await write_audit(
+            self._session,
+            f"RESERVATION_{action}",
+            payload,
+            user=user,
+            location_id=location_id,
+            entity_type="RESERVATION",
+            entity_id=azr_id,
         )
 
     async def _create_task_and_audit(
@@ -402,6 +418,7 @@ class SqlReservationRepo(AbstractReservationRepo):
         model: ReservationRequestModel,
         new_status: str,
         location_id: UUID,
+        user: Optional[UserContext] = None,
     ) -> None:
         """
         Erzeugt Task(s) und Audit-Eintrag für einen Statusübergang.
@@ -461,4 +478,5 @@ class SqlReservationRepo(AbstractReservationRepo):
                 body=f"AZR-ID {model.azr_id} wurde erfolgreich eingecheckt und einem Bett zugewiesen.",
             )
 
-        await self._write_audit(model.id, new_status, location_id)
+        await self._write_audit(model.id, new_status, location_id,
+                                azr_id=model.azr_id, user=user)

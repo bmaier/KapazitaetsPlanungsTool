@@ -142,6 +142,7 @@ async def cancel_reservation(
             "CANCELLED",
             location_id=location.id if location else None,
             is_system_admin=is_system_admin,
+            user=user,
         )
     except RetractionForbiddenError as e:
         raise HTTPException(status_code=403, detail=e.message)
@@ -172,11 +173,11 @@ async def confirm_reservation(
             if not existing:
                 raise HTTPException(status_code=404, detail="Reservierung nicht gefunden")
             result = await repo.confirm(
-                reservation_id, existing.target_location_id, body.confirmed_bed_id
+                reservation_id, existing.target_location_id, body.confirmed_bed_id, user=user
             )
         else:
             result = await repo.confirm(
-                reservation_id, location.id, body.confirmed_bed_id  # type: ignore[union-attr]
+                reservation_id, location.id, body.confirmed_bed_id, user=user  # type: ignore[union-attr]
             )
     except RetractionForbiddenError as e:
         raise HTTPException(status_code=403, detail=e.message)
@@ -206,9 +207,9 @@ async def transfer_reservation(
             existing = await repo.get(reservation_id)
             if not existing:
                 raise HTTPException(status_code=404, detail="Reservierung nicht gefunden")
-            result = await repo.transfer(reservation_id, existing.target_location_id)
+            result = await repo.transfer(reservation_id, existing.target_location_id, user=user)
         else:
-            result = await repo.transfer(reservation_id, location.id)  # type: ignore[union-attr]
+            result = await repo.transfer(reservation_id, location.id, user=user)  # type: ignore[union-attr]
     except RetractionForbiddenError as e:
         raise HTTPException(status_code=403, detail=e.message)
     except InvalidStateTransitionError as e:
@@ -234,10 +235,10 @@ async def reject_reservation(
     try:
         if is_system_admin and location is None:
             result = await repo.update_status(
-                reservation_id, "REJECTED", is_system_admin=True
+                reservation_id, "REJECTED", is_system_admin=True, user=user
             )
         else:
-            result = await repo.reject(reservation_id, location.id)  # type: ignore[union-attr]
+            result = await repo.reject(reservation_id, location.id, user=user)  # type: ignore[union-attr]
     except RetractionForbiddenError as e:
         raise HTTPException(status_code=403, detail=e.message)
     except InvalidStateTransitionError as e:

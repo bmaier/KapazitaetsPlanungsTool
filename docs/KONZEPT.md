@@ -440,6 +440,52 @@ Beim Aufbau mit Java/Spring Boot + Angular sind folgende Punkte besonders zu bea
 
 ---
 
+## 7b. Fachliche Protokollierung (Audit-Log)
+
+### Zweck
+Rechtssichere, gerichtsfeste Nachvollziehbarkeit aller fachlich relevanter Mutationen: Wer hat wann was an welcher Person getan?
+
+### Gespeicherte Informationen
+Jeder Eintrag in `audit.events` enthält:
+
+| Feld | Beschreibung |
+|---|---|
+| `id` | UUID des Eintrags (Primärschlüssel) |
+| `event_type` | Ereignistyp, z.B. `OCCUPANCY_CREATED`, `RESERVATION_CONFIRMED` |
+| `payload` | JSONB mit fachlichen Details (bed_id, azr_id, etc.) |
+| `created_at` | Zeitstempel mit Zeitzone |
+| `actor_id` | Keycloak-Sub des Akteurs |
+| `actor_role` | Höchste Rolle des Akteurs (system-admin > location-admin > writer > reader) |
+| `location_id` | Einrichtungs-UUID des Akteurs |
+| `entity_type` | Entitätstyp (OCCUPANCY, RESERVATION, SUGGESTION) |
+| `entity_id` | AZR-ID, Reservierungs-UUID oder Suggestion-ID |
+
+### Protokollierte Event-Typen
+| Event-Typ | Auslöser |
+|---|---|
+| `OCCUPANCY_CREATED` | Einbuchung einer Person in ein Bett |
+| `OCCUPANCY_DELETED` | Ausbuchung einer Person aus einem Bett |
+| `RESERVATION_CREATED` | Neue Verlegungsanfrage |
+| `RESERVATION_CONFIRMED` | Verlegungsanfrage bestätigt (Bett zugewiesen) |
+| `RESERVATION_CANCELLED` | Verlegungsanfrage abgebrochen |
+| `RESERVATION_REJECTED` | Verlegungsanfrage abgelehnt |
+| `RESERVATION_TRANSFERRED` | Person eingecheckt / Transfer durchgeführt |
+| `SUGGESTION_CREATED` | Bettsuche gestartet |
+| `SUGGESTION_ACCEPTED` | Variante ausgewählt |
+| `SUGGESTION_REJECTED` | Vorschlag abgelehnt |
+
+### Aufbewahrungsfristen & DSGVO
+- Einträge sind **append-only** (kein UPDATE auf bestehende Einträge)
+- **DSGVO-Löschung AZR**: `DELETE /api/audit/azr/{azr_id}?confirm=true` — Hard-Delete aller Einträge zu einer AZR (location-admin+)
+- **Bulk-Löschung >10 Jahre**: `DELETE /api/audit/purge-old` — nur system-admin
+
+### Zugriff & Export
+- **Listing**: `GET /api/audit` — alle authentifizierten Nutzer; Filter: date_from/date_to (default: letzte 5 Tage), azr_id, event_type, location_id; paginiert
+- **CSV-Export**: `GET /api/audit/export.csv` — Streaming-Response (kein OOM bei großen Mengen), nur location-admin+
+- **UI**: Protokoll-Seite erreichbar über NavBar (sichtbar für location-admin+)
+
+---
+
 ## 12. Änderungshistorie
 
 | Datum | Version | Inhalt |
@@ -448,3 +494,4 @@ Beim Aufbau mit Java/Spring Boot + Angular sind folgende Punkte besonders zu bea
 | 2026-05-26 | 1.1 | Rollen-Matrix, Reservierungsautorisierung, asyncpg CAST-Fix, AZR-Suche-Spec, Einschränkungen erweitert |
 | 2026-05-27 | 1.2 | system-admin Reservierungs-Vollzugriff, bed valid_from API+UI, SSE-Refresh Drilldown, Einschränkungen bereinigt |
 | 2026-05-27 | 1.3 | Geschlechts-Label-Sperre implementiert, Keycloak system-admin ohne location_id, loc_admin für alle 4 Standorte |
+| 2026-05-29 | 1.4 | Fachliche Protokollierung: Audit-Log mit Akteur-Felder, CSV-Export, DSGVO-Löschung, Protokoll-UI |

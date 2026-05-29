@@ -9,14 +9,15 @@ from uuid import UUID, uuid4
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.adapters.db.audit_service import write_audit
 from src.adapters.db.models import (
-    AuditEventModel,
     BedModel,
     LocationModel,
     OccupantModel,
     RoomModel,
     SystemSettingsModel,
 )
+from src.adapters.keycloak.jwt import UserContext
 from src.domain.capacity.entities import (
     Bed,
     Location,
@@ -32,27 +33,6 @@ from src.ports.capacity.repository import (
     RoomRepo,
     SystemSettingsRepo,
 )
-
-
-# ---------------------------------------------------------------------------
-# Audit-Hilfsfunktion
-# ---------------------------------------------------------------------------
-
-
-async def _audit_log(
-    session: AsyncSession, event_type: str, payload: dict
-) -> None:
-    """
-    Schreibt einen Audit-Eintrag in audit.events.
-    Gleiche Session wie die aufrufende Mutation → atomares Commit.
-    """
-    event = AuditEventModel(
-        id=uuid4(),
-        event_type=event_type,
-        payload=payload,
-        created_at=datetime.now(timezone.utc),
-    )
-    session.add(event)
 
 
 # ---------------------------------------------------------------------------
@@ -133,7 +113,7 @@ class SqlLocationRepo(LocationRepo):
         )
         self._session.add(model)
         await self._session.flush()
-        await _audit_log(
+        await write_audit(
             self._session,
             "location.created",
             {
@@ -177,7 +157,7 @@ class SqlLocationRepo(LocationRepo):
         if model:
             model.is_active = False
             model.updated_at = datetime.now(timezone.utc)
-            await _audit_log(
+            await write_audit(
                 self._session,
                 "location.deactivated",
                 {"id": str(id)},
@@ -202,7 +182,7 @@ class SqlRoomRepo(RoomRepo):
         )
         self._session.add(model)
         await self._session.flush()
-        await _audit_log(
+        await write_audit(
             self._session,
             "room.created",
             {
@@ -244,7 +224,7 @@ class SqlRoomRepo(RoomRepo):
         if model:
             model.is_active = False
             model.updated_at = datetime.now(timezone.utc)
-            await _audit_log(
+            await write_audit(
                 self._session,
                 "room.deactivated",
                 {"id": str(id)},
@@ -268,7 +248,7 @@ class SqlBedRepo(BedRepo):
         )
         self._session.add(model)
         await self._session.flush()
-        await _audit_log(
+        await write_audit(
             self._session,
             "bed.created",
             {
@@ -310,7 +290,7 @@ class SqlBedRepo(BedRepo):
         if model:
             model.is_active = False
             model.updated_at = datetime.now(timezone.utc)
-            await _audit_log(
+            await write_audit(
                 self._session,
                 "bed.deactivated",
                 {"id": str(id)},
@@ -321,7 +301,12 @@ class SqlOccupancyRepo(OccupancyRepo):
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def create(self, occupancy: Occupancy) -> Occupancy:
+    async def create(
+        self,
+        occupancy: Occupancy,
+        user: Optional[UserContext] = None,
+        location_id: Optional[UUID] = None,
+    ) -> Occupancy:
         now = datetime.now(timezone.utc)
         model = OccupantModel(
             id=occupancy.id,
@@ -335,9 +320,9 @@ class SqlOccupancyRepo(OccupancyRepo):
         )
         self._session.add(model)
         await self._session.flush()
-        await _audit_log(
+        await write_audit(
             self._session,
-            "occupancy.created",
+            "OCCUPANCY_CREATED",
             {
                 "id": str(occupancy.id),
                 "bed_id": str(occupancy.bed_id),
@@ -345,6 +330,10 @@ class SqlOccupancyRepo(OccupancyRepo):
                 "belegung_start": occupancy.belegung_start.isoformat(),
                 "belegung_ende": occupancy.belegung_ende.isoformat(),
             },
+            user=user,
+            location_id=location_id,
+            entity_type="OCCUPANCY",
+            entity_id=occupancy.azr_id,
         )
         return _to_occupancy(model)
 
@@ -362,20 +351,29 @@ class SqlOccupancyRepo(OccupancyRepo):
         model = result.scalars().first()
         return _to_occupancy(model) if model else None
 
-    async def delete(self, id: UUID) -> None:
+    async def delete(
+        self,
+        id: UUID,
+        user: Optional[UserContext] = None,
+        location_id: Optional[UUID] = None,
+    ) -> None:
         result = await self._session.execute(
             select(OccupantModel).where(OccupantModel.id == id)
         )
         model = result.scalar_one_or_none()
         if model:
-            await _audit_log(
+            await write_audit(
                 self._session,
-                "occupancy.ended",
+                "OCCUPANCY_DELETED",
                 {
                     "id": str(id),
                     "bed_id": str(model.bed_id),
                     "azr_id": model.azr_id,
                 },
+                user=user,
+                location_id=location_id,
+                entity_type="OCCUPANCY",
+                entity_id=model.azr_id,
             )
             await self._session.delete(model)
 
@@ -410,7 +408,7 @@ class SqlSystemSettingsRepo(SystemSettingsRepo):
             model.eu_gesamtquote = quota
             model.updated_at = now
         await self._session.flush()
-        await _audit_log(
+        await write_audit(
             self._session,
             "system_settings.eu_quota_updated",
             {"eu_gesamtquote": quota},
