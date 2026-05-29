@@ -625,82 +625,169 @@ export default function SuggestionWizard() {
               </Alert>
               <Button variant="outlined" onClick={() => setActiveStep(0)}>Suche anpassen</Button>
             </Box>
-          ) : (
-            <Box>
-              <Box display="flex" alignItems="center" gap={2} mb={2}>
-                <Typography variant="body2" color="text.secondary">
-                  {suggestion.variants.length} Option{suggestion.variants.length > 1 ? 'en' : ''} gefunden:
-                </Typography>
-                <Button size="small" variant="outlined" onClick={handleSearch} disabled={loading} sx={{ ml: 'auto', fontSize: 11 }}>
-                  Aktualisieren
-                </Button>
-              </Box>
-              <Box display="flex" flexDirection="column" gap={2} mb={3}>
-                {suggestion.variants.map((v, idx) => {
-                  const isSelected = selectedVariant === idx
-                  const locName = v.location_name || v.beds[0]?.location_name || ''
-                  const roomsInVariant = [...new Set(v.beds.map((b) => b.room_name))]
-                  const complete = v.beds.length >= (hasPerson ? 1 : totalPersons)
-                  const isOwn = v.is_own
-                  return (
-                    <Card key={idx} elevation={isSelected ? 4 : 1}
-                      sx={{ border: `2px solid ${isSelected ? (hasPerson ? '#6a1b9a' : '#003366') : isOwn ? '#1565c0' : 'transparent'}`,
-                        borderRadius: 2, transition: 'all 0.15s', opacity: complete ? 1 : 0.8 }}>
-                      <CardActionArea onClick={() => setSelectedVariant(idx)} sx={{ p: 0 }}>
+          ) : (() => {
+            // Single-bed mode: all variants have exactly 1 bed → group by location
+            const isSingleBedMode = suggestion.variants.every((v) => v.beds.length === 1)
+
+            type LocGroup = { locationName: string; isOwn: boolean; entries: { idx: number; v: Variant }[] }
+            const grouped: LocGroup[] = []
+            if (isSingleBedMode) {
+              const byLoc = new Map<string, LocGroup>()
+              suggestion.variants.forEach((v, idx) => {
+                const locName = v.location_name || v.beds[0]?.location_name || ''
+                if (!byLoc.has(locName)) byLoc.set(locName, { locationName: locName, isOwn: v.is_own, entries: [] })
+                byLoc.get(locName)!.entries.push({ idx, v })
+              })
+              const own = [...byLoc.values()].filter((g) => g.isOwn)
+              const others = [...byLoc.values()].filter((g) => !g.isOwn)
+              grouped.push(...own, ...others)
+            }
+
+            const accentColor = hasPerson ? '#6a1b9a' : '#003366'
+            const totalFree = suggestion.variants.length
+
+            return (
+              <Box>
+                <Box display="flex" alignItems="center" gap={2} mb={2}>
+                  <Typography variant="body2" color="text.secondary">
+                    {isSingleBedMode
+                      ? `${totalFree} freie Bett${totalFree !== 1 ? 'en' : ''} in ${grouped.length} Einrichtung${grouped.length !== 1 ? 'en' : ''}:`
+                      : `${totalFree} Option${totalFree !== 1 ? 'en' : ''} gefunden:`}
+                  </Typography>
+                  <Button size="small" variant="outlined" onClick={handleSearch} disabled={loading} sx={{ ml: 'auto', fontSize: 11 }}>
+                    Aktualisieren
+                  </Button>
+                </Box>
+
+                {isSingleBedMode ? (
+                  /* ── Lokations-gruppierte Ansicht (Einzelperson) ── */
+                  <Box display="flex" flexDirection="column" gap={2} mb={3}>
+                    {grouped.map(({ locationName, isOwn, entries }) => (
+                      <Card key={locationName} elevation={1} sx={{
+                        borderRadius: 2,
+                        border: `1px solid ${isOwn ? '#1565c0' : '#e0e0e0'}`,
+                      }}>
                         <CardContent sx={{ pb: '16px !important' }}>
-                          <Box display="flex" alignItems="center" gap={1} mb={1.5}>
-                            {isSelected && <CheckCircleIcon sx={{ color: hasPerson ? '#6a1b9a' : '#003366', fontSize: 20 }} />}
-                            {isOwn && !isSelected && <StarIcon sx={{ color: '#1565c0', fontSize: 18 }} />}
-                            <LocationOnIcon sx={{ color: isOwn ? '#1565c0' : '#666', fontSize: 18 }} />
-                            <Typography fontWeight={700} color={isSelected ? (hasPerson ? '#6a1b9a' : '#003366') : isOwn ? '#1565c0' : 'text.primary'}>
-                              {locName || `Option ${idx + 1}`}
+                          <Box display="flex" alignItems="center" gap={1} mb={1.5} flexWrap="wrap">
+                            {isOwn ? <StarIcon sx={{ color: '#1565c0', fontSize: 18 }} /> : <LocationOnIcon sx={{ color: '#666', fontSize: 18 }} />}
+                            <Typography fontWeight={700} color={isOwn ? '#1565c0' : 'text.primary'}>
+                              {locationName}
                             </Typography>
                             {isOwn && <Chip label="Diese Einrichtung" size="small"
                               sx={{ bgcolor: '#e3f2fd', color: '#1565c0', fontWeight: 600, height: 20, fontSize: 11 }} />}
                             {hasPerson && !isOwn && <Chip label="Verlegungsziel" size="small"
                               sx={{ bgcolor: '#f3e5f5', color: '#6a1b9a', fontWeight: 600, height: 20, fontSize: 11 }} />}
-                            <Box sx={{ flexGrow: 1 }} />
-                            <Chip label={roomsInVariant.length === 1 ? '1 Raum' : `${roomsInVariant.length} Räume`}
-                              size="small" color={roomsInVariant.length === 1 ? 'success' : 'default'} />
-                            <Chip label={`${v.beds.length} Bett${v.beds.length > 1 ? 'en' : ''}`} size="small" />
-                          </Box>
-                          {v.description && (
-                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, ml: 0.5 }}>
-                              {v.description}
+                            <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto' }}>
+                              {entries.length} freie{entries.length !== 1 ? '' : 's'} Bett{entries.length !== 1 ? 'en' : ''}
                             </Typography>
-                          )}
+                          </Box>
                           <Box display="flex" flexWrap="wrap" gap={0.8}>
-                            {v.beds.map((b) => (
-                              <Box key={b.bed_id} sx={{ display: 'flex', alignItems: 'center', gap: 0.5,
-                                px: 1.2, py: 0.5, borderRadius: 1.5, bgcolor: '#e8f5e9', border: '1px solid #a5d6a7' }}>
-                                <BedIcon sx={{ fontSize: 13, color: '#2e7d32' }} />
-                                <Typography variant="caption" fontWeight={600} color="#1b5e20">
-                                  {b.room_name} · {b.bett_nummer}
-                                </Typography>
-                                {(b.room_labels ?? []).map((lbl) => (
-                                  <Chip key={lbl} label={lbl} size="small"
-                                    sx={{ height: 16, fontSize: 10, px: 0.3, bgcolor: '#c8e6c9', color: '#1b5e20' }} />
-                                ))}
-                              </Box>
-                            ))}
+                            {entries.map(({ idx, v }) => {
+                              const bed = v.beds[0]
+                              const isSelected = selectedVariant === idx
+                              return (
+                                <Box
+                                  key={bed.bed_id}
+                                  onClick={() => setSelectedVariant(isSelected ? null : idx)}
+                                  sx={{
+                                    px: 1.2, py: 0.7, borderRadius: 1.5, cursor: 'pointer',
+                                    border: `2px solid ${isSelected ? '#2e7d32' : '#e0e0e0'}`,
+                                    bgcolor: isSelected ? '#e8f5e9' : 'white',
+                                    display: 'flex', alignItems: 'center', gap: 0.5,
+                                    transition: 'all 0.12s',
+                                    '&:hover': { border: '2px solid #43a047', bgcolor: '#f1f8e9' },
+                                  }}
+                                >
+                                  <BedIcon sx={{ fontSize: 13, color: isSelected ? '#2e7d32' : '#43a047' }} />
+                                  <Typography variant="caption" fontWeight={600} color={isSelected ? '#2e7d32' : '#333'}>
+                                    {v.description} · {bed.bett_nummer}
+                                  </Typography>
+                                  {isSelected && <CheckCircleIcon sx={{ fontSize: 13, color: '#2e7d32', ml: 0.3 }} />}
+                                  {(bed.room_labels ?? []).filter((l) =>
+                                    ['Männer', 'Frauen', 'Familie', 'Familienraum', 'Gemischt'].includes(l)
+                                  ).map((lbl) => (
+                                    <Chip key={lbl} label={lbl} size="small"
+                                      sx={{ height: 14, fontSize: 9, px: 0.2, bgcolor: '#f3e5f5', color: '#6a1b9a' }} />
+                                  ))}
+                                </Box>
+                              )
+                            })}
                           </Box>
                         </CardContent>
-                      </CardActionArea>
-                    </Card>
-                  )
-                })}
+                      </Card>
+                    ))}
+                  </Box>
+                ) : (
+                  /* ── Varianten-Karten (Gruppe / Familie) ── */
+                  <Box display="flex" flexDirection="column" gap={2} mb={3}>
+                    {suggestion.variants.map((v, idx) => {
+                      const isSelected = selectedVariant === idx
+                      const locName = v.location_name || v.beds[0]?.location_name || ''
+                      const roomsInVariant = [...new Set(v.beds.map((b) => b.room_name))]
+                      const complete = v.beds.length >= totalPersons
+                      const isOwn = v.is_own
+                      return (
+                        <Card key={idx} elevation={isSelected ? 4 : 1}
+                          sx={{ border: `2px solid ${isSelected ? accentColor : isOwn ? '#1565c0' : 'transparent'}`,
+                            borderRadius: 2, transition: 'all 0.15s', opacity: complete ? 1 : 0.8 }}>
+                          <CardActionArea onClick={() => setSelectedVariant(idx)} sx={{ p: 0 }}>
+                            <CardContent sx={{ pb: '16px !important' }}>
+                              <Box display="flex" alignItems="center" gap={1} mb={1.5}>
+                                {isSelected && <CheckCircleIcon sx={{ color: accentColor, fontSize: 20 }} />}
+                                {isOwn && !isSelected && <StarIcon sx={{ color: '#1565c0', fontSize: 18 }} />}
+                                <LocationOnIcon sx={{ color: isOwn ? '#1565c0' : '#666', fontSize: 18 }} />
+                                <Typography fontWeight={700} color={isSelected ? accentColor : isOwn ? '#1565c0' : 'text.primary'}>
+                                  {locName || `Option ${idx + 1}`}
+                                </Typography>
+                                {isOwn && <Chip label="Diese Einrichtung" size="small"
+                                  sx={{ bgcolor: '#e3f2fd', color: '#1565c0', fontWeight: 600, height: 20, fontSize: 11 }} />}
+                                {hasPerson && !isOwn && <Chip label="Verlegungsziel" size="small"
+                                  sx={{ bgcolor: '#f3e5f5', color: '#6a1b9a', fontWeight: 600, height: 20, fontSize: 11 }} />}
+                                <Box sx={{ flexGrow: 1 }} />
+                                <Chip label={roomsInVariant.length === 1 ? '1 Raum' : `${roomsInVariant.length} Räume`}
+                                  size="small" color={roomsInVariant.length === 1 ? 'success' : 'default'} />
+                                <Chip label={`${v.beds.length} Bett${v.beds.length > 1 ? 'en' : ''}`} size="small" />
+                              </Box>
+                              {v.description && (
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, ml: 0.5 }}>
+                                  {v.description}
+                                </Typography>
+                              )}
+                              <Box display="flex" flexWrap="wrap" gap={0.8}>
+                                {v.beds.map((b) => (
+                                  <Box key={b.bed_id} sx={{ display: 'flex', alignItems: 'center', gap: 0.5,
+                                    px: 1.2, py: 0.5, borderRadius: 1.5, bgcolor: '#e8f5e9', border: '1px solid #a5d6a7' }}>
+                                    <BedIcon sx={{ fontSize: 13, color: '#2e7d32' }} />
+                                    <Typography variant="caption" fontWeight={600} color="#1b5e20">
+                                      {b.room_name} · {b.bett_nummer}
+                                    </Typography>
+                                    {(b.room_labels ?? []).map((lbl) => (
+                                      <Chip key={lbl} label={lbl} size="small"
+                                        sx={{ height: 16, fontSize: 10, px: 0.3, bgcolor: '#c8e6c9', color: '#1b5e20' }} />
+                                    ))}
+                                  </Box>
+                                ))}
+                              </Box>
+                            </CardContent>
+                          </CardActionArea>
+                        </Card>
+                      )
+                    })}
+                  </Box>
+                )}
+
+                <Box display="flex" gap={2}>
+                  <Button variant="outlined" onClick={() => setActiveStep(0)}>Zurück</Button>
+                  <Button variant="contained" onClick={() => setConfirmOpen(true)}
+                    disabled={selectedVariant === null}
+                    size="large"
+                    sx={hasPerson ? { bgcolor: accentColor, '&:hover': { bgcolor: '#4a148c' } } : {}}>
+                    {hasPerson ? 'Verlegungsanfrage stellen →' : 'Option bestätigen →'}
+                  </Button>
+                </Box>
               </Box>
-              <Box display="flex" gap={2}>
-                <Button variant="outlined" onClick={() => setActiveStep(0)}>Zurück</Button>
-                <Button variant="contained" onClick={() => setConfirmOpen(true)}
-                  disabled={selectedVariant === null}
-                  size="large"
-                  sx={hasPerson ? { bgcolor: '#6a1b9a', '&:hover': { bgcolor: '#4a148c' } } : {}}>
-                  {hasPerson ? 'Verlegungsanfrage stellen →' : 'Option bestätigen →'}
-                </Button>
-              </Box>
-            </Box>
-          )}
+            )
+          })()}
         </Box>
       )}
 

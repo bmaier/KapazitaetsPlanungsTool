@@ -194,6 +194,14 @@ def _best_variants_for_loc(
     if not beds:
         return []
 
+    # Single person: every free bed is its own selectable option
+    if anzahl == 1:
+        sorted_beds = sorted(beds, key=lambda b: (b.room_name, b.bett_nummer))
+        return [
+            Variant(beds=[b], location_name=loc_name, is_own=is_own, description=b.room_name)
+            for b in sorted_beds[:max_variants]
+        ]
+
     by_room: dict[str, list[BedOption]] = defaultdict(list)
     for b in beds:
         by_room[b.room_name].append(b)
@@ -248,10 +256,11 @@ def _compute_cross_location_variants(
     # Determine own location name
     own_loc_name = next((name for name, lid in loc_id_map.items() if lid == own_loc_id), None)
 
-    # Own location first (up to 2 variants)
+    # Own location first — for single person show all free beds, otherwise up to 2 variants
     if own_loc_name and own_loc_name in by_loc:
+        max_own = len(by_loc[own_loc_name]) if anzahl == 1 else 2
         own_vars = _best_variants_for_loc(
-            by_loc[own_loc_name], anzahl, own_loc_name, own_loc_id, is_own=True, max_variants=2
+            by_loc[own_loc_name], anzahl, own_loc_name, own_loc_id, is_own=True, max_variants=max_own
         )
         variants.extend(own_vars)
 
@@ -262,7 +271,9 @@ def _compute_cross_location_variants(
     )
     for loc_name, loc_beds in others:
         loc_id = loc_id_map[loc_name]
-        v_list = _best_variants_for_loc(loc_beds, anzahl, loc_name, loc_id, is_own=False, max_variants=1)
+        # For single person: show all free beds per location; otherwise 1 greedy variant
+        max_other = len(loc_beds) if anzahl == 1 else 1
+        v_list = _best_variants_for_loc(loc_beds, anzahl, loc_name, loc_id, is_own=False, max_variants=max_other)
         variants.extend(v_list)
 
     message = ''
@@ -278,7 +289,9 @@ def _compute_local_variants(available: list[BedOption], anzahl: int, loc_name: s
     """Variants for own location only."""
     if len(available) < anzahl:
         return [], f"Nur {len(available)} Plätze verfügbar. Nicht genug in dieser Einrichtung."
-    variants = _best_variants_for_loc(available, anzahl, loc_name, loc_id, is_own=True, max_variants=3)
+    # For single person: show every free bed; otherwise up to 3 greedy variants
+    max_v = len(available) if anzahl == 1 else 3
+    variants = _best_variants_for_loc(available, anzahl, loc_name, loc_id, is_own=True, max_variants=max_v)
     return variants, ''
 
 
