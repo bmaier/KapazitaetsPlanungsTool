@@ -32,6 +32,7 @@ import BedIcon from '@mui/icons-material/Hotel'
 import { useApiClient } from '../api/client'
 import { useSseNotifications } from '../hooks/useSseNotifications'
 import { useKeycloak } from '../auth/KeycloakProvider'
+import LabelChips from '../components/LabelChips'
 
 interface Task {
   id: string
@@ -65,6 +66,8 @@ interface FreeBed {
   bett_nummer: string
   room_name: string
   is_suggested?: boolean
+  room_labels: string[]
+  bed_labels: string[]
 }
 
 interface Location {
@@ -338,6 +341,8 @@ export default function TaskInbox() {
   const [bedsLoading, setBedsLoading] = useState(false)
   const [selectedBedId, setSelectedBedId] = useState<string | null>(null)
   const [confirmSaving, setConfirmSaving] = useState(false)
+  const [personOccupancyId, setPersonOccupancyId] = useState<string | null>(null)
+  const [personOccLabels, setPersonOccLabels] = useState<string[]>([])
 
   useEffect(() => { resetCount() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -378,19 +383,35 @@ export default function TaskInbox() {
     setSelectedBedId(res.confirmed_bed_id ?? res.suggested_bed_id ?? null)
     setBedsLoading(true)
     try {
-      type RoomBedStatus = { room_id: string; room_name: string; room_type: string; beds: { bed_id: string; bett_nummer: string; status: string; pending_reservation_id?: string | null }[] }
+      type RoomBedStatus = { room_id: string; room_name: string; room_type: string; labels: string[]; beds: { bed_id: string; bett_nummer: string; status: string; labels: string[]; pending_reservation_id?: string | null }[] }
       const rooms = await get<RoomBedStatus[]>(
         `/api/locations/${res.target_location_id}/bed-status?date_from=${res.belegung_start}&date_to=${res.belegung_ende}&exclude_ankunft=true`
       )
       const available = rooms.flatMap((room) =>
         room.beds
           .filter((b) => b.status === 'FREI' || b.bed_id === res.confirmed_bed_id || b.bed_id === res.suggested_bed_id)
-          .map((b) => ({ bed_id: b.bed_id, bett_nummer: b.bett_nummer, room_name: room.room_name, is_suggested: b.bed_id === res.suggested_bed_id }))
+          .map((b) => ({
+            bed_id: b.bed_id, bett_nummer: b.bett_nummer, room_name: room.room_name,
+            is_suggested: b.bed_id === res.suggested_bed_id,
+            room_labels: room.labels ?? [],
+            bed_labels: b.labels ?? [],
+          }))
       )
       setFreeBeds(available)
       // Clear pre-selection if suggested bed is no longer free
       if ((res.suggested_bed_id || res.confirmed_bed_id) && !available.find((b) => b.bed_id === (res.confirmed_bed_id ?? res.suggested_bed_id))) {
         setSelectedBedId(null)
+      }
+      // Fetch person's current occupancy labels for display
+      try {
+        type OccResult = { occupancy_id: string; occ_labels: string[]; location_id: string }
+        const occs = await get<OccResult[]>(`/api/occupants/search?q=${encodeURIComponent(res.azr_id)}`)
+        const srcOcc = occs.find((o) => String(o.location_id) === String(res.requester_location_id))
+        setPersonOccupancyId(srcOcc?.occupancy_id ?? null)
+        setPersonOccLabels((srcOcc?.occ_labels as string[]) ?? [])
+      } catch {
+        setPersonOccupancyId(null)
+        setPersonOccLabels([])
       }
     } catch {
       setFreeBeds([])
@@ -405,6 +426,8 @@ export default function TaskInbox() {
     try {
       await post(`/api/reservations/${confirmRes.id}/confirm`, { confirmed_bed_id: selectedBedId })
       setConfirmRes(null)
+      setPersonOccupancyId(null)
+      setPersonOccLabels([])
       setSnackbar({ open: true, message: 'Verlegungsanfrage bestätigt, Bett vorgemerkt.', severity: 'success' })
       load()
     } catch {
@@ -644,7 +667,7 @@ export default function TaskInbox() {
       )}
 
       {/* ── Bett-Auswahl-Dialog (Bestätigung) ── */}
-      <Dialog open={!!confirmRes} onClose={() => setConfirmRes(null)} maxWidth="sm" fullWidth>
+      <Dialog open={!!confirmRes} onClose={() => { setConfirmRes(null); setPersonOccupancyId(null); setPersonOccLabels([]) }} maxWidth="sm" fullWidth>
         <DialogTitle fontWeight={700}>
           <Box display="flex" alignItems="center" gap={1}>
             <BedIcon sx={{ color: '#2e7d32' }} />
@@ -667,17 +690,22 @@ export default function TaskInbox() {
                   <GenderChip g={confirmRes.geschlecht} />
                 </Box>
                 <Box>
-                  <Typography variant="caption" color="text.secondary">Geburtsjahr</Typography>
-                  <Typography variant="body2" fontWeight={600}>*{confirmRes.geburtsjahr}</Typography>
-                </Box>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">Herkunftsland</Typography>
-                  <Typography variant="body2" fontWeight={600}>{confirmRes.herkunftsland}</Typography>
-                </Box>
-                <Box>
                   <Typography variant="caption" color="text.secondary">Zeitraum</Typography>
                   <Typography variant="body2" fontWeight={600}>{confirmRes.belegung_start} – {confirmRes.belegung_ende}</Typography>
                 </Box>
+              </Box>
+              <Box sx={{ mt: 1, pt: 1, borderTop: '1px solid rgba(106,27,154,0.15)', width: '100%' }}>
+                <Typography variant="caption" fontWeight={700} color="#6a1b9a" sx={{ display: 'block', mb: 0.5 }}>
+                  Labels der Person
+                </Typography>
+                <LabelChips
+                  labels={personOccLabels}
+                  entityType="OCCUPANCY"
+                  entityId={personOccupancyId ?? 'new'}
+                  readOnly={!personOccupancyId}
+                  compact
+                  onSaved={(l) => setPersonOccLabels(l)}
+                />
               </Box>
             </Paper>
           )}
@@ -713,6 +741,18 @@ export default function TaskInbox() {
                           sx={{ bgcolor: '#ede7f6', color: '#6a1b9a', fontWeight: 600, height: 18, fontSize: 10 }} />
                       )}
                     </Box>
+                    {(b.room_labels.length > 0 || b.bed_labels.length > 0) && (
+                      <Box mt={0.5} display="flex" gap={0.5} flexWrap="wrap">
+                        {b.room_labels.map((lbl) => (
+                          <Chip key={'r-' + lbl} label={lbl} size="small"
+                            sx={{ height: 17, fontSize: 9, fontWeight: 600, bgcolor: '#e3f2fd', color: '#1565c0' }} />
+                        ))}
+                        {b.bed_labels.map((lbl) => (
+                          <Chip key={'b-' + lbl} label={lbl} size="small"
+                            sx={{ height: 17, fontSize: 9, fontWeight: 600, bgcolor: '#f3e5f5', color: '#6a1b9a' }} />
+                        ))}
+                      </Box>
+                    )}
                   </Paper>
                 )
               })}
@@ -720,7 +760,7 @@ export default function TaskInbox() {
           )}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setConfirmRes(null)}>Abbrechen</Button>
+          <Button onClick={() => { setConfirmRes(null); setPersonOccupancyId(null); setPersonOccLabels([]) }}>Abbrechen</Button>
           <Button variant="contained" color="success" disabled={!selectedBedId || confirmSaving}
             onClick={handleConfirmWithBed}>
             {confirmSaving ? <CircularProgress size={18} /> : 'Bestätigen & Bett vormerken'}

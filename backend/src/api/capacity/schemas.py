@@ -122,6 +122,17 @@ class OccupancyResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class OccupancyPeriodUpdate(BaseModel):
+    belegung_start: date
+    belegung_ende: date
+
+    @model_validator(mode="after")
+    def ende_after_start(self) -> "OccupancyPeriodUpdate":
+        if self.belegung_ende <= self.belegung_start:
+            raise ValueError("belegung_ende muss nach belegung_start liegen")
+        return self
+
+
 # ---------------------------------------------------------------------------
 # System Settings
 # ---------------------------------------------------------------------------

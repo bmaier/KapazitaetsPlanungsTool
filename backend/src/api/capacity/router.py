@@ -39,6 +39,7 @@ from src.api.capacity.schemas import (
     LocationSummaryResponse,
     LocationUpdateRequest,
     OccupancyCreate,
+    OccupancyPeriodUpdate,
     OccupancyResponse,
     RoomBedStatus,
     RoomCreate,
@@ -1244,3 +1245,30 @@ async def set_occupancy_labels(
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Belegung nicht gefunden")
     return {"labels": body.labels}
+
+
+@router.patch("/occupancy/{occupancy_id}/period", status_code=200)
+async def update_occupancy_period(
+    occupancy_id: UUID,
+    body: OccupancyPeriodUpdate,
+    session: AsyncSession = Depends(get_session),
+    user: UserContext = Depends(get_current_user),
+):
+    """Aktualisiert Start- und Enddatum einer bestehenden Belegung."""
+    result = await session.execute(
+        text(
+            "UPDATE persons.occupants "
+            "SET belegung_start = :start, belegung_ende = :ende "
+            "WHERE id = :id "
+            "RETURNING id, azr_id, belegung_start, belegung_ende"
+        ),
+        {"start": body.belegung_start, "ende": body.belegung_ende, "id": str(occupancy_id)},
+    )
+    row = result.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Belegung nicht gefunden")
+    return {
+        "id": str(row.id),
+        "belegung_start": str(row.belegung_start),
+        "belegung_ende": str(row.belegung_ende),
+    }

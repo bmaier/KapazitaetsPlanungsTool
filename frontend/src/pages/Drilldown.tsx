@@ -383,6 +383,9 @@ export default function Drilldown() {
   const [checkoutConfirm, setCheckoutConfirm] = useState(false)
   const [checkoutSaving, setCheckoutSaving] = useState(false)
   const [checkoutGrund, setCheckoutGrund] = useState('')
+  const [managePeriodStart, setManagePeriodStart] = useState('')
+  const [managePeriodEnde, setManagePeriodEnde] = useState('')
+  const [managePeriodSaving, setManagePeriodSaving] = useState(false)
 
   // Intern verlegen Dialog
   const [verlegenOpen, setVerlegenOpen] = useState(false)
@@ -456,6 +459,13 @@ export default function Drilldown() {
       }
     }
   }, [highlightBedId, rooms]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (manageBed) {
+      setManagePeriodStart(manageBed.bed.belegung_start ?? '')
+      setManagePeriodEnde(manageBed.bed.belegung_ende ?? '')
+    }
+  }, [manageBed])
 
   const totalFrei = rooms.flatMap((r) => r.beds).filter((b) => b.status === 'FREI').length
   const totalBelegt = rooms.flatMap((r) => r.beds).filter((b) => b.status === 'BELEGT').length
@@ -806,6 +816,24 @@ export default function Drilldown() {
       setSnackbar({ open: true, message: 'Verlegen fehlgeschlagen.', severity: 'error' })
     } finally {
       setVerlegenSaving(false)
+    }
+  }
+
+  async function handleUpdatePeriod() {
+    if (!manageBed?.bed.occupancy_id || !managePeriodStart || !managePeriodEnde) return
+    if (managePeriodEnde <= managePeriodStart) return
+    setManagePeriodSaving(true)
+    try {
+      await patch(`/api/occupancy/${manageBed.bed.occupancy_id}/period`, {
+        belegung_start: managePeriodStart,
+        belegung_ende: managePeriodEnde,
+      })
+      loadBedStatus()
+      setSnackbar({ open: true, message: 'Belegungszeitraum aktualisiert.', severity: 'success' })
+    } catch {
+      setSnackbar({ open: true, message: 'Zeitraum konnte nicht aktualisiert werden.', severity: 'error' })
+    } finally {
+      setManagePeriodSaving(false)
     }
   }
 
@@ -1240,7 +1268,25 @@ export default function Drilldown() {
                 </Box>
                 <Box>
                   <Typography variant="caption" color="text.secondary">Belegungszeitraum</Typography>
-                  <Typography fontWeight={700}>{manageBed.bed.belegung_start} – {manageBed.bed.belegung_ende}</Typography>
+                  <Box display="flex" alignItems="center" gap={0.5} mt={0.3} flexWrap="wrap">
+                    <TextField size="small" type="date" value={managePeriodStart}
+                      onChange={(e) => setManagePeriodStart(e.target.value)}
+                      inputProps={{ style: { fontSize: 12, padding: '4px 6px' } }}
+                      sx={{ width: 136 }} />
+                    <Typography variant="caption">–</Typography>
+                    <TextField size="small" type="date" value={managePeriodEnde}
+                      onChange={(e) => setManagePeriodEnde(e.target.value)}
+                      inputProps={{ min: managePeriodStart, style: { fontSize: 12, padding: '4px 6px' } }}
+                      error={!!managePeriodStart && !!managePeriodEnde && managePeriodEnde <= managePeriodStart}
+                      sx={{ width: 136 }} />
+                    {(managePeriodStart !== (manageBed.bed.belegung_start ?? '') || managePeriodEnde !== (manageBed.bed.belegung_ende ?? '')) &&
+                      managePeriodStart && managePeriodEnde && managePeriodEnde > managePeriodStart && (
+                      <Button size="small" variant="outlined" onClick={handleUpdatePeriod} disabled={managePeriodSaving}
+                        sx={{ fontSize: 11, py: 0.3, px: 1, minWidth: 0 }}>
+                        {managePeriodSaving ? <CircularProgress size={12} /> : 'OK'}
+                      </Button>
+                    )}
+                  </Box>
                 </Box>
                 <Box>
                   <Typography variant="caption" color="text.secondary">Belegungstyp</Typography>

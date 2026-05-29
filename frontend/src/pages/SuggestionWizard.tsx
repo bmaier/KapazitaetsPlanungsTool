@@ -131,10 +131,6 @@ export default function SuggestionWizard() {
   const [labelFilter, setLabelFilter] = useState<string[]>([])
   const [roomLabelCatalog, setRoomLabelCatalog] = useState<string[]>([])
 
-  // Confirmation form extras (for Verlegungsanfrage)
-  const [confirmGeburtsjahr, setConfirmGeburtsjahr] = useState('')
-  const [confirmHerkunftsland, setConfirmHerkunftsland] = useState('')
-
   // Optional person data for "Belegung vormerken" (no person context)
   const [confirmAzrId, setConfirmAzrId] = useState('')
   const [confirmAzrGeschlecht, setConfirmAzrGeschlecht] = useState('M')
@@ -269,8 +265,8 @@ export default function SuggestionWizard() {
             target_location_id: targetLocationId,
             azr_id: person.azr_id,
             geschlecht: person.geschlecht,
-            geburtsjahr: confirmGeburtsjahr ? parseInt(confirmGeburtsjahr, 10) : new Date().getFullYear() - 30,
-            herkunftsland: confirmHerkunftsland ? confirmHerkunftsland.toUpperCase() : 'UNK',
+            geburtsjahr: new Date().getFullYear() - 30,
+            herkunftsland: 'UNK',
             belegung_start: start,
             belegung_ende: ende,
             suggested_bed_id: bed?.bed_id ?? null,
@@ -302,8 +298,8 @@ export default function SuggestionWizard() {
           target_location_id: targetLocationId,
           azr_id: azrId,
           geschlecht: currentPerson.geschlecht,
-          geburtsjahr: confirmGeburtsjahr ? parseInt(confirmGeburtsjahr, 10) : new Date().getFullYear() - 30,
-          herkunftsland: confirmHerkunftsland ? confirmHerkunftsland.toUpperCase() : 'UNK',
+          geburtsjahr: new Date().getFullYear() - 30,
+          herkunftsland: 'UNK',
           belegung_start: start,
           belegung_ende: ende,
           suggested_bed_id: variant.beds[0]?.bed_id ?? null,
@@ -902,19 +898,6 @@ export default function SuggestionWizard() {
             <Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center' }}>Zeitraum:</Typography>
             <Typography variant="body2" fontWeight={600}>{start} – {ende}</Typography>
           </Box>
-
-          {/* Optional extras for Verlegungsanfrage */}
-          {hasPerson && (
-            <>
-              <TextField label="Geburtsjahr (optional)" type="number"
-                value={confirmGeburtsjahr} onChange={(e) => setConfirmGeburtsjahr(e.target.value)}
-                inputProps={{ min: 1901, max: new Date().getFullYear() }}
-                helperText="Erleichtert der Zieleinrichtung die Planung" size="small" />
-              <TextField label="Herkunftsland ISO-3 (optional)" value={confirmHerkunftsland}
-                onChange={(e) => setConfirmHerkunftsland(e.target.value)} inputProps={{ maxLength: 3 }}
-                helperText="z.B. SYR, AFG, IRQ" size="small" />
-            </>
-          )}
 
           {/* Optional person assignment for "Belegung vormerken" */}
           {!hasPerson && (
