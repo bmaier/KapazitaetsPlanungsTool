@@ -465,46 +465,69 @@ def main() -> None:
         def _res_id(key: str) -> str:
             return str(uuid.uuid5(uuid.NAMESPACE_URL, f"demo-res-v2::{key}"))
 
+        # CONFIRMED-Reservierung: Person sitzt in Frankfurt Raum A Bett 9 (frei, da nur 8/10 belegt)
+        # und soll nach Passau Raum A Bett 4 verlegt werden (frei, da nur 3/5 belegt).
+        ffm_room_a_id = _room_id(loc_ffm, "Raum A")
+        pas_room_a_id = _room_id(loc_pas, "Raum A")
+        confirmed_source_bed = _bed_id(ffm_room_a_id, 9)   # Frankfurt Raum A Bett 9
+        confirmed_target_bed = _bed_id(pas_room_a_id, 4)   # Passau Raum A Bett 4
+
+        # Occupant für die CONFIRMED-Person am Quellbett anlegen (Frankfurt)
+        conf_occ_id = str(uuid.uuid5(uuid.NAMESPACE_URL, "occ2::confirmed-transfer-ffm-res08"))
+        cur.execute("""
+            INSERT INTO persons.occupants
+                (id, bed_id, azr_id, alias_id, geschlecht,
+                 belegung_start, belegung_ende, labels, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+        """, (conf_occ_id, confirmed_source_bed, "AZR-2024-FFM-M-RES08", "AL-RES08-FFM",
+              "M", today - timedelta(days=30), today + timedelta(days=40), ["Farsi/Dari"]))
+        n_occ += 1
+
+        # Tupel-Format: (id, req_loc, tgt_loc, azr, g, gj, land, start, ende, status, confirmed_bed_id)
         reservations = [
             # München (97 %) → Frankfurt: 3 PENDING
             (_res_id("muc-ffm-1"), loc_muc, loc_ffm, "AZR-2024-MUC-M-RES01",
-             "M", 1991, "SYR", today + timedelta(days=3), today + timedelta(days=65), "PENDING"),
+             "M", 1991, "SYR", today + timedelta(days=3), today + timedelta(days=65), "PENDING", None),
             (_res_id("muc-ffm-2"), loc_muc, loc_ffm, "AZR-2024-MUC-W-RES02",
-             "W", 1994, "AFG", today + timedelta(days=3), today + timedelta(days=65), "PENDING"),
+             "W", 1994, "AFG", today + timedelta(days=3), today + timedelta(days=65), "PENDING", None),
             (_res_id("muc-ffm-3"), loc_muc, loc_ffm, "AZR-2024-MUC-M-RES03",
-             "M", 1987, "IRQ", today + timedelta(days=4), today + timedelta(days=70), "PENDING"),
+             "M", 1987, "IRQ", today + timedelta(days=4), today + timedelta(days=70), "PENDING", None),
             # Passau → Frankfurt: 1 PENDING
             (_res_id("pas-ffm-1"), loc_pas, loc_ffm, "AZR-2024-PAS-M-RES04",
-             "M", 1982, "ERI", today + timedelta(days=6), today + timedelta(days=60), "PENDING"),
+             "M", 1982, "ERI", today + timedelta(days=6), today + timedelta(days=60), "PENDING", None),
             # Hamburg → München: 1 PENDING
             (_res_id("ham-muc-1"), loc_ham, loc_muc, "AZR-2024-HAM-W-RES05",
-             "W", 1999, "SOM", today + timedelta(days=7), today + timedelta(days=50), "PENDING"),
+             "W", 1999, "SOM", today + timedelta(days=7), today + timedelta(days=50), "PENDING", None),
             # Kiefersfelden → Frankfurt: 2 PENDING
             (_res_id("kif-ffm-1"), loc_kif, loc_ffm, "AZR-2024-KIF-M-RES06",
-             "M", 1978, "IRN", today + timedelta(days=5), today + timedelta(days=55), "PENDING"),
+             "M", 1978, "IRN", today + timedelta(days=5), today + timedelta(days=55), "PENDING", None),
             (_res_id("kif-ffm-2"), loc_kif, loc_ffm, "AZR-2024-KIF-W-RES07",
-             "W", 2001, "TUR", today + timedelta(days=5), today + timedelta(days=55), "PENDING"),
-            # Frankfurt → Passau: 1 CONFIRMED (Frankfurt schickt aus Kapazitätsgründen ab)
+             "W", 2001, "TUR", today + timedelta(days=5), today + timedelta(days=55), "PENDING", None),
+            # Frankfurt → Passau: 1 CONFIRMED — Person noch in FFM (Bett 9), Zielbett in Passau (Bett 4)
             (_res_id("ffm-pas-1"), loc_ffm, loc_pas, "AZR-2024-FFM-M-RES08",
-             "M", 1990, "PAK", today - timedelta(days=3), today + timedelta(days=40), "CONFIRMED"),
+             "M", 1990, "PAK", today - timedelta(days=3), today + timedelta(days=40),
+             "CONFIRMED", confirmed_target_bed),
             # München → Hamburg: 1 REJECTED
             (_res_id("muc-ham-1"), loc_muc, loc_ham, "AZR-2024-MUC-W-RES09",
-             "W", 1985, "ETH", today - timedelta(days=5), today + timedelta(days=30), "REJECTED"),
+             "W", 1985, "ETH", today - timedelta(days=5), today + timedelta(days=30), "REJECTED", None),
             # Wartebereich-Personen: PENDING Verlegungsanfragen (lila Dot im Wartebereich)
             (_res_id("ffm-ank-1"), loc_ffm, loc_pas, "AZR-2024-FFM-ANKM01",
-             "M", 1995, "SYR", today, today + timedelta(days=30), "PENDING"),
+             "M", 1995, "SYR", today, today + timedelta(days=30), "PENDING", None),
             (_res_id("muc-ank-1"), loc_muc, loc_ham, "AZR-2024-MUC-ANKM01",
-             "M", 1988, "ERI", today, today + timedelta(days=30), "PENDING"),
+             "M", 1988, "ERI", today, today + timedelta(days=30), "PENDING", None),
         ]
 
-        for (rid, req_loc, tgt_loc, azr, g, gj, land, start, ende, status) in reservations:
+        for (rid, req_loc, tgt_loc, azr, g, gj, land, start, ende, status, conf_bed) in reservations:
             cur.execute("""
                 INSERT INTO reservations.requests
                     (id, requester_location_id, target_location_id, azr_id,
                      geschlecht, geburtsjahr, herkunftsland,
-                     belegung_start, belegung_ende, status, created_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
-            """, (rid, req_loc, tgt_loc, azr, g, gj, land, start, ende, status))
+                     belegung_start, belegung_ende, status, confirmed_bed_id,
+                     confirmed_at, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        CASE WHEN %s = 'CONFIRMED' THEN NOW() - INTERVAL '1 day' ELSE NULL END,
+                        NOW() - INTERVAL '3 days', NOW())
+            """, (rid, req_loc, tgt_loc, azr, g, gj, land, start, ende, status, conf_bed, status))
 
         n_reservations = len(reservations)
 
@@ -584,9 +607,9 @@ def main() -> None:
 
         conn.commit()
 
-        n_pending   = sum(1 for r in reservations if r[-1] == "PENDING")
-        n_confirmed = sum(1 for r in reservations if r[-1] == "CONFIRMED")
-        n_rejected  = sum(1 for r in reservations if r[-1] == "REJECTED")
+        n_pending   = sum(1 for r in reservations if r[9] == "PENDING")
+        n_confirmed = sum(1 for r in reservations if r[9] == "CONFIRMED")
+        n_rejected  = sum(1 for r in reservations if r[9] == "REJECTED")
 
         n_warte = sum(len(v) for v in ANKUNFT_OCCUPANCY.values())
         print(
