@@ -380,7 +380,7 @@ export default function Reservations() {
             size="small"
             value={filterDateFrom}
             onChange={(e) => setFilterDateFrom(e.target.value)}
-            slotProps={{ inputLabel: { shrink: true } }}
+            InputLabelProps={{ shrink: true }}
             sx={{ width: 160 }}
           />
           <TextField
@@ -389,7 +389,7 @@ export default function Reservations() {
             size="small"
             value={filterDateTo}
             onChange={(e) => setFilterDateTo(e.target.value)}
-            slotProps={{ inputLabel: { shrink: true } }}
+            InputLabelProps={{ shrink: true }}
             sx={{ width: 160 }}
           />
           <Box display="flex" gap={0.5} flexWrap="wrap" alignItems="center">
