@@ -1,3 +1,44 @@
+Feature: Infrastruktur Smoke Tests # features/smoke.feature:1
+  Als Entwickler
+  möchte ich sicherstellen, dass alle Services erreichbar sind
+  damit die Entwicklung auf einer stabilen Basis aufbaut
+  Background:   # features/smoke.feature:6
+
+  Scenario: Backend Health Check                            # features/smoke.feature:9
+    Given die Docker-Compose-Umgebung läuft                 # steps/smoke_steps.py:26
+    When ich GET http://localhost:8000/health aufrufe       # steps/smoke_steps.py:45
+    Then ist der HTTP-Status 200                            # steps/capacity_steps.py:304
+    And die Antwort enthält "status" mit Wert "ok"          # steps/capacity_steps.py:326
+    And die Antwort enthält "db" mit Wert "connected"       # steps/capacity_steps.py:326
+    And die Antwort enthält "keycloak" mit Wert "reachable" # steps/capacity_steps.py:326
+
+  Scenario: SKOS-Service Geschlecht-Codeliste                   # features/smoke.feature:16
+    Given die Docker-Compose-Umgebung läuft                     # steps/smoke_steps.py:26
+    When ich GET http://localhost:8001/codes/geschlecht aufrufe # steps/smoke_steps.py:45
+    Then ist der HTTP-Status 200                                # steps/capacity_steps.py:304
+    And die Antwort enthält das Feld "concepts"                 # steps/smoke_steps.py:64
+    And die Antwort enthält einen Code "M" mit Label "männlich" # steps/smoke_steps.py:73
+
+  Scenario: PostgreSQL-Schemata vorhanden     # features/smoke.feature:22
+    Given die Docker-Compose-Umgebung läuft   # steps/smoke_steps.py:26
+    When ich die PostgreSQL-Schemata abfrage  # steps/smoke_steps.py:114
+    Then existiert das Schema "capacity"      # steps/smoke_steps.py:137
+    And existiert das Schema "reservations"   # steps/smoke_steps.py:137
+    And existiert das Schema "persons"        # steps/smoke_steps.py:137
+    And existiert das Schema "audit"          # steps/smoke_steps.py:137
+    And existiert das Schema "tasks"          # steps/smoke_steps.py:137
+    And existiert das Schema "reference_data" # steps/smoke_steps.py:137
+
+  Scenario: Audit-Schema Manipulationsschutz — kein DELETE        # features/smoke.feature:31
+    Given die Docker-Compose-Umgebung läuft                       # steps/smoke_steps.py:26
+    When ich versuche, einen Audit-Eintrag zu löschen             # steps/smoke_steps.py:149
+    Then schlägt die Operation mit einem Berechtigungsfehler fehl # steps/smoke_steps.py:199
+
+  Scenario: Audit-Schema Manipulationsschutz — kein SELECT      # features/smoke.feature:35
+    Given die Docker-Compose-Umgebung läuft                     # steps/smoke_steps.py:26
+    When ich versuche, Audit-Einträge zu lesen                  # steps/smoke_steps.py:174
+    Then schlägt auch SELECT mit einem Berechtigungsfehler fehl # steps/smoke_steps.py:216
+
 Feature: Bettsuche — SuggestionWizard # features/suggestion_wizard.feature:1
   Als Sachbearbeiter einer Einrichtung
   möchte ich für eine Person alle freien Betten an allen aktiven Einrichtungen sehen,
