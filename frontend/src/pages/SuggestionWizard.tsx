@@ -135,6 +135,10 @@ export default function SuggestionWizard() {
   const [confirmGeburtsjahr, setConfirmGeburtsjahr] = useState('')
   const [confirmHerkunftsland, setConfirmHerkunftsland] = useState('')
 
+  // Optional person data for "Belegung vormerken" (no person context)
+  const [confirmAzrId, setConfirmAzrId] = useState('')
+  const [confirmAzrGeschlecht, setConfirmAzrGeschlecht] = useState('M')
+
   useEffect(() => {
     get<{ items: Array<{ name: string; entity_types: string[] }> }>('/api/labels')
       .then((res) => setRoomLabelCatalog(
@@ -328,9 +332,20 @@ export default function SuggestionWizard() {
         setSnackbar({ open: true, message: `Verlegungsanfrage für ${azrId} fehlgeschlagen.`, severity: 'error' })
       }
     } else {
-      // No person: just audit log (local bed search)
+      // No person context: Belegung vormerken
       try {
-        await post(`/api/suggestions/${suggestion.suggestion_id}/accept`, { variant_index: selectedVariant })
+        if (confirmAzrId.trim() && selectedVariantData?.beds[0]) {
+          // AZR-ID provided — create actual occupancy
+          await post(`/api/beds/${selectedVariantData.beds[0].bed_id}/occupancy`, {
+            azr_id: confirmAzrId.trim(),
+            geschlecht: confirmAzrGeschlecht,
+            belegung_start: start,
+            belegung_ende: ende,
+          })
+        } else {
+          // No AZR-ID — just log suggestion acceptance
+          await post(`/api/suggestions/${suggestion.suggestion_id}/accept`, { variant_index: selectedVariant })
+        }
         setConfirmOpen(false)
         setCompleted(true)
         setActiveStep(2)
@@ -821,7 +836,7 @@ export default function SuggestionWizard() {
       )}
 
       {/* Confirm Dialog */}
-      <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog open={confirmOpen} onClose={() => { setConfirmOpen(false); setConfirmAzrId(''); setConfirmAzrGeschlecht('M') }} maxWidth="sm" fullWidth>
         <DialogTitle fontWeight={700}>
           <Box display="flex" alignItems="center" gap={1}>
             {hasPerson ? <FlightIcon sx={{ color: '#6a1b9a' }} /> : <CheckCircleIcon sx={{ color: '#003366' }} />}
@@ -901,6 +916,37 @@ export default function SuggestionWizard() {
             </>
           )}
 
+          {/* Optional person assignment for "Belegung vormerken" */}
+          {!hasPerson && (
+            <Paper elevation={0} sx={{ p: 1.5, border: '1px solid #e0e0e0', borderRadius: 1.5 }}>
+              <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                PERSON ZUWEISEN (OPTIONAL)
+              </Typography>
+              <Box display="flex" gap={1.5} flexWrap="wrap">
+                <TextField
+                  label="AZR-ID" size="small" value={confirmAzrId}
+                  onChange={(e) => setConfirmAzrId(e.target.value)}
+                  placeholder="AZR-2024-0001-M01"
+                  sx={{ flex: 2, minWidth: 160 }}
+                />
+                <FormControl size="small" sx={{ flex: 1, minWidth: 110 }}>
+                  <InputLabel>Geschlecht</InputLabel>
+                  <Select value={confirmAzrGeschlecht} label="Geschlecht"
+                    onChange={(e) => setConfirmAzrGeschlecht(e.target.value as string)}>
+                    <MenuItem value="M">Männlich</MenuItem>
+                    <MenuItem value="W">Weiblich</MenuItem>
+                    <MenuItem value="D">Divers</MenuItem>
+                  </Select>
+                </FormControl>
+              </Box>
+              {confirmAzrId.trim() && (
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                  Belegung wird direkt eingebucht und im Protokoll erfasst.
+                </Typography>
+              )}
+            </Paper>
+          )}
+
           {hasPerson && (
             <Alert severity="info" sx={{ py: 0.5, fontSize: 12 }}>
               Die Anfrage erscheint im Postkorb der Ziel-Einrichtung und muss dort bestätigt werden.
@@ -908,10 +954,10 @@ export default function SuggestionWizard() {
           )}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setConfirmOpen(false)}>Abbrechen</Button>
+          <Button onClick={() => { setConfirmOpen(false); setConfirmAzrId(''); setConfirmAzrGeschlecht('M') }}>Abbrechen</Button>
           <Button variant="contained" onClick={handleAccept} disabled={loading}
             sx={hasPerson ? { bgcolor: '#6a1b9a', '&:hover': { bgcolor: '#4a148c' } } : {}}>
-            {loading ? <CircularProgress size={18} /> : hasPerson ? 'Verlegungsanfrage senden' : 'Jetzt vormerken'}
+            {loading ? <CircularProgress size={18} /> : hasPerson ? 'Verlegungsanfrage senden' : (confirmAzrId.trim() ? 'Jetzt einbuchen' : 'Jetzt vormerken')}
           </Button>
         </DialogActions>
       </Dialog>

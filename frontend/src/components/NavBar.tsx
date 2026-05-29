@@ -12,6 +12,7 @@ import LogoutIcon from '@mui/icons-material/Logout'
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline'
 import BedIcon from '@mui/icons-material/Hotel'
 import HistoryIcon from '@mui/icons-material/History'
+import ApartmentIcon from '@mui/icons-material/Apartment'
 import { useLocation, useNavigate } from 'react-router-dom'
 import HelpDrawer from './HelpDrawer'
 import { useKeycloak } from '../auth/KeycloakProvider'
@@ -153,6 +154,19 @@ export default function NavBar() {
           }
 
           <Box sx={{ flexGrow: 1 }} />
+
+          {/* Eigene Einrichtung — nur für location-gebundene User (nicht system-admin) */}
+          {locationId && !roles.includes('system-admin') && (
+            <Tooltip title="Meine Einrichtung">
+              <IconButton color="inherit" onClick={() => navigate(`/locations/${locationId}`)}
+                sx={{
+                  bgcolor: location.pathname.startsWith('/locations/') ? 'rgba(255,255,255,0.12)' : 'transparent',
+                  borderRadius: 1.5,
+                }}>
+                <ApartmentIcon />
+              </IconButton>
+            </Tooltip>
+          )}
 
           {/* AZR-Suche */}
           <Tooltip title="Person nach AZR-ID oder Alias suchen">

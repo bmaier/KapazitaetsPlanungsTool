@@ -134,29 +134,29 @@ async def export_audit_csv(
         f"FROM audit.events {where_sql} ORDER BY created_at DESC"
     )
 
-    async def csv_generator():
-        header = "timestamp;event_type;actor_id;actor_role;location_id;entity_type;entity_id;payload\n"
-        yield header.encode()
-        async with AsyncSessionFactory() as session:
-            result = await session.execute(query_sql, params, execution_options={"stream_results": True})
-            while True:
-                chunk = result.fetchmany(500)
-                if not chunk:
-                    break
-                buf = io.StringIO()
-                writer = csv.writer(buf, delimiter=";", quoting=csv.QUOTE_MINIMAL)
-                for row in chunk:
-                    writer.writerow([
-                        row.created_at.isoformat() if row.created_at else "",
-                        row.event_type or "",
-                        row.actor_id or "",
-                        row.actor_role or "",
-                        str(row.location_id) if row.location_id else "",
-                        row.entity_type or "",
-                        row.entity_id or "",
-                        str(row.payload) if row.payload else "",
-                    ])
-                yield buf.getvalue().encode()
+    # Fetch all rows within session scope, then release DB connection before streaming
+    async with AsyncSessionFactory() as session:
+        result = await session.execute(query_sql, params)
+        rows = result.fetchall()
+
+    def csv_generator():
+        yield "timestamp;event_type;actor_id;actor_role;location_id;entity_type;entity_id;payload\n".encode("utf-8")
+        buf = io.StringIO()
+        writer = csv.writer(buf, delimiter=";", quoting=csv.QUOTE_MINIMAL)
+        for row in rows:
+            writer.writerow([
+                row.created_at.isoformat() if row.created_at else "",
+                row.event_type or "",
+                row.actor_id or "",
+                row.actor_role or "",
+                str(row.location_id) if row.location_id else "",
+                row.entity_type or "",
+                row.entity_id or "",
+                str(row.payload) if row.payload else "",
+            ])
+            yield buf.getvalue().encode("utf-8")
+            buf.truncate(0)
+            buf.seek(0)
 
     return StreamingResponse(
         csv_generator(),

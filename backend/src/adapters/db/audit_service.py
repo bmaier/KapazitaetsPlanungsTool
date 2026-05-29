@@ -34,6 +34,8 @@ async def write_audit(
     if user is not None:
         actor_id = user.sub
         actor_role = _highest_role(user.roles)
+        if user.username:
+            payload = {**payload, "actor_username": user.username}
 
     loc_uuid: Optional[UUID] = location_id
     if loc_uuid is None and user is not None and user.location_id:

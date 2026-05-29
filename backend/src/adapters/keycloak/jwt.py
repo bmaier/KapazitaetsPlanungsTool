@@ -24,6 +24,7 @@ class UserContext:
     sub: str
     roles: list[str] = field(default_factory=list)
     location_id: Optional[str] = None
+    username: str = ""
 
 
 _jwks_cache: Optional[dict] = None
@@ -76,13 +77,14 @@ async def get_current_user(request: Request) -> UserContext:
         sub = payload.get("sub", "")
         roles = payload.get("realm_access", {}).get("roles", [])
         loc_id = payload.get("location_id")
+        username = payload.get("preferred_username", "")
         user_roles = set(roles)
         if request.method in ("POST", "PUT", "PATCH", "DELETE"):
             if not (user_roles & _WRITER_PLUS):
                 raise HTTPException(status_code=403, detail="Insufficient permissions")
         elif not (user_roles & _READER_PLUS):
             raise HTTPException(status_code=403, detail="Insufficient permissions")
-        return UserContext(sub=sub, roles=roles, location_id=loc_id)
+        return UserContext(sub=sub, roles=roles, location_id=loc_id, username=username)
     except HTTPException:
         raise
     except (JWTError, Exception):

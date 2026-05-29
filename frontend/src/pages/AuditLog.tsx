@@ -245,10 +245,10 @@ export default function AuditLog() {
                   <TableRow sx={{ bgcolor: '#f5f7fa' }}>
                     <TableCell sx={{ fontWeight: 700 }}>Zeitpunkt</TableCell>
                     <TableCell sx={{ fontWeight: 700 }}>Event-Typ</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>Akteur</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Nutzer</TableCell>
                     <TableCell sx={{ fontWeight: 700 }}>Rolle</TableCell>
                     <TableCell sx={{ fontWeight: 700 }}>AZR / Entity</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>Payload</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Details</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -258,7 +258,12 @@ export default function AuditLog() {
                         Keine Einträge gefunden.
                       </TableCell>
                     </TableRow>
-                  ) : (data?.items ?? []).map(row => (
+                  ) : (data?.items ?? []).map(row => {
+                    const actorUsername = (row.payload as Record<string, unknown> | null)?.actor_username as string | undefined
+                    const cleanPayload = row.payload
+                      ? Object.fromEntries(Object.entries(row.payload).filter(([k]) => k !== 'actor_username'))
+                      : null
+                    return (
                     <TableRow key={row.id} hover>
                       <TableCell sx={{ whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: 12 }}>
                         {fmt(row.created_at)}
@@ -274,10 +279,8 @@ export default function AuditLog() {
                           }}
                         />
                       </TableCell>
-                      <TableCell sx={{ fontSize: 12, fontFamily: 'monospace', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        <Tooltip title={row.actor_id ?? ''}>
-                          <span>{row.actor_id ? row.actor_id.slice(0, 16) + '…' : '–'}</span>
-                        </Tooltip>
+                      <TableCell sx={{ fontSize: 12, fontFamily: 'monospace' }}>
+                        {actorUsername ?? row.actor_id?.slice(0, 12) ?? '–'}
                       </TableCell>
                       <TableCell>
                         {row.actor_role ? (
@@ -292,15 +295,21 @@ export default function AuditLog() {
                           </Typography>
                         )}
                       </TableCell>
-                      <TableCell sx={{ maxWidth: 300 }}>
-                        <Tooltip title={JSON.stringify(row.payload, null, 2)}>
-                          <Typography variant="caption" sx={{ fontFamily: 'monospace', color: '#555', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 280 }}>
-                            {row.payload ? JSON.stringify(row.payload) : '–'}
-                          </Typography>
-                        </Tooltip>
+                      <TableCell sx={{ maxWidth: 320 }}>
+                        {cleanPayload && Object.keys(cleanPayload).length > 0 ? (
+                          <Box component="pre" sx={{
+                            fontFamily: 'monospace', fontSize: 11, color: '#444',
+                            bgcolor: '#f8f9fa', borderRadius: 1, p: 0.8,
+                            m: 0, maxHeight: 80, overflow: 'auto',
+                            whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+                          }}>
+                            {JSON.stringify(cleanPayload, null, 2)}
+                          </Box>
+                        ) : '–'}
                       </TableCell>
                     </TableRow>
-                  ))}
+                  )})}
+
                 </TableBody>
               </Table>
             </TableContainer>
