@@ -1,47 +1,68 @@
-# Reservierungen
+# Verlegungsanfragen
 
-## Was ist eine Reservierung?
+## Was ist eine Verlegungsanfrage?
 
-Eine Reservierung ist eine Anfrage einer Einrichtung an eine andere, eine Person für einen bestimmten Zeitraum aufzunehmen. Der Workflow:
+Eine Verlegungsanfrage ist eine Anfrage einer Einrichtung an eine andere, eine Person für einen bestimmten Zeitraum aufzunehmen. Der Workflow:
 
-**Anfrage (PENDING) → Bestätigung (CONFIRMED) → Einchecken (TRANSFERRED)**
+**Anfrage (Ausstehend) → Bestätigung mit Bett (Bestätigt / Vorgemerkt) → Einchecken (Verlegt)**
 
 ## Statusübersicht
 
 | Status | Bedeutung |
 |--------|-----------|
 | Ausstehend | Anfrage wurde gestellt, noch keine Entscheidung |
-| Bestätigt | Zieleinrichtung hat zugestimmt, Bett vorgemerkt |
+| Bestätigt | Zieleinrichtung hat zugestimmt, ein bestimmtes Bett ist vorgemerkt (lila) |
 | Abgelehnt | Zieleinrichtung hat abgelehnt |
 | Storniert | Anfrage wurde zurückgezogen |
-| Verlegt | Person wurde eingecheckt, Belegung aktiv |
+| Verlegt | Person wurde eingecheckt, Belegung aktiv in Zieleinrichtung |
 
-## Neue Reservierungsanfrage stellen
+## Tabs
 
-1. Klicken Sie auf **„Neue Anfrage"** (oder im Dashboard auf „Reservierungsanfrage")
+**Alle** — alle Verlegungsanfragen, an denen Ihre Einrichtung als anfragende oder empfangende Seite beteiligt ist.
+
+**Aktionen erforderlich** — eingehende Anfragen, auf die Ihre Einrichtung noch reagieren muss. Zeigt einen roten Zähler, wenn Anfragen vorliegen.
+
+**Meine Verlegungsanfragen** — nur Anfragen, die Sie selbst gestellt haben, mit aktuellem Status.
+
+## Filterleiste
+
+Über der Tabelle können Sie nach **Erstellungsdatum** (von/bis) und **Status** filtern. Status-Chips lassen sich per Klick aktivieren/deaktivieren. „Zurücksetzen" setzt alle Filter auf den Standardwert zurück (letzte 5 Tage, alle Status).
+
+## Neue Verlegungsanfrage stellen
+
+1. Klicken Sie auf **„Neue Verlegungsanfrage"** (oder nutzen Sie die **Bettsuche** im Navigationsmenü)
 2. Wählen Sie die Zieleinrichtung
 3. Tragen Sie AZR-ID, Geschlecht, Geburtsjahr, Herkunftsland und Zeitraum ein
 4. Anfrage absenden
 
 Die Anfrage erscheint sofort im Postkorb der Zieleinrichtung.
 
-## Eingehende Anfragen bearbeiten (Tab „Aktionen erforderlich")
+## Eingehende Anfragen bestätigen
 
-Als Zieleinrichtung sehen Sie unter **„Aktionen erforderlich"** alle offenen Anfragen an Sie.
+Als Zieleinrichtung sehen Sie unter **„Aktionen erforderlich"** alle offenen Anfragen.
 
-**Bestätigen** — Sie wählen ein freies Bett aus und bestätigen. Das Bett wird für die Person vorgemerkt (lila in der Bettansicht).
+Klick auf **„Bestätigen"** öffnet einen Dialog zur Bettauswahl:
+- Alle freien Betten im angefragten Zeitraum werden gelistet
+- Ein vom Assistenten vorgeschlagenes Bett ist lila umrandet und vorausgewählt
+- Wählen Sie ein Bett aus und klicken Sie „Bestätigen & Bett vormerken"
 
-**Ablehnen** — Die anfragende Einrichtung wird per Postkorb informiert.
+Das gewählte Bett erscheint danach in der Einrichtungsdetail-Ansicht als **lila (vorgemerkt)**.
 
-**Stornieren** — Hebt die Anfrage auf. Kann von beiden Seiten durchgeführt werden, solange der Status „Ausstehend" oder „Bestätigt" ist.
+## Anfrage ablehnen
+
+Klick auf **„Ablehnen"** — die anfragende Einrichtung wird per Postkorb informiert.
 
 ## Person einchecken (Transfer)
 
 Wenn die Person physisch angekommen ist:
 1. Tab „Aktionen erforderlich" → Zeile mit Status „Bestätigt"
 2. Button **„Einchecken"** klicken
-3. Status wechselt zu „Verlegt" — die Belegung ist nun in der Zieleinrichtung aktiv
+3. Status wechselt zu „Verlegt" — die Belegung ist nun in der Zieleinrichtung aktiv, das vorgemerkte Bett wird zur aktiven Belegung
 
-## Tab „Alle Anfragen"
+## Anfrage stornieren
 
-Zeigt alle Reservierungen, an denen Ihre Einrichtung beteiligt ist (als anfragende oder empfangende Seite), ohne Aktionsschaltflächen.
+Eine Anfrage kann von der anfragenden Seite storniert werden, solange sie noch nicht den Status „Verlegt" hat. Klicken Sie auf „Stornieren" in der Aktionsspalte.
+
+## Bestätigt-Datum
+
+In der Zeitraumspalte erscheint grün das Datum, an dem die Anfrage bestätigt wurde — für die Nachvollziehbarkeit der Bearbeitungszeit.

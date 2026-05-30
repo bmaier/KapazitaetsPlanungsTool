@@ -76,7 +76,7 @@ services:
   # FastAPI Backend — Hexagonale Architektur
   # ---------------------------------------------------------------------------
   backend:
-    image: bosenet/bordercapcontrol-backend:01
+    image: bosenet/bordercapcontrol-backend:latest
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://bordercap:bordercap_dev@postgres:5432/bordercap}
       KEYCLOAK_URL: ${KEYCLOAK_URL:-http://keycloak:8080}
@@ -101,7 +101,7 @@ services:
   # SKOS Codelisten Service
   # ---------------------------------------------------------------------------
   skos_service:
-    image: bosenet/bordercapcontrol-skos:01
+    image: bosenet/bordercapcontrol-skos:latest
     networks:
       - bordercap_net
     healthcheck:
@@ -133,7 +133,7 @@ services:
   # Dev-Override (node:20-alpine + Vite) kennt kein nginx — würde immer scheitern.
   # ---------------------------------------------------------------------------
   frontend:
-    image: bosenet/bordercapcontrol-frontend:01
+    image: bosenet/bordercapcontrol-frontend:latest
     networks:
       - bordercap_net
     depends_on:

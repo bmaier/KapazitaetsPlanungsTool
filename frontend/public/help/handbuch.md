@@ -1,4 +1,4 @@
-# BorderCapControl — Benutzerhandbuch
+# BAMF BorderCapControl — Benutzerhandbuch
 
 ---
 
@@ -13,34 +13,50 @@ Das System verwaltet Kapazitäten in Grenzeinrichtungen (z. B. Flughäfen, Grenz
 - **Räume** mit Geschlechtsdesignation
 - **Betten** mit eindeutiger Nummer und festem Typ
 
-### 1.2 Betttypen: Kontingentbett vs. Notbett
+### 1.2 Betttypen
 
 **Kontingentbett** — reguläres Bett, das zur deutschen EU-Gesamtkapazität zählt. Jede Belegung startet einen 12-Wochen-Timer.
 
-**Notbett** — temporäre Unterbringung für max. 1 Nacht (einmalig um 1 Tag verlängerbar). Notbetten zählen **nicht** zur EU-Quota und starten keinen 12-Wochen-Timer. Tägliche Postkorb-Erinnerung bei belegten Notbetten.
+**Notbett** — temporäre Unterbringung für max. 1 Nacht (einmalig um 1 Tag verlängerbar). Notbetten zählen **nicht** zur EU-Quota und starten keinen 12-Wochen-Timer.
 
-### 1.3 Der 12-Wochen-Timer
+**Warteplatz** — Platz im Wartebereich für Personen bei Ankunft, die noch keinem regulären Bett zugewiesen wurden. Zählt nicht zur EU-Quota.
 
-Jede Belegung eines Kontingentbetts läuft maximal 12 Wochen (84 Tage). Eine Überschreitung wird beim Belegen durch eine Warnung angezeigt. Das System speichert die Belegung, aber das EU-Berichtswesen zeigt die Überschreitung.
+### 1.3 Raumtypen
 
-### 1.4 Geschlechtsdesignation von Räumen
+**Standardraum** — regulärer Schlafraum mit Kontingentbetten und/oder Notbetten.
+
+**Wartebereich** — spezieller Raumtyp für kurzfristige Aufnahme bei Ankunft. Erscheint in der Einrichtungsdetail-Ansicht mit orangem Rahmen oberhalb der Standardräume. Ermöglicht Mehrfachauswahl für Gruppenverlegung.
+
+### 1.4 Der 12-Wochen-Timer
+
+Jede Belegung eines Kontingentbetts läuft maximal 12 Wochen (84 Tage). Eine Überschreitung wird beim Belegen durch eine Warnung angezeigt. Das System speichert die Belegung, aber das EU-Berichtswesen zeigt die Überschreitung. Eine 12-Wochen-Warnung erscheint auch als Aufgabe im Postkorb.
+
+### 1.5 Geschlechtsdesignation von Räumen
 
 Räume werden durch Labels als Männer-, Frauen- oder Familienraum gekennzeichnet. Das Geschlechts-Label schützt vor falschen Belegungen. Es kann erst entfernt werden, wenn alle Betten des Raums leer sind.
 
-### 1.5 AZR-ID und Alias-ID
+### 1.6 AZR-ID und Alias-ID
 
 **AZR-ID** — die Ausländerzentralregister-Nummer der Person. Keine Personennamen werden gespeichert (DSGVO-konform). Format z. B.: `AZR-2024-FFM-M01`.
 
 **Alias-ID** — optionale einrichtungsinterne Kennung für die Person. Erleichtert die Suche ohne die vollständige AZR-ID.
 
-### 1.6 Rollen und Berechtigungen
+### 1.7 Bett-Status im Überblick
+
+| Status | Farbe | Bedeutung |
+|--------|-------|-----------|
+| FREI | Grün | Bett kann belegt werden |
+| BELEGT | Rot | Bett hat eine aktive Belegung |
+| VORGEMERKT | Lila | Bett für bestätigte Reservierung reserviert — Person noch unterwegs |
+
+### 1.8 Rollen und Berechtigungen
 
 | Rolle | Berechtigungen |
 |-------|----------------|
 | `reader` | Nur Lesen (alle Einrichtungen) |
-| `writer` | Lesen + Belegungen verwalten + Reservierungen |
+| `writer` | Lesen + Belegungen verwalten + Verlegungsanfragen |
 | `location-admin` | Alles des `writer` + Räume/Betten/Einrichtungsstammdaten |
-| `system-admin` | Voller Zugriff auf alle Einrichtungen |
+| `system-admin` | Voller Zugriff auf alle Einrichtungen und alle Anfragen |
 
 ---
 
@@ -60,13 +76,13 @@ Die Farbe jeder Einrichtungskachel zeigt den Belegungsgrad:
 
 **Kartenansicht** — zeigt Einrichtungen auf einer Karte mit farbigen Markierungen entsprechend der Ampelfarbe. Klick auf eine Markierung öffnet die Einrichtungsdetails.
 
-### 2.3 Schnellzugriff Reservierungen
+### 2.3 Schnellzugriff Verlegungsanfragen
 
-Laufende Reservierungen Ihrer Einrichtung (eingehend und ausgehend) werden als kleine Chips unter der Hauptüberschrift angezeigt. Ein Klick öffnet die vollständige Reservierungsübersicht.
+Laufende Verlegungsanfragen Ihrer Einrichtung (eingehend und ausgehend) werden als kleine Chips unter der Hauptüberschrift angezeigt. Ein Klick öffnet die vollständige Verlegungsansicht.
 
 ### 2.4 Neue Einrichtung anlegen (Administratoren)
 
-Der Button „Neue Einrichtung" erscheint nur für Nutzer mit Administratorrechten. Pflichtfelder: Name und Kontingent. Adresse und Notbett-Kapazität sind optional. Nach dem Anlegen können Räume und Betten im Einrichtungsdetail verwaltet werden.
+Der Button „Neue Einrichtung" erscheint nur für Nutzer mit Administratorrechten. Pflichtfelder: Name und Kontingent. Adresse und Notbett-Kapazität sind optional. Nach dem Anlegen können Räume, Betten und ein Wartebereich im Einrichtungsdetail verwaltet werden.
 
 ---
 
@@ -93,31 +109,27 @@ Das System setzt automatisch ein Geschlechts-Label am Raum, wenn noch keins vorh
 Ein Klick auf ein **rotes** Bett öffnet die Verwaltungsansicht:
 
 - **Ausbuchen** — beendet die Belegung. Ein Ausbuche-Grund ist verpflichtend (wird im Audit-Log gespeichert).
-- **Intern verlegen** — öffnet eine Liste freier Betten in derselben Einrichtung.
-- **Zu anderer Einrichtung verlegen** — öffnet den Reservierungsassistenten mit vorausgefüllten Personendaten.
+- **Intern verlegen** — öffnet eine Liste freier Betten und Warteplätze in derselben Einrichtung.
+- **Zu anderer Einrichtung verlegen** — öffnet die Bettsuche mit vorausgefüllten Personendaten.
 
 ### 3.4 Person intern verlegen
 
-So verlegen Sie eine Person innerhalb derselben Einrichtung auf ein anderes Bett:
-
 1. Klicken Sie auf das **rote** (belegte) Bett
 2. Wählen Sie „Intern verlegen (anderes Bett in dieser Einrichtung)"
-3. Wählen Sie das Zielbett aus der Liste der freien Betten
+3. Wählen Sie das Zielbett oder den Warteplatz aus der Liste
 4. Klicken Sie „Verlegen bestätigen"
 
-Das System überträgt alle Belegungsdaten automatisch und gibt das alte Bett frei.
+Das System überträgt alle Belegungsdaten automatisch und gibt das alte Bett frei. Warteplätze erscheinen orange gekennzeichnet in der Auswahl.
 
 ### 3.5 Person zu anderer Einrichtung verlegen
 
-So verlegen Sie eine Person in eine andere Einrichtung:
-
 1. Klicken Sie auf das **rote** Bett der Person
-2. Wählen Sie „Zu anderer Einrichtung verlegen (Reservierungsanfrage)"
-3. Der Reservierungsassistent öffnet sich mit den Personendaten vorausgefüllt
+2. Wählen Sie „Zu anderer Einrichtung verlegen (Verlegungsanfrage)"
+3. Die Bettsuche öffnet sich mit den Personendaten vorausgefüllt
 4. Wählen Sie die Zieleinrichtung und den Zeitraum
 5. Anfrage absenden — die Zieleinrichtung muss die Anfrage bestätigen
 
-Erst nach Bestätigung durch die Zieleinrichtung und dem Einchecken (Transfer) ist die Person dort aktiv. Die ursprüngliche Belegung bleibt bis zum Transfer erhalten.
+Erst nach Bestätigung durch die Zieleinrichtung und dem Einchecken (Transfer) ist die Person dort aktiv.
 
 ### 3.6 Person ausbuchen
 
@@ -128,22 +140,33 @@ Erst nach Bestätigung durch die Zieleinrichtung und dem Einchecken (Transfer) i
 
 Das Bett ist anschließend sofort wieder frei (grün).
 
-### 3.7 Notbetten
+### 3.7 Vorgemerkte Betten (lila)
 
-Notbetten erscheinen in einem eigenen Abschnitt unten auf der Seite mit orangem Rand. Besonderheiten:
+Lila Betten sind für eine bestätigte Verlegungsanfrage reserviert. Die Person ist noch nicht physisch eingecheckt. Das Bett kann nicht direkt belegt werden. Ein Klick zeigt die zugehörige Anfrage. Das Bett wird zur aktiven Belegung, wenn die Person eingecheckt wird.
 
+### 3.8 Notbetten
+
+Notbetten erscheinen in einem eigenen Abschnitt mit orangem Rand:
 - Max. 1 Nacht Belegung
-- Einmalige Verlängerung um 1 Tag möglich (Button „+1 Tag" erscheint nur beim ersten Mal)
+- Einmalige Verlängerung um 1 Tag möglich
 - Tägliche Postkorb-Erinnerung bei belegten Notbetten
 - Keine EU-Quota-Relevanz
 
-### 3.8 Vorgemerkte Betten (lila)
+### 3.9 Wartebereich
 
-Lila Betten sind für eine bestätigte Reservierung vorgemerkt. Sie können nicht direkt belegt werden. Ein Klick öffnet die zugehörige Reservierung in der Reservierungsübersicht. Das Bett wird automatisch zur Belegung, sobald die Person eingecheckt wird (Transfer).
+Der Wartebereich erscheint ganz oben in der Einrichtungsdetail-Ansicht. Warteplätze sind für Personen vorgesehen, die gerade eingetroffen sind und noch auf ein reguläres Bett warten.
+
+**Einzelne Person verlegen:** Belegten Warteplatz anklicken → „Zu anderer Einrichtung verlegen" oder „Intern verlegen".
+
+**Gruppe verlegen (Mehrfachauswahl):**
+1. Button **„Gruppe auswählen"** aktivieren
+2. Belegte Warteplätze anklicken (lila = ausgewählt)
+3. **„X Personen verlegen"** klicken
+4. Die Bettsuche öffnet sich für alle ausgewählten Personen gleichzeitig
 
 ---
 
-## 4. Reservierungsworkflow
+## 4. Verlegungsworkflow
 
 ### 4.1 Statusübersicht
 
@@ -155,9 +178,9 @@ Lila Betten sind für eine bestätigte Reservierung vorgemerkt. Sie können nich
 | Storniert | Aufgehoben | — |
 | Verlegt | Eingecheckt | Belegung aktiv in Zieleinrichtung |
 
-### 4.2 Neue Reservierungsanfrage stellen
+### 4.2 Neue Verlegungsanfrage stellen
 
-1. Navigieren Sie zu **Reservierungen** → „Neue Anfrage" oder nutzen Sie den **Reservierungsassistenten**
+1. Navigieren Sie zu **Verlegungsanfragen** → „Neue Verlegungsanfrage" oder nutzen Sie die **Bettsuche**
 2. Wählen Sie die Zieleinrichtung
 3. Füllen Sie Pflichtfelder aus: AZR-ID, Geschlecht, Geburtsjahr, Herkunftsland, Zeitraum
 4. Absenden
@@ -166,112 +189,125 @@ Die Anfrage erscheint sofort im Postkorb der Zieleinrichtung.
 
 ### 4.3 Eingehende Anfrage bestätigen
 
-1. Postkorb → Tab „Zu beantworten"
-2. Klicken Sie „Aufnahme bestätigen"
-3. Wählen Sie ein freies Bett aus — das Bett wird vorgemerkt (lila)
+1. Postkorb → Tab „Zu beantworten" → „Aufnahme bestätigen"
+2. Dialog öffnet sich: freie Betten im Anfragezeitraum werden aufgelistet
+3. Ein vorgeschlagenes Bett (lila umrandet) ist vorausgewählt — Sie können ein anderes wählen
+4. Labels der Person können im Dialog eingesehen und angepasst werden
+5. „Bestätigen & Bett vormerken" klicken
 
-> Mit der Bestätigung übernimmt Ihre Einrichtung die rechtliche Verantwortung für die Person.
+Das Bett erscheint danach als **vorgemerkt (lila)** in der Einrichtungsdetail-Ansicht.
 
 ### 4.4 Eingehende Anfrage ablehnen
 
 1. Postkorb → Tab „Zu beantworten" → „Ablehnen"
-2. Tragen Sie einen Ablehnungsgrund ein
+2. Ablehnungsgrund eingeben
 3. Bestätigen
 
-Die anfragende Einrichtung sieht den Status „Abgelehnt" in ihren Anfragen.
+Die anfragende Einrichtung sieht den Status „Abgelehnt".
 
 ### 4.5 Person einchecken (Transfer)
 
 Wenn die Person physisch angekommen ist:
 
-1. Reservierungen → Tab „Aktionen erforderlich"
+1. Postkorb → Tab „Zu beantworten" oder Verlegungsanfragen → Tab „Aktionen erforderlich"
 2. Zeile mit Status „Bestätigt" → Button **„Einchecken"**
 3. Status wechselt auf „Verlegt" — Belegung wird in der Zieleinrichtung aktiv
 
 ### 4.6 Anfrage stornieren
 
-Eine Anfrage kann von beiden Seiten storniert werden, solange sie noch nicht den Status „Verlegt" hat. Klicken Sie auf „Stornieren" in der Reservierungszeile.
+Eine Anfrage kann von der anfragenden Seite storniert werden, solange sie noch nicht den Status „Verlegt" hat.
 
 ---
 
-## 5. Postkorb
+## 5. Bettsuche (Reservierungsassistent)
 
-### 5.1 Aufgabentypen
+### 5.1 Suchmodi
 
-Der Postkorb zeigt drei Arten von Einträgen:
+Die Bettsuche unterstützt drei Modi:
 
-**Eingehende Reservierungsanfragen** — andere Einrichtungen bitten um Aufnahme einer Person. Hohe Priorität, zeitnahe Bearbeitung erforderlich.
+**Einzelperson** — sucht ein einzelnes Bett für eine Person mit bekanntem Geschlecht.
 
-**Systemaufgaben** — automatisch generierte Hinweise, z. B. bei belegten Notbetten oder anderen Systemereignissen.
+**Gruppe** — sucht Betten für mehrere Personen. Anzahl nach Geschlecht (M/W/D) angeben. Das System findet Einrichtungen mit ausreichend freien Betten in passenden Räumen.
 
-**Ausgehende Anfragen (Tab „Meine Anfragen")** — Anfragen, die Sie gestellt haben, mit aktuellem Status.
+**Familie / Minderjährige** — für gemischte Gruppen aus Erwachsenen und Kindern. Erwachsene Männer, Frauen und Kinderzahl getrennt angeben. Das System sucht nach Familienräumen.
 
-### 5.2 Aufgaben als erledigt markieren
+### 5.2 Suchoptionen
 
-Für eigenständige Systemaufgaben (ohne verknüpfte Reservierung) erscheint der Button **„Als erledigt markieren"**. Nach dem Klick:
+- **Einrichtungsübergreifend** — durchsucht alle Einrichtungen (Standard bei Verlegung von Warteplatz)
+- **Geschlecht ignorieren** — zeigt auch Räume ohne passende Designation
+- **Raum-Labels** — filtert auf Räume mit bestimmten Labels
 
-- Die Aufgabe verschwindet aus dem aktiven Tab
-- Sie wird im Tab „Erledigt / Archiv" archiviert
-- Kann nicht rückgängig gemacht werden
+### 5.3 Gruppenverlegung aus Wartebereich
 
-Reservierungsbezogene Aufgaben werden automatisch archiviert, wenn die Reservierung abgeschlossen, abgelehnt oder storniert wird.
+Wenn mehrere Personen im Wartebereich ausgewählt wurden, öffnet die Bettsuche automatisch im Gruppenmodus mit allen Personen vorausgefüllt. Nach Bestätigung wird für jede Person eine eigene Anfrage gestellt.
 
-### 5.3 Zur Belegung einer Person springen
+---
+
+## 6. Postkorb
+
+### 6.1 Aufgabentypen
+
+**Eingehende Verlegungsanfragen** — andere Einrichtungen bitten um Aufnahme einer Person.
+
+**Bestätigte Anfragen (Einchecken ausstehend)** — Person hat eine bestätigte Zusage, muss noch physisch einchecken.
+
+**Systemaufgaben** — automatisch generierte Hinweise:
+- Notbett-Erinnerung: tägliche Meldung bei belegten Notbetten
+- 12-Wochen-Warnung: Belegung überschreitet die EU-Quota-Frist
+
+**Ausgehende Anfragen (Tab „Meine Anfragen")** — Anfragen, die Sie gestellt haben.
+
+### 6.2 Aufgaben als erledigt markieren
+
+Für eigenständige Systemaufgaben erscheint der Button **„Als erledigt markieren"**. Reservierungsbezogene Aufgaben werden automatisch archiviert, wenn die Reservierung abgeschlossen, abgelehnt oder storniert wird.
+
+### 6.3 Zur Belegung einer Person springen
 
 Enthält eine Aufgabe eine AZR-ID, erscheint der Button **„Zur Belegung: AZR-…"**. Klicken öffnet direkt das Einrichtungsdetail mit dem Bett der Person hervorgehoben.
 
-### 5.4 Prioritätsstufen
+### 6.4 Prioritätsstufen
 
 | Priorität | Farbe | Typische Ursache |
 |-----------|-------|-----------------|
-| Dringend | Rot | Eingehende Reservierungsanfrage |
+| Dringend | Rot | Eingehende Verlegungsanfrage |
 | Mittel | Orange | Ausgehende offene Anfrage |
 | Niedrig | Grün | Systemhinweis, archivierbar |
 
 ---
 
-## 6. Bettendaten pflegen (Administratoren)
+## 7. Bettendaten pflegen (Administratoren)
 
 Nur Nutzer mit der Rolle `location-admin` oder `system-admin` haben Zugriff auf die Raumverwaltung.
 
-### 6.1 Räume anlegen
+### 7.1 Räume anlegen
 
 1. Einrichtungsdetail → Stift-Symbol → Tab „Räume & Betten"
 2. Scrollen Sie nach unten zu „Neuen Raum anlegen"
-3. Geben Sie einen Raumnamen ein (z. B. „Raum A", „Raum 101")
+3. Raumnamen eingeben und Typ wählen: **Standard** oder **Wartebereich**
 4. „Raum anlegen" klicken
 
-Ein neuer Raum hat zunächst keine Geschlechtsdesignation. Sie können sie über Labels setzen.
-
-### 6.2 Betten hinzufügen
+### 7.2 Betten hinzufügen
 
 1. Im Tab „Räume & Betten" → beim gewünschten Raum auf „Bett" klicken
 2. Bett-Nummer eingeben (z. B. „B01", „1A")
-3. Typ wählen: **Standard** (Kontingentbett) oder **Notbett**
+3. Typ wählen: **Standard** (Kontingentbett) oder **Notbett** — bei Wartebereich automatisch Warteplatz
 4. „Hinzufügen" klicken
 
-### 6.3 Betten deaktivieren (geplant)
+### 7.3 Betten deaktivieren (geplant)
 
-Wenn ein Bett ab einem bestimmten Datum nicht mehr verfügbar ist (z. B. Renovierung):
+Wenn ein Bett ab einem bestimmten Datum nicht mehr verfügbar ist:
 
 1. Tab „Räume & Betten" → auf den Bett-Chip klicken
 2. Deaktivierungsdatum eingeben
-3. Das Bett ist ab diesem Datum automatisch inaktiv (grau in der Bettansicht)
+3. Das Bett ist ab diesem Datum automatisch inaktiv (grau)
 
-### 6.4 Verfügbar-ab-Datum setzen
+### 7.4 Räume deaktivieren und reaktivieren
 
-Für neue Betten, die noch nicht sofort verfügbar sind:
+**Deaktivieren**: Papierkorb-Symbol beim Raum. Nur möglich, wenn keine aktive Belegung vorhanden.
 
-1. Tab „Räume & Betten" → Klick auf das kleine `+`-Symbol neben einem Bett-Chip
-2. Datum eingeben, ab dem das Bett buchbar ist
+**Reaktivieren**: Inaktive Räume können mit „Reaktivieren" wieder aktiviert werden.
 
-### 6.5 Räume deaktivieren und reaktivieren
-
-**Deaktivieren**: Im Tab „Räume & Betten" → Papierkorb-Symbol beim Raum. Nur möglich, wenn keine aktive Belegung vorhanden ist.
-
-**Reaktivieren**: Inaktive Räume (grau dargestellt) können mit „Reaktivieren" wieder aktiviert werden. Optional: Verfügbar-ab-Datum angeben.
-
-### 6.6 Kontingent und Notbett-Kapazität anpassen
+### 7.5 Kontingent und Notbett-Kapazität anpassen
 
 Im Bearbeitungs-Dialog → Tab „Stammdaten":
 
@@ -280,36 +316,28 @@ Im Bearbeitungs-Dialog → Tab „Stammdaten":
 
 > Achtung: Das Reduzieren des Kontingents unter die aktuelle Belegungszahl erzeugt eine Überkapazität im EU-Reporting.
 
-### 6.7 Labels verwalten
-
-Labels können auf Einrichtungen, Räume, Betten und Belegungen gesetzt werden:
-
-- **Räume**: Geschlechtsdesignation (Männer, Frauen, Familie), Zustand
-- **Belegungen**: Hinweise zur Person (nicht bindend, kein Personenbezug)
-
-Ein Geschlechts-Label an einem Raum kann erst entfernt werden, wenn alle Betten des Raums leer sind.
-
 ---
 
-## 7. Weitere Funktionen
+## 8. Weitere Funktionen
 
-### 7.1 Personensuche (AZR-ID)
+### 8.1 Personensuche (AZR-ID)
 
-Die Lupe in der Navigationsleiste öffnet eine Suche nach AZR-ID oder Alias-ID. Das Ergebnis zeigt:
-- Einrichtung und Raum/Bett der aktuellen Belegung
-- Zeitraum der Belegung
-- Klicken öffnet das Einrichtungsdetail mit hervorgehobenem Bett
+Die Lupe in der Navigationsleiste öffnet eine Suche nach AZR-ID oder Alias-ID. Das Ergebnis zeigt Einrichtung, Raum, Bett und Zeitraum der aktuellen Belegung. Klicken öffnet das Einrichtungsdetail mit hervorgehobenem Bett. Die Suche findet nur **aktive** Belegungen.
 
-Die Suche findet nur **aktive** Belegungen.
+### 8.2 Protokoll (Audit-Log)
 
-### 7.2 Gültigkeitsdaten (Einrichtungen und Räume)
+Das Protokoll (**Navigationsmenü → „Protokoll"**) zeigt alle Aktionen im System chronologisch: Belegungen, Ausbuchungen, Gründe, Verlegungen. Es ist für alle Rollen sichtbar.
 
-Einrichtungen und Räume können mit **Gültig-ab** und **Gültig-bis**-Daten versehen werden:
+### 8.3 Gültigkeitsdaten (Einrichtungen und Räume)
 
-- **Gültig ab**: Einrichtung/Raum ist erst ab diesem Datum in der Übersicht sichtbar und buchbar
-- **Gültig bis**: Einrichtung/Raum erscheint nach diesem Datum ausgegraut und kann nicht mehr belegt werden
+- **Gültig ab**: Einrichtung/Raum ist erst ab diesem Datum sichtbar und buchbar
+- **Gültig bis**: Einrichtung/Raum erscheint nach diesem Datum ausgegraut
 
-Räume außerhalb ihrer Gültigkeitsdaten sind in der Bettansicht ausgegraut und mit einem Datum-Chip gekennzeichnet.
+### 8.4 Support und Hilfe
+
+Der **Hilfe-Button** (?) in der Navigationsleiste öffnet einen seitenspezifischen Hilfetext und ermöglicht den Zugriff auf dieses vollständige Handbuch.
+
+Der **Support-Button** (Headset-Symbol, falls konfiguriert) öffnet das interne Support-Portal Ihrer Organisation.
 
 ---
 

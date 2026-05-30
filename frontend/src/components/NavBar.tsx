@@ -13,19 +13,19 @@ import HelpOutlineIcon from '@mui/icons-material/HelpOutline'
 import BedIcon from '@mui/icons-material/Hotel'
 import HistoryIcon from '@mui/icons-material/History'
 import ApartmentIcon from '@mui/icons-material/Apartment'
+import SupportIcon from '@mui/icons-material/HeadsetMic'
 import { useLocation, useNavigate } from 'react-router-dom'
 import HelpDrawer from './HelpDrawer'
 import { useKeycloak } from '../auth/KeycloakProvider'
 import { useSseNotifications } from '../hooks/useSseNotifications'
 import { useApiClient } from '../api/client'
 
+const SUPPORT_URL = import.meta.env.VITE_SUPPORT_URL ?? ''
+
 const NAV_LINKS = [
   { label: 'Dashboard', path: '/', Icon: DashboardIcon },
   { label: 'Verlegungsanfragen', path: '/reservations', Icon: SwapHorizIcon },
   { label: 'Bettsuche', path: '/suggestions', Icon: SearchIcon },
-]
-
-const ADMIN_NAV_LINKS = [
   { label: 'Protokoll', path: '/audit', Icon: HistoryIcon },
 ]
 
@@ -109,14 +109,37 @@ export default function NavBar() {
     <>
       <AppBar position="sticky" elevation={0} sx={{ bgcolor: '#002147', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
         <Toolbar sx={{ gap: 0.5 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mr: 3, cursor: 'pointer' }}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mr: 3, cursor: 'pointer' }}
             onClick={() => navigate('/')}>
-            <Box sx={{ width: 32, height: 32, borderRadius: 1, bgcolor: '#ffd700', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Typography sx={{ fontWeight: 900, color: '#002147', fontSize: 16, lineHeight: 1 }}>B</Typography>
+            <Box sx={{
+              display: { xs: 'none', sm: 'flex' },
+              alignItems: 'center',
+              bgcolor: '#ffffff',
+              borderRadius: 1,
+              px: 0.75,
+              py: 0.25,
+            }}>
+              <Box
+                component="img"
+                src="/bamf-logo.png"
+                alt="BAMF Logo"
+                sx={{ height: 28, width: 'auto' }}
+              />
             </Box>
-            <Typography variant="h6" sx={{ fontWeight: 800, letterSpacing: '-0.5px', display: { xs: 'none', sm: 'block' } }}>
-              BorderCapControl
-            </Typography>
+            <Box sx={{ display: { xs: 'flex', sm: 'none' }, alignItems: 'center', justifyContent: 'center',
+              width: 32, height: 32, borderRadius: 1, bgcolor: '#ffd700' }}>
+              <Typography sx={{ fontWeight: 900, color: '#002147', fontSize: 14, lineHeight: 1 }}>B</Typography>
+            </Box>
+            <Box>
+              <Typography variant="subtitle2" sx={{ fontWeight: 800, letterSpacing: '-0.3px', lineHeight: 1.1,
+                display: { xs: 'none', md: 'block' } }}>
+                BAMF BorderCapControl
+              </Typography>
+              <Typography variant="caption" sx={{ opacity: 0.6, display: { xs: 'none', md: 'block' },
+                fontSize: 9, letterSpacing: 0.3 }}>
+                Kapazitäts- &amp; Belegungsplanung
+              </Typography>
+            </Box>
           </Box>
 
           {NAV_LINKS.map((link) => {
@@ -135,23 +158,6 @@ export default function NavBar() {
             )
           })}
 
-          {(roles.includes('location-admin') || roles.includes('system-admin')) &&
-            ADMIN_NAV_LINKS.map((link) => {
-              const active = location.pathname === link.path
-              return (
-                <Button key={link.path} color="inherit" onClick={() => navigate(link.path)}
-                  startIcon={<link.Icon sx={{ fontSize: 18 }} />}
-                  sx={{
-                    fontWeight: active ? 700 : 400,
-                    bgcolor: active ? 'rgba(255,255,255,0.12)' : 'transparent',
-                    borderRadius: 1.5, px: 1.5,
-                    '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' }, fontSize: 13,
-                  }}>
-                  {link.label}
-                </Button>
-              )
-            })
-          }
 
           <Box sx={{ flexGrow: 1 }} />
 
@@ -174,6 +180,23 @@ export default function NavBar() {
               <SearchIcon />
             </IconButton>
           </Tooltip>
+
+          {/* Support */}
+          {SUPPORT_URL && (
+            <Tooltip title="Support-Portal öffnen">
+              <IconButton
+                color="inherit"
+                component="a"
+                href={SUPPORT_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                sx={{ borderRadius: 1.5 }}
+                aria-label="Support-Portal"
+              >
+                <SupportIcon />
+              </IconButton>
+            </Tooltip>
+          )}
 
           {/* Hilfe */}
           <Tooltip title="Hilfe & Benutzerhandbuch">

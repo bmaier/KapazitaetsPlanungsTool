@@ -3,12 +3,16 @@ import { createTheme, ThemeProvider } from '@mui/material/styles'
 import { Box, CircularProgress, CssBaseline } from '@mui/material'
 import { KeycloakProvider, useKeycloak } from './auth/KeycloakProvider'
 import NavBar from './components/NavBar'
+import Footer from './components/Footer'
 import Dashboard from './pages/Dashboard'
 import Drilldown from './pages/Drilldown'
 import Reservations from './pages/Reservations'
 import SuggestionWizard from './pages/SuggestionWizard'
 import TaskInbox from './pages/TaskInbox'
 import AuditLog from './pages/AuditLog'
+import Impressum from './pages/Impressum'
+import Datenschutz from './pages/Datenschutz'
+import Lizenzen from './pages/Lizenzen'
 import { SseNotificationsProvider } from './hooks/SseNotificationsProvider'
 
 const theme = createTheme({
@@ -54,16 +58,22 @@ function AppRoutes() {
   return (
     <BrowserRouter>
       <SseNotificationsProvider>
-        <NavBar />
-        <Box sx={{ p: 0, minHeight: 'calc(100vh - 64px)' }}>
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/locations/:id" element={<Drilldown />} />
-            <Route path="/reservations" element={<Reservations />} />
-            <Route path="/tasks" element={<TaskInbox />} />
-            <Route path="/suggestions" element={<SuggestionWizard />} />
-            <Route path="/audit" element={<AuditLog />} />
-          </Routes>
+        <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+          <NavBar />
+          <Box sx={{ flex: 1 }}>
+            <Routes>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/locations/:id" element={<Drilldown />} />
+              <Route path="/reservations" element={<Reservations />} />
+              <Route path="/tasks" element={<TaskInbox />} />
+              <Route path="/suggestions" element={<SuggestionWizard />} />
+              <Route path="/audit" element={<AuditLog />} />
+              <Route path="/impressum" element={<Impressum />} />
+              <Route path="/datenschutz" element={<Datenschutz />} />
+              <Route path="/lizenzen" element={<Lizenzen />} />
+            </Routes>
+          </Box>
+          <Footer />
         </Box>
       </SseNotificationsProvider>
     </BrowserRouter>

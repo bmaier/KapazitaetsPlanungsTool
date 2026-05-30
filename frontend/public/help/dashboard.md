@@ -16,13 +16,17 @@ Die Startseite gibt eine Übersicht aller Einrichtungen mit ihrem aktuellen Bele
 
 Mit den Schaltflächen oben rechts wechseln Sie zwischen **Rasteransicht** (Kacheln) und **Kartenansicht** (Leaflet-Karte mit Farbmarkierungen je nach Auslastung).
 
-## Reservierungen-Schnellzugriff
+## Schnellzugriff eigene Einrichtung
 
-Laufende Reservierungen Ihrer Einrichtung (als anfragende oder empfangende Seite) erscheinen als kleine Chips unterhalb der Überschrift. Ein Klick öffnet die Reservierungsübersicht.
+Der **Haus-Icon** in der Navigationsleiste (nur sichtbar für einrichtungsgebundene Nutzer) springt direkt zur eigenen Einrichtungsdetail-Ansicht.
+
+## Verlegungsanfragen-Schnellzugriff
+
+Laufende Verlegungsanfragen Ihrer Einrichtung (als anfragende oder empfangende Seite) erscheinen als kleine Chips unterhalb der Überschrift. Ein Klick öffnet die Verlegungsanfragen-Übersicht.
 
 ## Neue Einrichtung anlegen (Administratoren)
 
-Der Button „Neue Einrichtung" erscheint nur für Nutzer mit der Rolle **location-admin** oder **system-admin**. Nach dem Anlegen können Räume und Betten in der Einrichtungsdetail-Ansicht verwaltet werden.
+Der Button „Neue Einrichtung" erscheint nur für Nutzer mit der Rolle **location-admin** oder **system-admin**. Nach dem Anlegen können Räume, Betten und ein Wartebereich in der Einrichtungsdetail-Ansicht verwaltet werden.
 
 **Kontingent** — Anzahl der EU-quotenrelevanten Betten. Jede Belegung startet einen 12-Wochen-Timer.
 
