@@ -383,6 +383,40 @@ Das Backend-Verzeichnis `./backend/src` ist direkt in den Container gemountet. D
 podman exec kapzitaetsplanungstool_backend_1 sh -c "cd /home/appuser/app && python3 -m alembic upgrade head"
 ```
 
+### `defaultRequiredActions` in realm-export.json — CRASHFALLE
+
+**Problem:** Das Feld `"defaultRequiredActions": [...]` existiert **nicht** in KC 24's `RealmRepresentation`. Wird es in `realm-export.json` eingetragen, bricht Keycloak beim Startup-Import mit:
+
+```
+UnrecognizedPropertyException: Unrecognized field "defaultRequiredActions"
+(class org.keycloak.representations.idm.RealmRepresentation)
+```
+
+Da Keycloak den Import bei jedem Container-Start erneut versucht, führt das zu einem **Crash-Loop** — Keycloak startet nie fertig hoch.
+
+**Korrekte Alternative:** `defaultAction: true` direkt auf den Einträgen im `requiredActions`-Array setzen:
+```json
+"requiredActions": [
+  { "alias": "UPDATE_PASSWORD", "enabled": true, "defaultAction": true, ... },
+  { "alias": "VERIFY_EMAIL",    "enabled": true, "defaultAction": true, ... }
+]
+```
+
+**Niemals** `"defaultRequiredActions"` als Top-Level-Feld in `realm-export.json` eintragen.
+
+### Keycloak REST API — kein partielles PATCH auf Realm-Ebene
+
+`PUT /admin/realms/{realm}` erwartet das **vollständige** `RealmRepresentation`-Objekt. Ein PATCH mit nur geänderten Feldern wird mit HTTP 400 abgelehnt. Korrekte Vorgehensweise:
+
+```bash
+# 1. Aktuelles Realm-Objekt holen
+CURRENT=$(curl -sf "$KC_URL/admin/realms/$REALM" -H "Authorization: Bearer $TOKEN")
+# 2. Felder patchen (z.B. per python3 -c "...")
+PATCHED=$(echo "$CURRENT" | python3 -c "import json,sys; d=json.load(sys.stdin); d['verifyEmail']=True; print(json.dumps(d))")
+# 3. Vollständiges Objekt zurückschreiben
+curl -X PUT "$KC_URL/admin/realms/$REALM" -H "..." -d "$PATCHED"
+```
+
 ---
 
 ## 5b. Person-Suche (AZR-Suche)
@@ -518,6 +552,48 @@ User-Selbstregistrierung ist deaktiviert. Alle Accounts werden ausschließlich d
 3. Erhält E-Mail mit Reset-Link (gültig 5 Minuten, konfigurierbar)
 4. Klickt Link → setzt neues Passwort → direkt eingeloggt
 
+### Passwortrichtlinie (BSI IT-Grundschutz)
+
+Die Passwortrichtlinie ist im Realm als Keycloak-Policy-String hinterlegt:
+
+```
+length(12) and upperCase(1) and lowerCase(1) and digits(1) and specialChars(1) and notUsername and notEmail and passwordHistory(5)
+```
+
+| Anforderung | Wert |
+|---|---|
+| Mindestlänge | 12 Zeichen |
+| Großbuchstaben | mindestens 1 |
+| Kleinbuchstaben | mindestens 1 |
+| Ziffern | mindestens 1 |
+| Sonderzeichen | mindestens 1 |
+| Nicht gleich Benutzername | ja |
+| Nicht gleich E-Mail | ja |
+| Passwort-History | letzte 5 Passwörter gesperrt |
+
+**Policy ist aktiv in:** `infra/keycloak/realm-export.json` → Feld `passwordPolicy`.
+
+**UI:** Beim Passwort-setzen (Update Password) erscheint die BSI-Info-Box direkt auf der Login-Seite. Sie ist im Custom-Theme `bordercap` hinterlegt: `infra/keycloak/themes/bordercap/login/login-update-password.ftl`.
+
+In Produktion setzen/prüfen: KC Admin-UI → Realm `bordercapcontrol` → Realm Settings → Sicherheit → Passwortrichtlinie.
+
+### Keycloak-Theme (bordercap)
+
+Das Custom-Theme stellt sicher, dass:
+- Die Login-Seite auf Deutsch erscheint
+- Die BSI-Policy-Box beim Passwort-setzen angezeigt wird
+- Der „Passwort vergessen"-Link sichtbar ist
+
+**Speicherort:** `infra/keycloak/themes/bordercap/`
+
+**Dev-Stack:** Das Theme-Verzeichnis ist per Volume-Mount in den KC-Container eingebunden — Änderungen wirken sofort nach Browser-Reload.
+
+**Produktion (nicht-Docker):** Das Verzeichnis `infra/keycloak/themes/bordercap/` muss in das Themes-Verzeichnis des Keycloak-Servers kopiert werden:
+```bash
+cp -r infra/keycloak/themes/bordercap/ /opt/keycloak/themes/
+```
+Danach in KC Admin-UI → Realm `bordercapcontrol` → Realm Settings → Themes → Login-Theme: `bordercap` auswählen → Speichern.
+
 ### SMTP-Konfiguration
 
 #### Entwicklung (Dev-Stack)
@@ -554,3 +630,4 @@ Unterstützte Protokolle: STARTTLS (Port 587, z.B. Office 365), SSL/TLS (Port 46
 | 2026-05-27 | 1.3 | Geschlechts-Label-Sperre implementiert, Keycloak system-admin ohne location_id, loc_admin für alle 4 Standorte |
 | 2026-05-29 | 1.4 | Fachliche Protokollierung: Audit-Log mit Akteur-Felder, CSV-Export, DSGVO-Löschung, Protokoll-UI |
 | 2026-05-30 | 1.5 | E-Mail-Onboarding: SMTP/Mailpit, VERIFY_EMAIL + UPDATE_PASSWORD als Default Required Actions, Admin-Workflow, Prod-SMTP-Konfiguration |
+| 2026-05-30 | 1.6 | Fallstricke: defaultRequiredActions-Crash KC24, kein partielles Realm-PATCH; BSI-Passwortrichtlinie + bordercap-Theme-Deployment dokumentiert |

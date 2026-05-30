@@ -478,10 +478,6 @@
     "replyToDisplayName": ""
   },
   "verifyEmail": true,
-  "defaultRequiredActions": [
-    "VERIFY_EMAIL",
-    "UPDATE_PASSWORD"
-  ],
   "requiredActions": [
     {
       "alias": "CONFIGURE_TOTP",

@@ -32,6 +32,21 @@ Das Skript:
 - Aktiviert E-Mail-Verifizierung und Passwort-Reset
 - Setzt `VERIFY_EMAIL` + `UPDATE_PASSWORD` als Pflichtaktionen für neue User
 
+### Schritt 2b: Bordercap-Theme deployen
+
+Das Custom-Theme liefert die deutsche Login-Seite, BSI-Policy-Box beim Passwort-setzen und den „Passwort vergessen"-Link.
+
+```bash
+# Theme in den Keycloak-Themes-Ordner kopieren
+cp -r infra/keycloak/themes/bordercap/ /opt/keycloak/themes/
+```
+
+Danach in der Keycloak Admin-UI:
+`Realm bordercapcontrol → Realm Settings → Themes → Login-Theme: bordercap → Speichern`
+
+> Keycloak muss nach dem Kopieren **nicht** neu gestartet werden — Themes werden beim nächsten Seitenaufruf geladen.  
+> Falls Änderungen an `.ftl`-Templates gemacht wurden: KC Admin-UI → `bordercapcontrol` → Realm Settings → Themes → Login-Theme neu setzen (leert den Theme-Cache).
+
 ### Schritt 3: Rollen anlegen
 
 ```bash
@@ -230,6 +245,100 @@ Oder interaktiv (ohne Parameter): `./setup-prod-user.sh`
 
 ---
 
+## Betriebsprozesse
+
+### Neuen Mitarbeiter anlegen (Regelbetrieb)
+
+```bash
+./setup-prod-user.sh \
+  --username vorname.nachname \
+  --email vorname.nachname@behoerde.de \
+  --firstname Vorname \
+  --lastname Nachname \
+  --role writer \
+  --location-id "UUID-der-Einrichtung"
+```
+
+Der Nutzer erhält sofort die Onboarding-E-Mail und setzt sein Passwort selbst.
+
+### Passwort-Reset für einen Nutzer auslösen
+
+```bash
+# User-ID ermitteln
+TOKEN=$(curl -sf -X POST "$KC_URL/realms/master/protocol/openid-connect/token" \
+  -d "grant_type=password&client_id=admin-cli&username=$KC_ADMIN&password=$KC_ADMIN_PW" \
+  | jq -r '.access_token')
+
+USER_ID=$(curl -sf "$KC_URL/admin/realms/bordercapcontrol/users?username=max.mustermann&exact=true" \
+  -H "Authorization: Bearer $TOKEN" | jq -r '.[0].id')
+
+# Reset-E-Mail senden
+curl -sf -X PUT \
+  "$KC_URL/admin/realms/bordercapcontrol/users/$USER_ID/execute-actions-email" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '["UPDATE_PASSWORD"]'
+```
+
+Alternativ: KC Admin-UI → Users → Nutzer auswählen → Aktionen → „Passwort zurücksetzen"-E-Mail senden.
+
+### Standort eines Nutzers ändern
+
+KC Admin-UI → Users → Nutzer auswählen → Tab „Attributes" → Wert von `location_id` anpassen → Speichern.
+
+Der Nutzer muss sich danach neu einloggen (Token-Cache verfällt nach max. 5 Minuten).
+
+### Abgelaufenen Onboarding-Link erneuern
+
+Onboarding-Links sind 12 Stunden gültig. Falls ein Nutzer den Link verpasst hat:
+
+KC Admin-UI → Users → Nutzer auswählen → Aktionen → „Verifizierungs-E-Mail senden"
+
+Oder per Skript (wie `setup-prod-user.sh`, Schritt 3/4).
+
+### Nutzer sperren / entsperren
+
+**Sperren:** KC Admin-UI → Users → Nutzer auswählen → Tab „Details" → „Aktiviert" deaktivieren → Speichern.
+
+**Entsperren (nach Brute-Force-Sperre):** KC Admin-UI → Users → Nutzer auswählen → Tab „Details" → Schaltfläche „Brute-Force-Sperre aufheben".
+
+### Passwortrichtlinie prüfen / anpassen
+
+KC Admin-UI → Realm `bordercapcontrol` → Realm Settings → Sicherheit → Passwortrichtlinie.
+
+Aktuelle BSI-Policy:
+```
+length(12) and upperCase(1) and lowerCase(1) and digits(1) and specialChars(1) and notUsername and notEmail and passwordHistory(5)
+```
+
+Änderungen wirken sofort für neue Passwort-Setzungen (nicht für bestehende Passwörter).
+
+### Realm-Konfiguration aktualisieren (ohne Container-Neustart)
+
+Realm-Einstellungen können jederzeit über die KC Admin-UI geändert werden, ohne Neustart:
+- Realm Settings → Tokens → Lifespan-Werte anpassen
+- Realm Settings → E-Mail → SMTP-Zugangsdaten aktualisieren
+- Authentication → Required Actions → Aktionen aktivieren/deaktivieren
+
+### Keycloak startet nicht (Crash-Loop)
+
+**Ursache prüfen:**
+```bash
+docker logs <keycloak-container> --tail 50
+```
+
+**Häufigste Ursache: Ungültiges Feld in realm-export.json**
+Wenn der Log `UnrecognizedPropertyException` auf `realm-export.json` zeigt: Ungültiges Feld entfernen. Insbesondere `"defaultRequiredActions"` ist in KC 24 kein gültiges Top-Level-Feld — stattdessen `"defaultAction": true` auf den einzelnen `requiredActions`-Einträgen setzen. Siehe auch KONZEPT.md §9.
+
+**Nach Fix:** Container neu starten:
+```bash
+docker restart <keycloak-container>
+# oder mit docker compose:
+docker compose restart keycloak
+```
+
+---
+
 ## Häufige Probleme
 
 **E-Mail kommt nicht an:**
@@ -248,3 +357,8 @@ Oder interaktiv (ohne Parameter): `./setup-prod-user.sh`
 **Bestehende Docker-Dev-User in realm-export.json:**
 - Die 14 Demo-User (azr-user-*, admin@*, etc.) können im Prod-Realm gelöscht werden
 - KC Admin-UI → Users → alle Demo-User markieren → Löschen
+
+**Nutzer sieht keine Einrichtungsdaten nach Login:**
+- `location_id`-Attribut fehlt oder ist falsch gesetzt: KC Admin-UI → Users → Nutzer → Tab „Attributes"
+- Nutzer muss sich neu einloggen damit der neue JWT-Token greift
+- `system-admin` braucht keine `location_id` — alle anderen Rollen schon
