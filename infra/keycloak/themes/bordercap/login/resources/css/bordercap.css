@@ -164,19 +164,85 @@ body {
 }
 
 /* ── "Passwort vergessen"-Link ── */
+#kc-form-options {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  margin: 12px 0 4px !important;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+#kc-form-options span,
+#kc-form-options .kcFormOptionsWrapperClass,
+.login-pf-settings {
+  margin-left: auto !important;
+}
+
 #kc-form-options a,
-.login-pf a {
+#kc-form-options span a,
+.login-pf-settings a,
+.login-pf a,
+a#kc-forgot-password,
+[data-testid="forgot-password"] {
   color: #1a5276 !important;
   font-size: 13px !important;
   text-decoration: none !important;
-  font-weight: 500;
+  font-weight: 600 !important;
+  display: inline-block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
 }
 
 #kc-form-options a:hover,
-.login-pf a:hover {
+.login-pf-settings a:hover {
   color: #003366 !important;
   text-decoration: underline !important;
 }
+
+/* ── Passwort-Policy-Infobox (BSI) ── */
+#kc-form .kc-feedback-text,
+.pf-v5-c-helper-text,
+#kc-password-hint,
+.password-policy-hint {
+  background: #e8f4fd !important;
+  border: 1px solid #b3d7f0 !important;
+  border-radius: 8px !important;
+  padding: 12px 16px !important;
+  margin: 8px 0 12px !important;
+  font-size: 12px !important;
+  color: #1a3f5c !important;
+  line-height: 1.6 !important;
+}
+
+#kc-form .kc-feedback-text li,
+.password-policy-hint li {
+  margin-left: 16px !important;
+  list-style: disc !important;
+}
+
+/* BSI-Hinweisbox über dem Passwort-Feld */
+.bsi-policy-info {
+  background: #e8f4fd;
+  border-left: 4px solid #003366;
+  border-radius: 0 8px 8px 0;
+  padding: 10px 14px;
+  margin: 4px 0 14px;
+  font-size: 12px;
+  color: #1a3f5c;
+  line-height: 1.6;
+}
+.bsi-policy-info strong {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #003366;
+  margin-bottom: 4px;
+  font-weight: 700;
+}
+.bsi-policy-info ul { margin: 0; padding-left: 16px; }
+.bsi-policy-info li { margin-bottom: 1px; }
 
 /* ── Divider / Trennlinie ── */
 .login-pf hr {

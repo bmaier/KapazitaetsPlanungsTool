@@ -497,7 +497,9 @@ User-Selbstregistrierung ist deaktiviert. Alle Accounts werden ausschließlich d
 1. **Admin** öffnet Keycloak Admin-UI → Realm `bordercapcontrol` → Users → „Benutzer erstellen"
 2. **Pflichtfelder:** Username, E-Mail-Adresse, Vorname, Nachname
 3. **Rolle zuweisen:** Role Mappings → gewünschte Realm-Rolle (`reader`, `writer`, `location-admin`)
-4. **Optional — Standort zuweisen:** User-Attribut `location_id` setzen (UUID der Einrichtung)
+4. **Standort zuweisen (Pflicht für location-admin/writer/reader):** Tab „Attributes" → Key: `location_id`, Value: UUID der Einrichtung
+   - UUID ermitteln: `./infra/keycloak/list-locations.sh` oder Dashboard-URL `/locations/{UUID}`
+   - `system-admin` bekommt **keine** `location_id` — hat automatisch Zugriff auf alle Einrichtungen
 5. **Setup-Link senden:** Aktionen → „Verifizierungs-E-Mail senden"
    - Keycloak sendet E-Mail mit persönlichem Einmal-Link an die hinterlegte Adresse
    - Link ist 12 Stunden gültig (konfigurierbar: Realm Settings → Tokens → Action Token Lifespan)

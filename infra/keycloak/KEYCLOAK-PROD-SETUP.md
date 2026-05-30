@@ -58,7 +58,28 @@ export KC_SMTP_SSL="false"
 **Alternativ in Keycloak Admin-UI:**
 `Realm bordercapcontrol → Realm Settings → E-Mail → Werte eintragen → „Verbindung testen"`
 
-### Schritt 5: Ersten Admin-User anlegen
+### Schritt 5: Einrichtungs-IDs ermitteln (für standortgebundene Rollen)
+
+Bevor Nutzer mit Standortbindung angelegt werden, müssen die UUIDs der Einrichtungen aus der Datenbank abgerufen werden:
+
+```bash
+./list-locations.sh
+```
+
+Ausgabe (Beispiel):
+```
+  3fa85f64-5717-4562-b3fc-2c963f66afa6   Frankfurt Ankunftszentrum   ✓ aktiv
+  7c9e6679-7425-40de-944b-e07fc1f90ae7   Hamburg Erstaufnahme        ✓ aktiv
+  ...
+```
+
+Diese UUIDs werden als `location_id`-Attribut beim User hinterlegt.
+
+> **Wichtig — Rollenlogik:**
+> - `system-admin` → **keine** `location_id` — hat Vollzugriff auf alle Einrichtungen
+> - `location-admin`, `writer`, `reader` → **muss** `location_id` gesetzt haben, sonst sieht der User keine Einrichtungsdaten
+
+### Schritt 6: Ersten System-Admin anlegen
 
 ```bash
 ./setup-prod-user.sh \
@@ -70,6 +91,28 @@ export KC_SMTP_SSL="false"
 ```
 
 Der User erhält sofort eine Onboarding-E-Mail und kann sein Passwort selbst setzen.
+
+### Schritt 7: Einrichtungs-Admins und Sachbearbeiter anlegen
+
+```bash
+# Einrichtungs-Admin für Frankfurt:
+./setup-prod-user.sh \
+  --username max.mustermann \
+  --email max.mustermann@behoerde.de \
+  --firstname Max \
+  --lastname Mustermann \
+  --role location-admin \
+  --location-id 3fa85f64-5717-4562-b3fc-2c963f66afa6   # UUID aus list-locations.sh
+
+# Sachbearbeiter (writer) für Hamburg:
+./setup-prod-user.sh \
+  --username erika.musterfrau \
+  --email erika.musterfrau@behoerde.de \
+  --firstname Erika \
+  --lastname Musterfrau \
+  --role writer \
+  --location-id 7c9e6679-7425-40de-944b-e07fc1f90ae7
+```
 
 ---
 
@@ -128,14 +171,32 @@ Realm `bordercapcontrol` → Realm-Rollen → „Rolle erstellen":
 - `location-admin` — Einrichtungs-Admin
 - `system-admin` — Vollzugriff
 
-### 6. Ersten User anlegen
+### 6. User anlegen
 
 Users → „Benutzer erstellen":
 1. Username, E-Mail, Vor-/Nachname eintragen
 2. „Erstellen" klicken
-3. Tab „Rollen" → Rolle zuweisen
-4. Tab „Attribute" → `location_id` setzen (wenn kein system-admin)
-5. Aktionen-Dropdown → „Verifizierungs-E-Mail senden"
+3. Tab **„Role mapping"** → Rolle zuweisen (reader / writer / location-admin / system-admin)
+4. Tab **„Attributes"** → `location_id` eintragen (nur für standortgebundene Rollen, **nicht** für system-admin):
+   - Key: `location_id`
+   - Value: UUID der Einrichtung (ermitteln via `./list-locations.sh` oder direkt in der DB)
+5. Speichern
+6. Tab **„Details"** → Feld „Required user actions": `Update Password` + `Verify Email` auswählen → Speichern
+7. Aktionen-Dropdown → **„Send verification email"**
+
+**Wo finde ich die Einrichtungs-UUID?**
+- Skript: `./list-locations.sh` (braucht `psql`-Client und DB-Zugang)
+- Datenbank direkt: `SELECT id, name FROM capacity.locations WHERE is_active = true ORDER BY name;`
+- Anwendung: Dashboard → Einrichtung anklicken → UUID steht in der Browser-URL `/locations/{UUID}`
+
+**Rollenlogik für location_id:**
+
+| Rolle | location_id | Zugriff |
+|-------|-------------|---------|
+| `system-admin` | **nicht setzen** | Alle Einrichtungen |
+| `location-admin` | UUID der Einrichtung | Nur diese Einrichtung |
+| `writer` | UUID der Einrichtung | Nur diese Einrichtung |
+| `reader` | UUID der Einrichtung (optional) | Nur diese Einrichtung |
 
 ---
 

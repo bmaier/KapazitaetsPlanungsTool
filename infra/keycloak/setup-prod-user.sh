@@ -52,11 +52,30 @@ prompt FIRSTNAME "Vorname"
 prompt LASTNAME  "Nachname"
 prompt ROLE      "Rolle (reader|writer|location-admin|system-admin)"
 
+# location_id: Für location-admin und writer empfohlen, für system-admin NICHT setzen
+if [ -z "$LOCATION_ID" ] && [ "$ROLE" != "system-admin" ] && [ "$ROLE" != "reader" ]; then
+  echo ""
+  echo " Einrichtungs-ID (location_id) — für Rolle '$ROLE' erforderlich."
+  echo " Die UUID findest du mit: ./list-locations.sh"
+  echo " (leer lassen → kein Standort-Kontext, User sieht keine Einrichtungsdaten)"
+  read -rp " location_id (UUID, leer = kein Standort): " LOCATION_ID
+fi
+# system-admin darf keine location_id haben (hat Vollzugriff über alle Standorte)
+if [ "$ROLE" = "system-admin" ] && [ -n "$LOCATION_ID" ]; then
+  echo " ⚠ system-admin darf keine location_id haben — wird ignoriert."
+  LOCATION_ID=""
+fi
+
 echo ""
 echo "=============================================="
 echo " Lege User an: $USERNAME ($EMAIL)"
 echo " Rolle: $ROLE"
-[ -n "$LOCATION_ID" ] && echo " Standort-ID: $LOCATION_ID"
+if [ -n "$LOCATION_ID" ]; then
+  echo " Standort-ID: $LOCATION_ID"
+else
+  [ "$ROLE" = "system-admin" ] && echo " Standort: (keiner — system-admin hat Vollzugriff)" \
+    || echo " Standort: (kein Standort-Kontext)"
+fi
 echo "=============================================="
 
 # Admin-Token

@@ -10,7 +10,7 @@
   "resetPasswordAllowed": true,
   "editUsernameAllowed": false,
   "bruteForceProtected": false,
-  "passwordPolicy": "length(1)",
+  "passwordPolicy": "length(12) and upperCase(1) and lowerCase(1) and digits(1) and specialChars(1) and notUsername and notEmail and passwordHistory(5)",
   "roles": {
     "realm": [
       {
@@ -186,7 +186,7 @@
       "firstName": "Sachbearbeiter",
       "lastName": "Frankfurt",
       "enabled": true,
-      "emailVerified": false,
+      "emailVerified": true,
       "attributes": {
         "location_id": [
           "a1b2c3d4-0001-0001-0001-000000000001"
@@ -212,7 +212,7 @@
       "firstName": "Sachbearbeiter",
       "lastName": "München",
       "enabled": true,
-      "emailVerified": false,
+      "emailVerified": true,
       "attributes": {
         "location_id": [
           "a1b2c3d4-0002-0002-0002-000000000002"
@@ -238,7 +238,7 @@
       "firstName": "Sachbearbeiter",
       "lastName": "Passau",
       "enabled": true,
-      "emailVerified": false,
+      "emailVerified": true,
       "attributes": {
         "location_id": [
           "a1b2c3d4-0003-0003-0003-000000000003"
@@ -264,7 +264,7 @@
       "firstName": "Sachbearbeiter",
       "lastName": "Hamburg",
       "enabled": true,
-      "emailVerified": false,
+      "emailVerified": true,
       "attributes": {
         "location_id": [
           "a1b2c3d4-0004-0004-0004-000000000004"
@@ -290,7 +290,7 @@
       "firstName": "Standort-Admin",
       "lastName": "Frankfurt",
       "enabled": true,
-      "emailVerified": false,
+      "emailVerified": true,
       "attributes": {
         "location_id": [
           "a1b2c3d4-0001-0001-0001-000000000001"
@@ -316,7 +316,7 @@
       "firstName": "Standort-Admin",
       "lastName": "München",
       "enabled": true,
-      "emailVerified": false,
+      "emailVerified": true,
       "attributes": {
         "location_id": [
           "a1b2c3d4-0002-0002-0002-000000000002"
@@ -342,7 +342,7 @@
       "firstName": "Standort-Admin",
       "lastName": "Passau",
       "enabled": true,
-      "emailVerified": false,
+      "emailVerified": true,
       "attributes": {
         "location_id": [
           "a1b2c3d4-0003-0003-0003-000000000003"
@@ -368,7 +368,7 @@
       "firstName": "Standort-Admin",
       "lastName": "Hamburg",
       "enabled": true,
-      "emailVerified": false,
+      "emailVerified": true,
       "attributes": {
         "location_id": [
           "a1b2c3d4-0004-0004-0004-000000000004"
@@ -394,7 +394,7 @@
       "firstName": "Sachbearbeiter",
       "lastName": "Kiefersfelden",
       "enabled": true,
-      "emailVerified": false,
+      "emailVerified": true,
       "attributes": {
         "location_id": [
           "a1b2c3d4-0005-0005-0005-000000000005"
@@ -420,7 +420,7 @@
       "firstName": "Standort-Admin",
       "lastName": "Kiefersfelden",
       "enabled": true,
-      "emailVerified": false,
+      "emailVerified": true,
       "attributes": {
         "location_id": [
           "a1b2c3d4-0005-0005-0005-000000000005"
@@ -446,7 +446,7 @@
       "firstName": "Leser",
       "lastName": "Bund",
       "enabled": true,
-      "emailVerified": false,
+      "emailVerified": true,
       "attributes": {
         "location_id": [
           "a1b2c3d4-0001-0001-0001-000000000001"
