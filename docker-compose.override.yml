@@ -6,6 +6,7 @@
 #   5432  → PostgreSQL
 #   8000  → Backend API (Uvicorn + WatchFiles Hot-Reload)
 #   8001  → SKOS Codelisten
+#   8025  → Mailpit WebUI (Dev-Mail-Catcher, http://localhost:8025)
 #   8080  → Keycloak Admin-UI
 #   8082  → Tileserver
 #
@@ -20,6 +21,20 @@ volumes:
   frontend_node_modules:
 
 services:
+
+  # ---------------------------------------------------------------------------
+  # Mailpit — Dev-Mail-Catcher (fängt alle von Keycloak gesendeten E-Mails ab)
+  # WebUI:  http://localhost:8025
+  # SMTP:   mailpit:1025 (intern, kein Auth)
+  # ---------------------------------------------------------------------------
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "8025:8025"   # WebUI
+      - "1025:1025"   # SMTP (intern → Keycloak)
+    networks:
+      - bordercap_net
+    restart: unless-stopped
 
   postgres:
     ports:

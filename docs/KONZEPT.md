@@ -486,6 +486,62 @@ Jeder Eintrag in `audit.events` enthält:
 
 ---
 
+## 7c. Benutzerverwaltung & E-Mail-Onboarding
+
+### Prinzip: Admin-only User-Anlage
+
+User-Selbstregistrierung ist deaktiviert. Alle Accounts werden ausschließlich durch Keycloak-Admins angelegt.
+
+### Onboarding-Workflow (Admin → neuer Mitarbeiter)
+
+1. **Admin** öffnet Keycloak Admin-UI → Realm `bordercapcontrol` → Users → „Benutzer erstellen"
+2. **Pflichtfelder:** Username, E-Mail-Adresse, Vorname, Nachname
+3. **Rolle zuweisen:** Role Mappings → gewünschte Realm-Rolle (`reader`, `writer`, `location-admin`)
+4. **Optional — Standort zuweisen:** User-Attribut `location_id` setzen (UUID der Einrichtung)
+5. **Setup-Link senden:** Aktionen → „Verifizierungs-E-Mail senden"
+   - Keycloak sendet E-Mail mit persönlichem Einmal-Link an die hinterlegte Adresse
+   - Link ist 12 Stunden gültig (konfigurierbar: Realm Settings → Tokens → Action Token Lifespan)
+
+### Erster Login (Mitarbeiter)
+
+1. Mitarbeiter klickt Link in der E-Mail
+2. Keycloak fordert **neues Passwort vergeben** (Required Action: UPDATE_PASSWORD)
+3. Keycloak fordert **E-Mail-Adresse bestätigen** (Required Action: VERIFY_EMAIL — zweite E-Mail mit Bestätigungslink)
+4. Nach Abschluss: Weiterleitung zur Anwendung, normaler Login
+
+### Passwort vergessen / Reset
+
+1. User klickt auf Login-Seite „Passwort vergessen"
+2. Gibt seine E-Mail-Adresse ein
+3. Erhält E-Mail mit Reset-Link (gültig 5 Minuten, konfigurierbar)
+4. Klickt Link → setzt neues Passwort → direkt eingeloggt
+
+### SMTP-Konfiguration
+
+#### Entwicklung (Dev-Stack)
+
+Im Dev-Stack fängt **Mailpit** alle gesendeten E-Mails ab — kein echter SMTP-Server nötig.
+
+- **WebUI:** http://localhost:8025 — alle E-Mails werden hier angezeigt
+- **SMTP-Config:** voreingestellt in `infra/keycloak/realm-export.json` (host: mailpit, port: 1025)
+- Mailpit startet automatisch mit `make dev`
+
+#### Produktion
+
+SMTP muss nach Erstdeployment einmalig konfiguriert werden:
+
+**Option A — Keycloak Admin-UI (empfohlen):**
+Keycloak Admin-UI → Realm `bordercapcontrol` → Realm Settings → E-Mail → SMTP-Zugangsdaten eintragen → „Verbindung testen"
+
+**Option B — Umgebungsvariablen:**
+In `.env` die `KC_SMTP_*`-Variablen setzen (siehe `.env.example`). Diese werden beim Container-Start an Keycloak übergeben.
+
+Unterstützte Protokolle: STARTTLS (Port 587, z.B. Office 365), SSL/TLS (Port 465), unverschlüsselt (Port 25, nur interner Relay).
+
+> **Hinweis:** realm-export.json enthält **keine** SMTP-Zugangsdaten — nur die Dev-Mailpit-Verbindung. Produktive Credentials werden ausschließlich über die KC Admin-UI oder Env-Vars konfiguriert und verlassen nicht das Deployment-System.
+
+---
+
 ## 12. Änderungshistorie
 
 | Datum | Version | Inhalt |
@@ -495,3 +551,4 @@ Jeder Eintrag in `audit.events` enthält:
 | 2026-05-27 | 1.2 | system-admin Reservierungs-Vollzugriff, bed valid_from API+UI, SSE-Refresh Drilldown, Einschränkungen bereinigt |
 | 2026-05-27 | 1.3 | Geschlechts-Label-Sperre implementiert, Keycloak system-admin ohne location_id, loc_admin für alle 4 Standorte |
 | 2026-05-29 | 1.4 | Fachliche Protokollierung: Audit-Log mit Akteur-Felder, CSV-Export, DSGVO-Löschung, Protokoll-UI |
+| 2026-05-30 | 1.5 | E-Mail-Onboarding: SMTP/Mailpit, VERIFY_EMAIL + UPDATE_PASSWORD als Default Required Actions, Admin-Workflow, Prod-SMTP-Konfiguration |
