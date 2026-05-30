@@ -111,13 +111,23 @@ fi
 # 3. E-Mail-Verifizierung + Passwort-Reset aktivieren
 # ---------------------------------------------------------------------------
 echo "[3/6] Aktiviere verifyEmail + resetPasswordAllowed..."
-kc_api PUT "" -d '{
-  "verifyEmail": true,
-  "resetPasswordAllowed": true,
-  "registrationAllowed": false,
-  "defaultRequiredActions": ["VERIFY_EMAIL", "UPDATE_PASSWORD"]
-}'
-echo "   ✓ Realm-Settings aktualisiert"
+# KC REST-API erfordert vollständiges Realm-Objekt beim PUT — Felder einzeln patchen
+CURRENT_REALM=$(curl -sf "$KC_URL/admin/realms/$REALM" \
+  -H "Authorization: Bearer $ACCESS_TOKEN")
+PATCHED_REALM=$(echo "$CURRENT_REALM" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+d['verifyEmail'] = True
+d['resetPasswordAllowed'] = True
+d['registrationAllowed'] = False
+print(json.dumps(d))
+")
+HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
+  "$KC_URL/admin/realms/$REALM" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "$PATCHED_REALM")
+[ "$HTTP" = "204" ] && echo "   ✓ Realm-Settings aktualisiert" || echo "   ⚠ Realm-PUT HTTP $HTTP"
 
 # ---------------------------------------------------------------------------
 # 4. Required Actions konfigurieren
@@ -174,20 +184,30 @@ if [ -n "$KC_SMTP_HOST" ] && [ -n "$KC_SMTP_FROM" ]; then
   AUTH_VALUE="false"
   if [ -n "$KC_SMTP_USER" ]; then AUTH_VALUE="true"; fi
 
-  kc_api PUT "" -d "{
-    \"smtpServer\": {
-      \"host\": \"$KC_SMTP_HOST\",
-      \"port\": \"$KC_SMTP_PORT\",
-      \"from\": \"$KC_SMTP_FROM\",
-      \"fromDisplayName\": \"$KC_SMTP_FROM_DISPLAY\",
-      \"ssl\": \"$KC_SMTP_SSL\",
-      \"starttls\": \"$KC_SMTP_STARTTLS\",
-      \"auth\": \"$AUTH_VALUE\",
-      \"user\": \"$KC_SMTP_USER\",
-      \"password\": \"$KC_SMTP_PASSWORD\"
-    }
-  }"
-  echo "   ✓ SMTP konfiguriert: $KC_SMTP_HOST:$KC_SMTP_PORT"
+  CURRENT_REALM2=$(curl -sf "$KC_URL/admin/realms/$REALM" \
+    -H "Authorization: Bearer $ACCESS_TOKEN")
+  PATCHED_SMTP=$(echo "$CURRENT_REALM2" | python3 -c "
+import json, sys, os
+d = json.load(sys.stdin)
+d['smtpServer'] = {
+  'host': os.environ['KC_SMTP_HOST'],
+  'port': os.environ['KC_SMTP_PORT'],
+  'from': os.environ['KC_SMTP_FROM'],
+  'fromDisplayName': os.environ.get('KC_SMTP_FROM_DISPLAY', 'BorderCapControl'),
+  'ssl': os.environ.get('KC_SMTP_SSL', 'false'),
+  'starttls': os.environ.get('KC_SMTP_STARTTLS', 'true'),
+  'auth': '$AUTH_VALUE',
+  'user': os.environ.get('KC_SMTP_USER', ''),
+  'password': os.environ.get('KC_SMTP_PASSWORD', ''),
+}
+print(json.dumps(d))
+")
+  HTTP_SMTP=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
+    "$KC_URL/admin/realms/$REALM" \
+    -H "Authorization: Bearer $ACCESS_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "$PATCHED_SMTP")
+  [ "$HTTP_SMTP" = "204" ] && echo "   ✓ SMTP konfiguriert: $KC_SMTP_HOST:$KC_SMTP_PORT" || echo "   ⚠ SMTP-PUT HTTP $HTTP_SMTP"
 else
   echo "   ⚠ KC_SMTP_HOST / KC_SMTP_FROM nicht gesetzt — SMTP übersprungen"
   echo "     Bitte SMTP manuell in Keycloak Admin-UI konfigurieren:"
