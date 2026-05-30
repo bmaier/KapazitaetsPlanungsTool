@@ -829,8 +829,8 @@ export default function Drilldown() {
       })
       loadBedStatus()
       setSnackbar({ open: true, message: 'Belegungszeitraum aktualisiert.', severity: 'success' })
-    } catch {
-      setSnackbar({ open: true, message: 'Zeitraum konnte nicht aktualisiert werden.', severity: 'error' })
+    } catch (err: unknown) {
+      setSnackbar({ open: true, message: extractApiError(err), severity: 'error' })
     } finally {
       setManagePeriodSaving(false)
     }

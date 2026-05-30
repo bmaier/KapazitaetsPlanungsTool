@@ -1254,7 +1254,47 @@ async def update_occupancy_period(
     session: AsyncSession = Depends(get_session),
     user: UserContext = Depends(get_current_user),
 ):
-    """Aktualisiert Start- und Enddatum einer bestehenden Belegung."""
+    """Aktualisiert Start- und Enddatum einer bestehenden Belegung.
+
+    Prüft vorab, ob für das Bett eine offene Reservierungsanfrage (PENDING)
+    oder bestätigte Reservierung (CONFIRMED) existiert, deren Zeitraum mit
+    dem neuen Enddatum kollidiert. In diesem Fall wird 409 zurückgegeben.
+    """
+    # 1. Bett-ID der Belegung ermitteln
+    occ_row = (await session.execute(
+        text("SELECT bed_id FROM persons.occupants WHERE id = :id"),
+        {"id": str(occupancy_id)},
+    )).fetchone()
+    if not occ_row:
+        raise HTTPException(status_code=404, detail="Belegung nicht gefunden")
+
+    bed_id = str(occ_row.bed_id)
+
+    # 2. Konfliktprüfung: offene/bestätigte Reservierungen für dieses Bett
+    conflict_row = (await session.execute(
+        text("""
+            SELECT MIN(belegung_start) AS earliest_start
+            FROM reservations.requests
+            WHERE status IN ('PENDING', 'CONFIRMED')
+              AND belegung_start <= :new_ende
+              AND (suggested_bed_id = CAST(:bed_id AS UUID)
+                   OR confirmed_bed_id = CAST(:bed_id AS UUID))
+        """),
+        {"new_ende": body.belegung_ende, "bed_id": bed_id},
+    )).fetchone()
+
+    if conflict_row and conflict_row.earliest_start is not None:
+        conflict_date = conflict_row.earliest_start.strftime("%d.%m.%Y")
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Für dieses Bett liegt ab {conflict_date} eine offene Reservierungsanfrage "
+                f"oder Bestätigung vor. Das Enddatum darf {conflict_date} nicht erreichen oder "
+                f"überschreiten. Bitte am {conflict_date} eine manuelle Umbuchung vornehmen."
+            ),
+        )
+
+    # 3. Zeitraum aktualisieren
     result = await session.execute(
         text(
             "UPDATE persons.occupants "
