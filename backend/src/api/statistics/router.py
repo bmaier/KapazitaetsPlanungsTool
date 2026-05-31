@@ -35,14 +35,21 @@ async def get_occupancy_statistics(
         raise HTTPException(status_code=403, detail="Zugriff auf diese Einrichtung nicht erlaubt")
 
     # Belegungshistorie via generate_series
+    interval_map = {"day": "1 day", "week": "1 week", "month": "1 month"}
+    interval_str = interval_map[granularity]
+
+    loc_id_str = str(location_id)
+    date_from_str = date_from.isoformat()
+    date_to_str = date_to.isoformat()
+
     belegung_result = await session.execute(
-        text("""
+        text(f"""
             WITH series AS (
                 SELECT gs::date AS day
                 FROM generate_series(
-                    :date_from::date,
-                    :date_to::date,
-                    ('1 ' || :granularity)::interval
+                    '{date_from_str}'::date,
+                    '{date_to_str}'::date,
+                    '{interval_str}'::interval
                 ) gs
             ),
             occ_data AS (
@@ -50,7 +57,7 @@ async def get_occupancy_statistics(
                 FROM persons.occupants o
                 JOIN capacity.beds b ON b.id = o.bed_id AND b.is_active = true
                 JOIN capacity.rooms r ON r.id = b.room_id AND r.is_active = true
-                WHERE r.location_id = :location_id::uuid
+                WHERE r.location_id = '{loc_id_str}'::uuid
             )
             SELECT
                 s.day,
@@ -66,32 +73,24 @@ async def get_occupancy_statistics(
             LEFT JOIN occ_data occ ON true
             GROUP BY s.day
             ORDER BY s.day
-        """),
-        {
-            "date_from": date_from,
-            "date_to": date_to,
-            "granularity": granularity,
-            "location_id": str(location_id),
-        },
+        """)
     )
     rows = belegung_result.mappings().all()
 
     # Kontingent History (aufsteigend sortiert für lineare Suche)
     history_result = await session.execute(
-        text("""
+        text(f"""
             SELECT kontingent_value, valid_from::date AS valid_from
             FROM capacity.kontingent_history
-            WHERE location_id = :location_id::uuid
+            WHERE location_id = '{loc_id_str}'::uuid
             ORDER BY valid_from ASC
-        """),
-        {"location_id": str(location_id)},
+        """)
     )
     history = history_result.mappings().all()
 
     # Aktuelles Kontingent als Fallback
     loc_result = await session.execute(
-        text("SELECT kontingent FROM capacity.locations WHERE id = :location_id::uuid"),
-        {"location_id": str(location_id)},
+        text(f"SELECT kontingent FROM capacity.locations WHERE id = '{loc_id_str}'::uuid")
     )
     loc_row = loc_result.fetchone()
     current_kontingent = loc_row.kontingent if loc_row else 0
