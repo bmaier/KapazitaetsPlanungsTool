@@ -2,7 +2,7 @@
 title: 'Ziel 8 — Labels-System (Räume, Betten, Belegungen)'
 type: 'feature'
 created: '2026-05-25'
-status: 'ready'
+status: 'done'
 baseline_commit: 'NO_VCS'
 context: ['spec-core-crud-api.md', 'spec-ziel4a-frontend-setup-dashboard-drilldown.md', 'spec-ziel4b-frontend-reservierungsworkflow-postkorb.md']
 ---

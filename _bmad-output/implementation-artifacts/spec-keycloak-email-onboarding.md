@@ -2,7 +2,7 @@
 title: 'Keycloak E-Mail-Onboarding: Passwort-Selbstvergabe + Reset per E-Mail'
 type: 'feature'
 created: '2026-05-30'
-status: 'in-review'
+status: 'done'
 baseline_commit: '16f5beb1ca4f35809724617cd88cea31fe5272e5'
 context: []
 ---
@@ -88,5 +88,32 @@ context: []
 - Keycloak Admin-UI → Realm bordercapcontrol → Realm Settings → E-Mail: SMTP-Host zeigt `mailpit`, Port `1025`
 - Keycloak Admin-UI → Realm bordercapcontrol → Authentication → Required Actions: VERIFY_EMAIL und UPDATE_PASSWORD sind als „Standard-Aktion" aktiviert
 - Neuen Test-User anlegen mit E-Mail → „Aktionen → Verifizierungs-E-Mail senden" → E-Mail erscheint in http://localhost:8025
+
+### Review Findings
+
+**Code Review — 2026-05-31**
+
+**Decision Needed:**
+- [x] [Review][Decision] KC_SPI_EMAIL_SENDER_DEFAULT_* Env-Vars haben in KC24 keinen Effekt — gelöst: Block aus docker-compose.yml entfernt; SMTP-Konfiguration erfolgt via setup-prod-realm.sh (REST-API)
+- [x] [Review][Decision] `defaultRequiredActions`-Feld fehlt — akzeptiert: `defaultAction: true` pro requiredAction ist die korrekte KC24-Methode, AC2 erfüllt
+- [x] [Review][Decision] 14 Demo-User emailVerified geändert — akzeptiert: Änderung war notwendig für AC4, Spec-Constraint war unvollständig
+- [x] [Review][Decision] passwordPolicy verschärft (BSI) — akzeptiert: im Scope, Demo-Passwörter bleiben (Login weiterhin möglich)
+
+**Patch:**
+- [x] [Review][Patch] `KC_SPI_EMAIL_SENDER_DEFAULT_*`-Block entfernt (toter Code in KC24) [`docker-compose.yml`]
+- [x] [Review][Patch] Port `1025:1025` Host-Binding entfernt (SMTP bleibt intern) [`docker-compose.override.yml`]
+- [x] [Review][Patch] `depends_on: mailpit: condition: service_healthy` auf keycloak ergänzt [`docker-compose.override.yml`]
+- [x] [Review][Patch] Mailpit Healthcheck ergänzt (wget /api/v1/messages) [`docker-compose.override.yml`]
+- [x] [Review][Patch] Trailing Newline am EOF ergänzt [`infra/keycloak/realm-export.json`]
+- [x] [Review][Patch] Demo-Passwörter — dismissed (Login funktioniert, Reset-Szenario kein Demo-Use-Case)
+
+**Deferred:**
+- [x] [Review][Defer] `bruteForceProtected: false` trotz Aktivierung von verifyEmail — pre-existing, außerhalb des Spec-Scopes
+- [x] [Review][Defer] SMTP-Credentials per Plain-Env-Var (kein Secrets-Manager) — Standard-Docker-Pattern, akzeptiert
+- [x] [Review][Defer] `axllent/mailpit:latest` unpinned — konsistent mit Projekt-Pattern (`:latest`)
+- [x] [Review][Defer] smtpServer.host="mailpit" schlägt bei Prod-Import via --import-realm still fehl — in KONZEPT.md dokumentiert, manueller Schritt nach Erstdeployment
+- [x] [Review][Defer] --import-realm überspringt Re-Import auf bestehenden Volumes still — KC-Verhalten, in KONZEPT.md dokumentiert
+
+---
 
 ## Spec Change Log

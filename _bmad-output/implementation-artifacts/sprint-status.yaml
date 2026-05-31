@@ -1,0 +1,101 @@
+# generated: 2026-05-31
+# last_updated: 2026-05-31
+# project: BorderCapControl
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: _bmad-output/implementation-artifacts
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epics wurden nachträglich aus Spec-Dateien synthetisiert (kein formales Epic-Dokument)
+# - Alle Stories aus Sprint 1 (Ziele 1–10) abgeschlossen
+# - Sprint 2: Neue Stories aus Brainstorming/_bmad-output/brainstorming/ hinzufügen
+
+generated: 2026-05-31
+last_updated: 2026-05-31
+project: BorderCapControl
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+
+development_status:
+
+  # ---------------------------------------------------------------------------
+  # Epic 1: Backend-Infrastruktur & Auth
+  # ---------------------------------------------------------------------------
+  epic-1: done
+  1-1-demo-infrastruktur: done           # spec-demo-infrastruktur.md
+  1-2-core-crud-api: done                # spec-core-crud-api.md
+  1-3-jwt-auth-retrofit: done            # spec-jwt-auth-retrofit.md
+  1-4-keycloak-email-onboarding: done    # spec-keycloak-email-onboarding.md
+  epic-1-retrospective: done
+
+  # ---------------------------------------------------------------------------
+  # Epic 2: Reservierungsworkflow & Postkorb
+  # ---------------------------------------------------------------------------
+  epic-2: done
+  2-1-reservierungsworkflow-postkorb: done  # spec-reservierungsworkflow-postkorb.md
+  epic-2-retrospective: optional
+
+  # ---------------------------------------------------------------------------
+  # Epic 3: Frontend (Dashboard, Drilldown, Karte)
+  # ---------------------------------------------------------------------------
+  epic-3: done
+  3-1-frontend-setup-dashboard-drilldown: done  # spec-ziel4a-frontend-setup-dashboard-drilldown.md
+  3-2-frontend-reservierungsworkflow-postkorb: done  # spec-ziel4b-frontend-reservierungsworkflow-postkorb.md
+  3-3-karte-svg-fallback: done                  # spec-ziel5-karte-svg-fallback.md
+  epic-3-retrospective: optional
+
+  # ---------------------------------------------------------------------------
+  # Epic 4: Belegungsvorschlag-Solver
+  # ---------------------------------------------------------------------------
+  epic-4: done
+  4-1-belegungsvorschlag-solver: done      # spec-ziel6a-belegungsvorschlag-solver.md
+  4-2-belegungsvorschlag-erweitert: done   # spec-ziel6b-belegungsvorschlag-erweitert.md
+  epic-4-retrospective: optional
+
+  # ---------------------------------------------------------------------------
+  # Epic 5: Automatisierung, Reporting & Protokoll
+  # ---------------------------------------------------------------------------
+  epic-5: done
+  5-1-validierungsjobs: done       # spec-ziel7a-validierungsjobs.md
+  5-2-eu-compliance-report: done   # spec-ziel7b-eu-compliance-report.md
+  5-3-audit-log-fachlich: done     # spec-audit-log-fachlich.md
+  epic-5-retrospective: optional
+
+  # ---------------------------------------------------------------------------
+  # Epic 6: Feature-Erweiterungen
+  # ---------------------------------------------------------------------------
+  epic-6: done
+  6-1-labels-system: done          # spec-ziel8-labels-system.md
+  6-2-bugfixes: done               # spec-ziel9a-bugfixes.md
+  6-3-deactivation-guard: done     # spec-ziel9b-deactivation-guard.md
+  6-4-validity-enforcement: done   # spec-ziel9c-validity-enforcement.md
+  6-5-notbett-extension: done      # spec-ziel9d-notbett-extension.md
+  epic-6-retrospective: optional
+
+  # ---------------------------------------------------------------------------
+  # Epic 7: Tests
+  # ---------------------------------------------------------------------------
+  epic-7: done
+  7-1-unit-tests: done             # spec-ziel10a-unit-tests.md
+  7-2-behave-e2e: done             # spec-ziel10b-behave-e2e.md
+  epic-7-retrospective: optional

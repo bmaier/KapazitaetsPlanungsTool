@@ -5,6 +5,16 @@ Diese Ziele werden nach Abschluss von Ziel 1 sequenziell angegangen.
 
 ---
 
+## Deferred from: code review of spec-keycloak-email-onboarding.md (2026-05-31)
+
+- **`bruteForceProtected: false` trotz E-Mail-Onboarding** — Pre-existing, außerhalb des Keycloak-Onboarding-Scopes. Für Produktion auf `true` setzen.
+- **SMTP-Credentials per Plain-Env-Var** — Standard-Docker-Pattern (kein Secrets-Manager). Für Prod-Hardening: Docker Secrets oder Vault-Integration evaluieren.
+- **`axllent/mailpit:latest` unpinned** — Konsistent mit Projekt-Pattern. Falls Mailpit Major-Version wechselt, API-Pfad `/api/v1/messages` prüfen.
+- **smtpServer.host="mailpit" bei Prod-Import via --import-realm** — Silenter Fehler: SMTP-Verbindung schlägt fehl bis Admin manuell in KC Admin-UI überschreibt. In KONZEPT.md dokumentiert, manueller Post-Deploy-Schritt erforderlich.
+- **--import-realm überspringt Re-Import auf bestehenden Volumes** — KC-Verhalten (by design). `make down` (Volume löschen) erforderlich nach realm-export.json-Änderungen. In KONZEPT.md dokumentiert.
+
+---
+
 ## Review-Findings (Ziel 9a) — Zurückgestellt
 
 Gefunden beim Review von `spec-ziel9a-bugfixes.md`. Nicht kritisch für Demo-Betrieb.

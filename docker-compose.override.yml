@@ -30,10 +30,15 @@ services:
   mailpit:
     image: axllent/mailpit:latest
     ports:
-      - "8025:8025"   # WebUI
-      - "1025:1025"   # SMTP (intern → Keycloak)
+      - "8025:8025"   # WebUI (SMTP port 1025 bleibt intern — kein Host-Binding nötig)
     networks:
       - bordercap_net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8025/api/v1/messages"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
     restart: unless-stopped
 
   postgres:
@@ -43,6 +48,9 @@ services:
   keycloak:
     ports:
       - "8080:8080"
+    depends_on:
+      mailpit:
+        condition: service_healthy
     environment:
       # KEYCLOAK_PUBLIC_URL steuert die öffentliche Keycloak-URL in OIDC-Endpoints.
       # Wert aus .env-Datei oder Umgebungsvariable; Default: localhost für lokale Dev.

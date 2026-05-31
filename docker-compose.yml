@@ -48,16 +48,8 @@ services:
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin_dev}
       KC_HEALTH_ENABLED: "true"
       KC_METRICS_ENABLED: "true"
-      # SMTP für Prod-Deployment (werden ignoriert wenn leer).
-      # Dev: SMTP kommt aus realm-export.json (Mailpit). Prod: in .env setzen.
-      KC_SPI_EMAIL_SENDER_DEFAULT_HOST: ${KC_SMTP_HOST:-}
-      KC_SPI_EMAIL_SENDER_DEFAULT_PORT: ${KC_SMTP_PORT:-}
-      KC_SPI_EMAIL_SENDER_DEFAULT_FROM: ${KC_SMTP_FROM:-}
-      KC_SPI_EMAIL_SENDER_DEFAULT_FROM_DISPLAY_NAME: ${KC_SMTP_FROM_DISPLAY:-BorderCapControl}
-      KC_SPI_EMAIL_SENDER_DEFAULT_USER: ${KC_SMTP_USER:-}
-      KC_SPI_EMAIL_SENDER_DEFAULT_PASSWORD: ${KC_SMTP_PASSWORD:-}
-      KC_SPI_EMAIL_SENDER_DEFAULT_STARTTLS: ${KC_SMTP_STARTTLS:-false}
-      KC_SPI_EMAIL_SENDER_DEFAULT_SSL: ${KC_SMTP_SSL:-false}
+      # SMTP: Dev nutzt Mailpit aus realm-export.json.
+      # Prod: SMTP via infra/keycloak/setup-prod-realm.sh konfigurieren (liest KC_SMTP_* aus .env).
     command: start-dev --import-realm
     volumes:
       - ./infra/keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
