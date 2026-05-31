@@ -10,6 +10,7 @@ import Reservations from './pages/Reservations'
 import SuggestionWizard from './pages/SuggestionWizard'
 import TaskInbox from './pages/TaskInbox'
 import AuditLog from './pages/AuditLog'
+import Statistik from './pages/Statistik'
 import Impressum from './pages/Impressum'
 import Datenschutz from './pages/Datenschutz'
 import Lizenzen from './pages/Lizenzen'
@@ -68,6 +69,7 @@ function AppRoutes() {
               <Route path="/tasks" element={<TaskInbox />} />
               <Route path="/suggestions" element={<SuggestionWizard />} />
               <Route path="/audit" element={<AuditLog />} />
+              <Route path="/statistik" element={<Statistik />} />
               <Route path="/impressum" element={<Impressum />} />
               <Route path="/datenschutz" element={<Datenschutz />} />
               <Route path="/lizenzen" element={<Lizenzen />} />

@@ -154,6 +154,25 @@ class AuditEventModel(Base):
     entity_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
 
+class KontingentHistoryModel(Base):
+    __tablename__ = "kontingent_history"
+    __table_args__ = {"schema": "capacity"}
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    location_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("capacity.locations.id"),
+        nullable=False,
+    )
+    kontingent_value: Mapped[int] = mapped_column(Integer, nullable=False)
+    valid_from: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    actor_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+
 class ReservationRequestModel(Base):
     __tablename__ = "requests"
     __table_args__ = {"schema": "reservations"}

@@ -5,6 +5,16 @@ Diese Ziele werden nach Abschluss von Ziel 1 sequenziell angegangen.
 
 ---
 
+## Ziel B — EU-Statistik-Report (zurückgestellt 2026-05-31)
+
+Separate EU-Kontingentauslastungs-Ansicht mit Zahlenstatistik-Tabelle + Charts, PDF-Export für EU-Versand. Baut auf Ziel A (spec-ziel11-zeitreihenstatistik-intern.md) Backend-Infrastruktur auf.
+- Frontend: Eigene Seite `/statistik/eu-report`
+- Zahlenstatistik-Tabelle: Kontingent-Auslastung je Einrichtung + Zeitreihe
+- PDF-Export via WeasyPrint (wie spec-ziel7b)
+- Fokus: EU-Compliance-Nachweis, nicht Prozessoptimierung
+
+---
+
 ## Deferred from: code review of spec-keycloak-email-onboarding.md (2026-05-31)
 
 - **`bruteForceProtected: false` trotz E-Mail-Onboarding** — Pre-existing, außerhalb des Keycloak-Onboarding-Scopes. Für Produktion auf `true` setzen.

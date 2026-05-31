@@ -12,6 +12,7 @@ import LogoutIcon from '@mui/icons-material/Logout'
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline'
 import BedIcon from '@mui/icons-material/Hotel'
 import HistoryIcon from '@mui/icons-material/History'
+import BarChartIcon from '@mui/icons-material/BarChart'
 import ApartmentIcon from '@mui/icons-material/Apartment'
 import SupportIcon from '@mui/icons-material/HeadsetMic'
 import { useLocation, useNavigate } from 'react-router-dom'
@@ -26,6 +27,7 @@ const NAV_LINKS = [
   { label: 'Dashboard', path: '/', Icon: DashboardIcon },
   { label: 'Verlegungsanfragen', path: '/reservations', Icon: SwapHorizIcon },
   { label: 'Bettsuche', path: '/suggestions', Icon: SearchIcon },
+  { label: 'Statistik', path: '/statistik', Icon: BarChartIcon },
   { label: 'Protokoll', path: '/audit', Icon: HistoryIcon },
 ]
 

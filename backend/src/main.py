@@ -10,6 +10,7 @@ import httpx
 
 from src.adapters.db.health import check_db_health
 from src.api.audit.router import router as audit_router
+from src.api.statistics.router import router as statistics_router
 from src.api.reports.router import router as reports_router
 from src.jobs.scheduler import create_and_start, stop
 from src.adapters.keycloak.jwt import get_current_user
@@ -51,6 +52,7 @@ app.include_router(notification_router, prefix="/api", dependencies=[Depends(get
 app.include_router(suggestion_router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(reports_router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(audit_router, prefix="/api", dependencies=[Depends(get_current_user)])
+app.include_router(statistics_router, prefix="/api", dependencies=[Depends(get_current_user)])
 
 
 @app.get("/health")

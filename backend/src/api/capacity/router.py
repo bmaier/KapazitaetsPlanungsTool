@@ -327,7 +327,7 @@ async def update_location(
     location_id: UUID,
     body: LocationUpdateRequest,
     session: AsyncSession = Depends(get_session),
-    _: UserContext = Depends(get_current_user),
+    user: UserContext = Depends(get_current_user),
 ):
     """Aktualisiert Felder einer Einrichtung inkl. Labels, Koordinaten und Gültigkeitsdaten."""
     updates: dict = {}
@@ -394,6 +394,20 @@ async def update_location(
     row = result.mappings().one_or_none()
     if not row:
         raise HTTPException(status_code=404, detail="Einrichtung nicht gefunden")
+
+    if body.kontingent is not None:
+        await session.execute(
+            text("""
+                INSERT INTO capacity.kontingent_history (id, location_id, kontingent_value, valid_from, actor_id)
+                VALUES (gen_random_uuid(), :location_id, :kontingent_value, now(), :actor_id)
+            """),
+            {
+                "location_id": str(location_id),
+                "kontingent_value": row["kontingent"],
+                "actor_id": user.sub,
+            },
+        )
+
     return LocationResponse(
         id=row["id"],
         name=row["name"],

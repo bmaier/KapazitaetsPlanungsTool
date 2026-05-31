@@ -99,3 +99,10 @@ development_status:
   7-1-unit-tests: done             # spec-ziel10a-unit-tests.md
   7-2-behave-e2e: done             # spec-ziel10b-behave-e2e.md
   epic-7-retrospective: optional
+
+  # ---------------------------------------------------------------------------
+  # Epic 8: Statistik & Reporting (Sprint 2)
+  # ---------------------------------------------------------------------------
+  epic-8: done
+  8-1-zeitreihenstatistik-intern: done   # spec-ziel11-zeitreihenstatistik-intern.md
+  epic-8-retrospective: optional

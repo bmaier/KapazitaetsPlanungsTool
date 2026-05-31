@@ -47,6 +47,7 @@ import { useKeycloak } from '../auth/KeycloakProvider'
 import { useSseNotifications } from '../hooks/useSseNotifications'
 import LabelChips, { LabelList } from '../components/LabelChips'
 import HelpTooltip from '../components/HelpTooltip'
+import BelegungSparkline from '../components/BelegungSparkline'
 
 interface Location {
   id: string
@@ -921,6 +922,10 @@ export default function Drilldown() {
                 </Typography>
               </Box>
             )}
+            <Box sx={{ ml: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+              <Typography variant="caption" sx={{ opacity: 0.6, mb: 0.5 }}>30-Tage-Auslastung</Typography>
+              <BelegungSparkline locationId={id!} />
+            </Box>
           </Box>
         </Paper>
       )}
