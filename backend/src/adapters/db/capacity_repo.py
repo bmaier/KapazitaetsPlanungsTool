@@ -2,7 +2,7 @@
 SQLAlchemy-Implementierungen der Repository-Ports für das Kapazitätsmanagement.
 Jede mutierende Operation schreibt einen Audit-Eintrag in derselben Session (atomares Commit).
 """
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import List, Optional
 from uuid import UUID, uuid4
 
@@ -346,7 +346,10 @@ class SqlOccupancyRepo(OccupancyRepo):
 
     async def get_active_for_bed(self, bed_id: UUID) -> Optional[Occupancy]:
         result = await self._session.execute(
-            select(OccupantModel).where(OccupantModel.bed_id == bed_id)
+            select(OccupantModel).where(
+                OccupantModel.bed_id == bed_id,
+                OccupantModel.belegung_ende >= date.today(),
+            )
         )
         model = result.scalars().first()
         return _to_occupancy(model) if model else None

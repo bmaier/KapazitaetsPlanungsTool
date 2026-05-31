@@ -240,6 +240,27 @@ COUNTRIES = ["SYR", "AFG", "IRQ", "ERI", "SOM", "ETH", "NGA", "PAK", "IRN", "TUR
 
 DEMO_LOC_IDS = [loc["id"] for loc in LOCATIONS]
 
+# Saisonale Auslastungskurve für historische Daten:
+# Index 0 = jüngster Monat (vor ~46T), Index 11 = ältester Monat (vor ~365T)
+# Herbst/Winter hoch, Sommer niedrig
+SEASONAL_RATE = [0.90, 0.85, 0.80, 0.75, 0.68, 0.58, 0.55, 0.62, 0.70, 0.76, 0.82, 0.87]
+
+# Kontingent-Verlauf pro Einrichtung für Treppenfunktion im Chart
+# Format: (location_id, kontingent_value, tage_vor_heute)
+KONTINGENT_HISTORY_DATA = [
+    ("a1b2c3d4-0001-0001-0001-000000000001", 30, 365),  # Frankfurt: 30 → 35 → 40
+    ("a1b2c3d4-0001-0001-0001-000000000001", 35, 240),
+    ("a1b2c3d4-0001-0001-0001-000000000001", 40,  90),
+    ("a1b2c3d4-0002-0002-0002-000000000002", 25, 365),  # München: 25 → 30
+    ("a1b2c3d4-0002-0002-0002-000000000002", 30, 180),
+    ("a1b2c3d4-0003-0003-0003-000000000003", 15, 365),  # Passau: 15 → 20
+    ("a1b2c3d4-0003-0003-0003-000000000003", 20, 120),
+    ("a1b2c3d4-0004-0004-0004-000000000004", 20, 365),  # Hamburg: 20 → 25
+    ("a1b2c3d4-0004-0004-0004-000000000004", 25, 200),
+    ("a1b2c3d4-0005-0005-0005-000000000005", 10, 365),  # Kiefersfelden: 10 → 15
+    ("a1b2c3d4-0005-0005-0005-000000000005", 15, 150),
+]
+
 
 def _room_id(location_id: str, room_name: str) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"{location_id}::{room_name}"))
@@ -268,6 +289,67 @@ def _alias_id(geschlecht: str, location_id: str, idx: int) -> str:
     return f"AL-{loc_num}-{idx:04d}"
 
 
+def seed_historical_occupants(cur) -> int:
+    """12 Monats-Kohorten vergangener Belegungen für jeden Standort.
+
+    Jede Kohorte endet ≥ 46 Tage vor heute, kein Overlap mit aktuellen Belegungen.
+    Saisonale Auslastungskurve erzeugt einen interessanten Chart-Verlauf.
+    """
+    n_hist = 0
+    genders = ["M", "W", "M", "W", "D"]
+
+    for loc in LOCATIONS:
+        loc_id = loc["id"]
+        kontingent = loc["kontingent"]
+
+        # Alle KONTINGENT-Bett-IDs sammeln
+        kontingent_beds: list[str] = []
+        for room_def in ROOMS_CONFIG[loc_id]:
+            if room_def.get("room_type") == "WARTEBEREICH":
+                continue
+            if room_def.get("bett_typ", "KONTINGENT") != "KONTINGENT":
+                continue
+            rid = _room_id(loc_id, room_def["name"])
+            for bett_nr in range(1, room_def["beds"] + 1):
+                kontingent_beds.append(_bed_id(rid, bett_nr))
+
+        for m in range(12):
+            # Periode: 30 Tage lang, endet heute-(46+m*30)
+            period_end   = today - timedelta(days=46 + m * 30)
+            period_start = period_end - timedelta(days=29)
+            n_belegt     = min(int(kontingent * SEASONAL_RATE[m]), len(kontingent_beds))
+
+            for i in range(n_belegt):
+                bed_id = kontingent_beds[i % len(kontingent_beds)]
+                occ_id = str(uuid.uuid5(
+                    uuid.NAMESPACE_URL, f"hist-occ::{loc_id}::{m}::{i}"
+                ))
+                g   = genders[i % len(genders)]
+                azr = f"AZR-HIST-{loc_id[-4:]}-M{m:02d}-{i:02d}"
+
+                cur.execute("""
+                    INSERT INTO persons.occupants
+                        (id, bed_id, azr_id, alias_id, geschlecht,
+                         belegung_start, belegung_ende, labels, created_at)
+                    VALUES (%s, %s, %s, NULL, %s, %s, %s, %s, %s)
+                    ON CONFLICT (id) DO NOTHING
+                """, (occ_id, bed_id, azr, g, period_start, period_end, [], period_start))
+                n_hist += 1
+
+    return n_hist
+
+
+def seed_kontingent_history(cur) -> int:
+    """Historische Kontingent-Snapshots für Treppenfunktionslinie im Chart."""
+    for loc_id, kval, days_ago in KONTINGENT_HISTORY_DATA:
+        cur.execute("""
+            INSERT INTO capacity.kontingent_history
+                (id, location_id, kontingent_value, valid_from, actor_id)
+            VALUES (gen_random_uuid(), %s, %s, %s, 'system-seed')
+        """, (loc_id, kval, today - timedelta(days=days_ago)))
+    return len(KONTINGENT_HISTORY_DATA)
+
+
 def main() -> None:
     conn = psycopg2.connect(DATABASE_URL)
     conn.autocommit = False
@@ -278,7 +360,7 @@ def main() -> None:
     start_new  = today - timedelta(days=5)
 
     try:
-        print("Lösche Demo-Belegungen, Tasks und Reservierungen...")
+        print("Lösche Demo-Belegungen, Tasks, Reservierungen und Kontingent-History...")
         loc_ids_sql = [str(x) for x in DEMO_LOC_IDS]
 
         cur.execute("""
@@ -287,6 +369,10 @@ def main() -> None:
             JOIN capacity.rooms r ON r.id = b.room_id
             WHERE o.bed_id = b.id AND r.location_id = ANY(%s::uuid[])
         """, (loc_ids_sql,))
+        cur.execute(
+            "DELETE FROM capacity.kontingent_history WHERE location_id = ANY(%s::uuid[])",
+            (loc_ids_sql,)
+        )
 
         cur.execute(
             "DELETE FROM tasks.inbox WHERE location_id = ANY(%s::uuid[])",
@@ -446,6 +532,14 @@ def main() -> None:
                 """, (occ_id, bed_id_ankunft, azr, alias, ap["geschlecht"],
                       today, today + timedelta(days=30), occ_labels))
                 n_occ += 1
+
+        # Historische Belegungen (12 Monate zurück)
+        print("Seed historische Belegungsdaten (12 Monate)...")
+        n_hist = seed_historical_occupants(cur)
+
+        # Kontingent-History-Snapshots
+        print("Seed Kontingent-History...")
+        n_kh = seed_kontingent_history(cur)
 
         # EU-Gesamtquote
         cur.execute("""
@@ -616,7 +710,9 @@ def main() -> None:
             f"\n✓ Seed abgeschlossen:\n"
             f"  {len(LOCATIONS)} Standorte\n"
             f"  {n_rooms} Räume (inkl. je 1 Wartebereich pro Standort), {n_beds} Betten\n"
-            f"  {n_occ} Belegungen (inkl. {n_warte} Personen im Wartebereich)\n"
+            f"  {n_occ} aktuelle Belegungen (inkl. {n_warte} Personen im Wartebereich)\n"
+            f"  {n_hist} historische Belegungen (12 Monate, saisonal)\n"
+            f"  {n_kh} Kontingent-History-Einträge\n"
             f"  {n_reservations} Verlegungsanfragen "
             f"({n_pending} PENDING · {n_confirmed} CONFIRMED · {n_rejected} REJECTED)\n"
             f"  {len(tasks)} Postkorb-Aufgaben\n"

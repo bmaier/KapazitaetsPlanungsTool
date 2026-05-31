@@ -86,7 +86,12 @@ export default function Statistik() {
   // Einrichtungen für system-admin laden
   useEffect(() => {
     if (!isAdmin) return
-    get<LocationOption[]>('/api/locations').then(setLocations).catch(() => {})
+    get<LocationOption[]>('/api/locations').then((locs) => {
+      setLocations(locs)
+      if (locs.length > 0) {
+        setSelectedLocation((prev) => prev || locs[0].id)
+      }
+    }).catch(() => {})
   }, [isAdmin, get])
 
   // Effektive location_id
