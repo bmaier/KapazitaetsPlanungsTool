@@ -1,5 +1,5 @@
 # generated: 2026-05-31
-# last_updated: 2026-05-31
+# last_updated: 2026-06-01
 # project: BorderCapControl
 # project_key: NOKEY
 # tracking_system: file-system
@@ -30,7 +30,7 @@
 # - Sprint 2: Neue Stories aus Brainstorming/_bmad-output/brainstorming/ hinzufügen
 
 generated: 2026-05-31
-last_updated: 2026-05-31
+last_updated: 2026-06-01
 project: BorderCapControl
 project_key: NOKEY
 tracking_system: file-system
@@ -106,3 +106,10 @@ development_status:
   epic-8: done
   8-1-zeitreihenstatistik-intern: done   # spec-ziel11-zeitreihenstatistik-intern.md
   epic-8-retrospective: optional
+
+  # ---------------------------------------------------------------------------
+  # Epic 9: Belegungsvorschlag-Dialog Verbesserungen
+  # ---------------------------------------------------------------------------
+  epic-9: in-progress
+  9-1-belegung-vormerken-suche-fix: review  # spec-belegung-vormerken-suche-fix.md
+  epic-9-retrospective: optional

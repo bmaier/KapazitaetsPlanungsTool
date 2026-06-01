@@ -46,6 +46,14 @@ interface BedOption {
   location_name: string
   location_id: string
   room_labels: string[]
+  bed_labels: string[]
+}
+interface OccupantSearchResult {
+  azr_id: string
+  occ_labels: string[] | null
+  geschlecht: string
+  location_name: string
+  belegung_ende: string
 }
 interface Variant {
   beds: BedOption[]
@@ -136,6 +144,7 @@ export default function SuggestionWizard() {
     bed_id: string; azr_id: string; geschlecht: string; labels: string[];
     searching: boolean; searchDone: boolean; searchFound: boolean
     foundLocation?: string; foundEnde?: string
+    searchResults: OccupantSearchResult[]
   }
   const [bedAssignments, setBedAssignments] = useState<BedAssignment[]>([])
   // Person labels for hasPerson confirm dialog
@@ -254,7 +263,7 @@ export default function SuggestionWizard() {
     if (!hasPerson) {
       setBedAssignments(selectedVariantData.beds.map(b => ({
         bed_id: b.bed_id, azr_id: '', geschlecht: 'M', labels: [],
-        searching: false, searchDone: false, searchFound: false,
+        searching: false, searchDone: false, searchFound: false, searchResults: [],
       })))
     } else if (isGroupMode && modus !== 'einzeln') {
       const map: Record<string, string[]> = {}
@@ -283,31 +292,31 @@ export default function SuggestionWizard() {
     if (!azrId) return
     setBedAssignments(prev => prev.map((a, i) => i === idx ? { ...a, searching: true, searchDone: false } : a))
     try {
-      type OccRes = {
-        azr_id: string; occ_labels: string[] | null; geschlecht: string;
-        location_name: string; belegung_ende: string
-      }
-      const res = await get<OccRes[]>(`/api/occupants/search?q=${encodeURIComponent(azrId)}`)
-      // Prefer exact match (case-insensitive), fall back to first result
-      const found = res.find(r => r.azr_id.toLowerCase() === azrId.toLowerCase()) ?? res[0]
-      if (found) {
+      const res = await get<OccupantSearchResult[]>(`/api/occupants/search?q=${encodeURIComponent(azrId)}`)
+      const exact = res.find(r => r.azr_id.toLowerCase() === azrId.toLowerCase())
+      if (exact) {
         setBedAssignments(prev => prev.map((a, i) => i === idx ? {
           ...a,
-          labels: Array.isArray(found.occ_labels) ? found.occ_labels : [],
-          geschlecht: found.geschlecht ?? a.geschlecht,
-          foundLocation: found.location_name,
-          foundEnde: found.belegung_ende,
-          searching: false, searchDone: true, searchFound: true,
+          labels: Array.isArray(exact.occ_labels) ? exact.occ_labels : [],
+          geschlecht: exact.geschlecht ?? a.geschlecht,
+          foundLocation: exact.location_name,
+          foundEnde: exact.belegung_ende,
+          searching: false, searchDone: true, searchFound: true, searchResults: [],
+        } : a))
+      } else if (res.length > 0) {
+        setBedAssignments(prev => prev.map((a, i) => i === idx ? {
+          ...a, labels: [], searching: false, searchDone: true, searchFound: false,
+          foundLocation: undefined, foundEnde: undefined, searchResults: res,
         } : a))
       } else {
         setBedAssignments(prev => prev.map((a, i) => i === idx ? {
           ...a, labels: [], searching: false, searchDone: true, searchFound: false,
-          foundLocation: undefined, foundEnde: undefined,
+          foundLocation: undefined, foundEnde: undefined, searchResults: [],
         } : a))
       }
     } catch {
       setBedAssignments(prev => prev.map((a, i) => i === idx ? {
-        ...a, searching: false, searchDone: true, searchFound: false,
+        ...a, searching: false, searchDone: true, searchFound: false, searchResults: [],
       } : a))
     }
   }
@@ -957,6 +966,11 @@ export default function SuggestionWizard() {
                             {bed.room_labels.map(lbl => <Chip key={lbl} label={lbl} size="small" sx={{ height: 16, fontSize: 9, fontWeight: 600, bgcolor: '#e3f2fd', color: '#1565c0' }} />)}
                           </Box>
                         )}
+                        {bed && (bed.bed_labels ?? []).length > 0 && (
+                          <Box mt={0.3} display="flex" gap={0.4} flexWrap="wrap">
+                            {bed.bed_labels.map(lbl => <Chip key={`bl-${lbl}`} label={lbl} size="small" sx={{ height: 16, fontSize: 9, fontWeight: 600, bgcolor: '#f3e5f5', color: '#6a1b9a' }} />)}
+                          </Box>
+                        )}
                       </Box>
                     )
                   })}
@@ -1005,6 +1019,11 @@ export default function SuggestionWizard() {
                       {b.room_labels.map(lbl => <Chip key={lbl} label={lbl} size="small" sx={{ height: 16, fontSize: 9, fontWeight: 600, bgcolor: '#e3f2fd', color: '#1565c0' }} />)}
                     </Box>
                   )}
+                  {(b.bed_labels ?? []).length > 0 && (
+                    <Box ml={3.5} mt={0.2} display="flex" gap={0.4} flexWrap="wrap">
+                      {b.bed_labels.map(lbl => <Chip key={`bl-${lbl}`} label={lbl} size="small" sx={{ height: 16, fontSize: 9, fontWeight: 600, bgcolor: '#f3e5f5', color: '#6a1b9a' }} />)}
+                    </Box>
+                  )}
                 </Box>
               ))}
             </Box>
@@ -1024,21 +1043,26 @@ export default function SuggestionWizard() {
                 if (!bed) return null
                 return (
                   <Paper key={assignment.bed_id} elevation={0} sx={{ p: 1.5, border: '1px solid #e0e0e0', borderRadius: 1.5 }}>
-                    {/* Bett-Info + Raum-Labels */}
+                    {/* Bett-Info + Raum-Labels + Bett-Labels */}
                     <Box display="flex" alignItems="center" gap={1} mb={0.5}>
                       <BedIcon sx={{ color: '#2e7d32', fontSize: 18 }} />
                       <Typography variant="body2" fontWeight={700}>{bed.room_name} · Bett {bed.bett_nummer}</Typography>
                     </Box>
                     {(bed.room_labels ?? []).length > 0 && (
-                      <Box mb={1} display="flex" gap={0.4} flexWrap="wrap">
+                      <Box mb={0.4} display="flex" gap={0.4} flexWrap="wrap">
                         {bed.room_labels.map(lbl => <Chip key={lbl} label={lbl} size="small" sx={{ height: 16, fontSize: 9, fontWeight: 600, bgcolor: '#e3f2fd', color: '#1565c0' }} />)}
+                      </Box>
+                    )}
+                    {(bed.bed_labels ?? []).length > 0 && (
+                      <Box mb={1} display="flex" gap={0.4} flexWrap="wrap">
+                        {bed.bed_labels.map(lbl => <Chip key={`bl-${lbl}`} label={lbl} size="small" sx={{ height: 16, fontSize: 9, fontWeight: 600, bgcolor: '#f3e5f5', color: '#6a1b9a' }} />)}
                       </Box>
                     )}
                     {/* AZR + Geschlecht + Suche */}
                     <Box display="flex" gap={1} alignItems="flex-start" flexWrap="wrap">
                       <TextField
                         label="AZR-ID" size="small" value={assignment.azr_id}
-                        onChange={(e) => setBedAssignments(prev => prev.map((a, i) => i === idx ? { ...a, azr_id: e.target.value, searchDone: false, searchFound: false, labels: [], foundLocation: undefined, foundEnde: undefined } : a))}
+                        onChange={(e) => setBedAssignments(prev => prev.map((a, i) => i === idx ? { ...a, azr_id: e.target.value, searchDone: false, searchFound: false, labels: [], foundLocation: undefined, foundEnde: undefined, searchResults: [] } : a))}
                         onKeyDown={(e) => { if (e.key === 'Enter') searchPersonForBed(idx) }}
                         placeholder="AZR-2024-0001-M01"
                         sx={{ flex: 2, minWidth: 150 }}
@@ -1083,7 +1107,52 @@ export default function SuggestionWizard() {
                         )}
                       </Box>
                     )}
-                    {assignment.searchDone && !assignment.searchFound && (
+                    {assignment.searchDone && !assignment.searchFound && assignment.searchResults.length > 0 && (
+                      <Box mt={0.8}>
+                        <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ display: 'block', mb: 0.5 }}>
+                          {assignment.searchResults.length} Treffer — Person auswählen:
+                        </Typography>
+                        <Box display="flex" flexDirection="column" gap={0.5}>
+                          {assignment.searchResults.map((person) => (
+                            <Box
+                              key={person.azr_id}
+                              onClick={() => {
+                                setBedAssignments(prev => prev.map((a, i) => i === idx ? {
+                                  ...a,
+                                  azr_id: person.azr_id,
+                                  labels: Array.isArray(person.occ_labels) ? person.occ_labels : [],
+                                  geschlecht: person.geschlecht ?? a.geschlecht,
+                                  foundLocation: person.location_name,
+                                  foundEnde: person.belegung_ende,
+                                  searchDone: true, searchFound: true, searching: false,
+                                  searchResults: [],
+                                } : a))
+                              }}
+                              sx={{
+                                p: 1, borderRadius: 1, border: '1px solid #e0e0e0', cursor: 'pointer',
+                                bgcolor: 'white',
+                                '&:hover': { bgcolor: '#f5f5f5', borderColor: '#1565c0' },
+                              }}
+                            >
+                              <Box display="flex" alignItems="center" gap={0.8} flexWrap="wrap">
+                                <Typography variant="body2" fontWeight={700} fontFamily="monospace">{person.azr_id}</Typography>
+                                {person.location_name && (
+                                  <Typography variant="caption" color="text.secondary">· {person.location_name}</Typography>
+                                )}
+                              </Box>
+                              {(person.occ_labels ?? []).length > 0 && (
+                                <Box mt={0.3} display="flex" gap={0.3} flexWrap="wrap">
+                                  {(person.occ_labels ?? []).map(lbl => (
+                                    <Chip key={lbl} label={lbl} size="small" sx={{ height: 15, fontSize: 9, fontWeight: 600, bgcolor: '#ede7f6', color: '#6a1b9a' }} />
+                                  ))}
+                                </Box>
+                              )}
+                            </Box>
+                          ))}
+                        </Box>
+                      </Box>
+                    )}
+                    {assignment.searchDone && !assignment.searchFound && assignment.searchResults.length === 0 && (
                       <Box mt={0.8} sx={{ p: 0.8, bgcolor: '#fff8e1', border: '1px solid #ffe082', borderRadius: 1 }}>
                         <Typography variant="caption" color="#e65100" fontWeight={600}>
                           Person nicht im System gefunden — Geschlecht bitte manuell eintragen

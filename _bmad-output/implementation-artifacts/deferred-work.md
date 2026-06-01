@@ -225,3 +225,24 @@ Gefunden beim Review von `spec-prod-deployment-compose.md`. Kein Handlungsbedarf
 - **KC_PROXY=edge ohne Proxy-Header-Validierung:** Keycloak vertraut `X-Forwarded-Proto` bedingungslos. Hardening: `KC_PROXY_HEADERS=xforwarded` und `KC_HOSTNAME_STRICT=true` in Keycloak 24+ dokumentieren. Liegt in Verantwortung des Reverse-Proxy-Betreibers.
 - **KC_HOSTNAME_ADMIN_URL = öffentliche URL:** Keycloak Admin-Console über selbe öffentliche URL erreichbar wie die App. Für stärkere Isolation: Admin-URL auf interne Adresse zeigen lassen; erfordert aber separaten Ingress-Eintrag.
 - **Alembic-Migration vor uvicorn fehlt:** Backend startet ohne `alembic upgrade head`. Für vollständiges Prod-Readiness: Init-Container oder Entrypoint-Skript ergänzen. In `docker-compose.prod.yml` Design Notes als "Deferred (nächste Story)" dokumentiert.
+
+---
+
+## Review-Findings (spec-belegung-vormerken-suche-fix.md) — Zurückgestellt 2026-06-01
+
+Gefunden beim Review von Story 9-1. Kein Handlungsbedarf für diese Story.
+
+- **`?? res[0]` in `handleOpenConfirm` (hasPerson-Pfad)**: `handleOpenConfirm` für Einzelperson (Zeile ~283) und Gruppen (Zeile ~274) nutzt weiterhin `res.find(...) ?? res[0]` beim Laden der Person-Labels für den Bestätigungs-Dialog. Kann falsche Labels für eine falsch gematchte Person anzeigen. Pre-existing; hasPerson-Pfad war in dieser Story out-of-scope. Fix in separatem Ticket.
+- **Race condition bei schnellen aufeinanderfolgenden Suchen**: Zwei in-flight Requests für denselben `idx` — der später antwortende überschreibt das Ergebnis des neueren. Pre-existing Architekturmuster. Fix: AbortController oder monotoner Sequenzzähler in `searchPersonForBed`.
+- **Stale Callback nach Dialog-Close**: Wenn Dialog geschlossen wird während `searchPersonForBed` noch läuft, kann der Callback nach erneutem Dialog-Öffnen den frisch initialisierten `bedAssignments`-State korrumpieren. Pre-existing.
+- **Keyboard-Accessibility für Trefferliste**: Clickable `<Box>`-Elemente ohne `role="button"`, `tabIndex` oder `onKeyDown`. Keyboard- und Screen-Reader-Nutzer können nicht selektieren. Separates Accessibility-Ticket.
+- **Duplicate Keys bei doppelten Label-Strings**: `<Chip key={lbl}>` — wenn `occ_labels` identische Strings enthält, React-Warning und stilles Auslassen. Pre-existing Muster überall in der Komponente.
+
+---
+
+## Deferred: Belegung-vormerken — Ziel B (zurückgestellt 2026-06-01)
+
+Folgestory zu `spec-belegung-vormerken-suche-fix.md`. Setzt Ziel A (Bug-Fix + Trefferliste) voraus.
+
+- **Neue Person direkt anlegen wenn AZR nicht gefunden**: „Person nicht gefunden"-Zustand im Dialog um Formular erweitern (Geschlecht, Geburtsjahr, Herkunftsland) → POST `/api/beds/{bed_id}/occupancy` mit neuen Personendaten direkt auf lokalem Bett; kein Verlegungsworkflow nötig.
+- **Automatischer Warteplatz bei Verlegungsanfrage**: Wenn Person noch kein aktives Bett hat und lokale Kapazität vorhanden ist → vor dem POST `/api/reservations` automatisch ein lokales Bett als Warteplatz anlegen. Verhindert das „Verschwinden" der Person bei Ablehnung durch Zieleinrichtung. Erfordert: neuen Backend-Endpunkt oder atomare Frontend-Sequenz (Bett anlegen → Anfrage stellen).
