@@ -1,0 +1,51 @@
+# BorderCapControl — Docker Compose Produktions-Override
+#
+# Verwendung:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod up -d
+#
+# Voraussetzungen:
+#   - .env.prod aus .env.prod.example erstellt und befüllt
+#   - Images verfügbar (docker pull oder lokal gebaut)
+#   - Reverse Proxy leitet HTTP/HTTPS auf Port ${FRONTEND_PORT:-80} weiter
+#
+# Was dieser Override macht:
+#   - Keycloak: start-dev → start (Produktionsmodus, KC_PROXY=edge für TLS-Termination am Proxy)
+#   - Frontend: Port ${FRONTEND_PORT:-80} nach außen exponiert (einziger externe Port)
+#   - Postgres: POSTGRES_APP_PASSWORD aus Env-Var übergeben (für 00_roles.sh)
+#   - Kein mailpit, kein Hot-Reload, keine Dev-Port-Bindings
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL — POSTGRES_APP_PASSWORD für init-Skript verfügbar machen
+  # ---------------------------------------------------------------------------
+  postgres:
+    environment:
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD}
+
+  # ---------------------------------------------------------------------------
+  # Keycloak — Produktionsmodus
+  #
+  # KC_PROXY=edge:          TLS terminiert am Reverse Proxy; KC akzeptiert HTTP intern
+  # KC_HTTP_ENABLED=true:   Erlaubt internen HTTP-Traffic im Docker-Netz
+  # KC_HOSTNAME_URL:        Öffentliche URL wie der Browser Keycloak erreicht
+  #                         (muss mit Reverse-Proxy-Konfiguration übereinstimmen)
+  # --import-realm:         Realm bei erstem Start importieren; bei bestehendem Realm kein Effekt
+  # ---------------------------------------------------------------------------
+  keycloak:
+    command: start --import-realm
+    environment:
+      KC_PROXY: edge
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME_URL: "${KEYCLOAK_PUBLIC_URL}"
+      KC_HOSTNAME_ADMIN_URL: "${KEYCLOAK_PUBLIC_URL}"
+    volumes:
+      - ./infra/keycloak/themes:/opt/keycloak/themes:ro
+
+  # ---------------------------------------------------------------------------
+  # Frontend — Einziger nach außen exponierter Port
+  # Nginx proxied /api/ → Backend und /realms/ → Keycloak intern
+  # ---------------------------------------------------------------------------
+  frontend:
+    ports:
+      - "${FRONTEND_PORT:-80}:80"

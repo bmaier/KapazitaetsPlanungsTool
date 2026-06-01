@@ -25,6 +25,7 @@ dist/
 # Secrets / local overrides
 .env
 .env.local
+.env.prod
 notes-prompt.txt
 
 # OS

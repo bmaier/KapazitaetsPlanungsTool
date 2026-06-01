@@ -213,3 +213,15 @@ Gefunden beim Review von `spec-ziel4a-frontend-setup-dashboard-drilldown.md`. Ni
 - **Kein persistenter Fehlerzustand in Drilldown:** Bei API-Fehler verschwindet der Ladeindikator; die Seite bleibt leer nach Snackbar-Ablauf ohne Retry-Button. Demo-Scope akzeptabel.
 - **Kein Location-Name im Drilldown-Breadcrumb:** Zweite Breadcrumb-Ebene zeigt statisch "Einrichtung" statt dem tatsächlichen Namen der Einrichtung. Fix: `GET /api/locations/{id}` aufrufen und Name in Header anzeigen.
 - **Hardcodierte DB-Credentials in demo_data.py:** Fallback-URL enthält Klartext-Credentials. Für Staging/Produktion: Pflicht-Env-Var ohne Fallback oder `.env`-File-Ansatz.
+
+---
+
+## Review-Findings (Prod-Deployment-Compose) — Zurückgestellt (2026-06-01)
+
+Gefunden beim Review von `spec-prod-deployment-compose.md`. Kein Handlungsbedarf für Story selbst.
+
+- **Kein CPU/Memory-Limit:** Kein `deploy.resources.limits` in `docker-compose.prod.yml`. Runaway-Container kann Host-Ressourcen erschöpfen. Fix in separatem Hardening-Sprint: pro-Service-Limits basierend auf Last-Tests.
+- **`.gitignore` Wildcard-Varianten fehlen:** Nur `.env.prod` ignoriert, nicht `.env.prod.local` o.ä. Falls Operator Variante anlegt, landet sie ggf. in Git. Fix: `.env.prod*` als Glob-Pattern (prüfen ob `.env.prod.example` dann ausgenommen werden muss).
+- **KC_PROXY=edge ohne Proxy-Header-Validierung:** Keycloak vertraut `X-Forwarded-Proto` bedingungslos. Hardening: `KC_PROXY_HEADERS=xforwarded` und `KC_HOSTNAME_STRICT=true` in Keycloak 24+ dokumentieren. Liegt in Verantwortung des Reverse-Proxy-Betreibers.
+- **KC_HOSTNAME_ADMIN_URL = öffentliche URL:** Keycloak Admin-Console über selbe öffentliche URL erreichbar wie die App. Für stärkere Isolation: Admin-URL auf interne Adresse zeigen lassen; erfordert aber separaten Ingress-Eintrag.
+- **Alembic-Migration vor uvicorn fehlt:** Backend startet ohne `alembic upgrade head`. Für vollständiges Prod-Readiness: Init-Container oder Entrypoint-Skript ergänzen. In `docker-compose.prod.yml` Design Notes als "Deferred (nächste Story)" dokumentiert.
