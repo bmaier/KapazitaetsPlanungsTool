@@ -166,3 +166,11 @@ Felder die nicht gebraucht werden (`room_name`, `bed_number`, etc.) müssen nich
 - !hasPerson-Panel (Belegung vormerken): `bed_labels`-Chips nach `room_labels`
   [`SuggestionWizard.tsx:1056`](../../frontend/src/pages/SuggestionWizard.tsx#L1056)
 
+### Review Findings
+
+- [x] [Review][Patch] `key={person.azr_id}` → `key={\`${person.azr_id}-${pi}\`}` — Index-Fallback für Trefferliste, verhindert React-Key-Kollision bei doppelten AZR-Einträgen [`SuggestionWizard.tsx:1116`] — **fixed**
+
+- [x] [Review][Defer] Race Condition / kein AbortController in `searchPersonForBed` [`SuggestionWizard.tsx:290`] — deferred, pre-existing (bereits in deferred-work.md)
+- [x] [Review][Defer] `?? res[0]` in `handleOpenConfirm` hasPerson-Gruppenast (Z.274) — deferred, out-of-scope (bereits in deferred-work.md)
+- [x] [Review][Defer] `geschlecht: ""` leerer String nicht durch `??` gefangen — deferred, pre-existing Pattern (Z.301 identisch)
+- [x] [Review][Defer] `belegung_ende` ohne Datumsformatierung — deferred, pre-existing Display-Pattern

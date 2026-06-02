@@ -53,6 +53,9 @@ interface OccupantSearchResult {
   occ_labels: string[] | null
   geschlecht: string
   location_name: string
+  location_id: string
+  room_type: string
+  room_name: string
   belegung_ende: string
 }
 interface Variant {
@@ -89,7 +92,7 @@ function GenderChip({ g }: { g: string }) {
 }
 
 export default function SuggestionWizard() {
-  const { post, get } = useApiClient()
+  const { post, get, patch } = useApiClient()
   const navigate = useNavigate()
   const { locationId } = useKeycloak()
   const [searchParams] = useSearchParams()
@@ -143,19 +146,33 @@ export default function SuggestionWizard() {
   interface BedAssignment {
     bed_id: string; azr_id: string; geschlecht: string; labels: string[];
     searching: boolean; searchDone: boolean; searchFound: boolean
-    foundLocation?: string; foundEnde?: string
+    foundLocation?: string; foundEnde?: string; foundLocationId?: string
     searchResults: OccupantSearchResult[]
+    warteplatzOpen: boolean; warteplatzGeschlecht: string; warteplatzLabels: string[]
+    warteplatzEnde: string; warteplatzFreeBedId?: string; warteplatzLoading: boolean
   }
   const [bedAssignments, setBedAssignments] = useState<BedAssignment[]>([])
   // Person labels for hasPerson confirm dialog
   const [confirmPersonLabels, setConfirmPersonLabels] = useState<string[]>([])
   const [groupPersonLabels, setGroupPersonLabels] = useState<Record<string, string[]>>({})
+  // Pending reservation AZR-IDs for active-request warning
+  const [pendingReservationAzrIds, setPendingReservationAzrIds] = useState<Set<string>>(new Set())
+  // Label catalog for occupant labels (Warteplatz)
+  const [occLabelCatalog, setOccLabelCatalog] = useState<string[]>([])
 
   useEffect(() => {
     get<{ items: Array<{ name: string; entity_types: string[] }> }>('/api/labels')
-      .then((res) => setRoomLabelCatalog(
-        res.items.filter((e) => e.entity_types.includes('ROOM')).map((e) => e.name)
-      ))
+      .then((res) => {
+        setRoomLabelCatalog(res.items.filter((e) => e.entity_types.includes('ROOM')).map((e) => e.name))
+        setOccLabelCatalog(res.items.filter((e) => e.entity_types.includes('OCCUPANT')).map((e) => e.name))
+      })
+      .catch(() => {})
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (hasPerson) return
+    get<Array<{ azr_id: string }>>('/api/reservations?status=PENDING')
+      .then((res) => setPendingReservationAzrIds(new Set(res.map((r) => r.azr_id))))
       .catch(() => {})
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -264,6 +281,8 @@ export default function SuggestionWizard() {
       setBedAssignments(selectedVariantData.beds.map(b => ({
         bed_id: b.bed_id, azr_id: '', geschlecht: 'M', labels: [],
         searching: false, searchDone: false, searchFound: false, searchResults: [],
+        warteplatzOpen: false, warteplatzGeschlecht: 'M', warteplatzLabels: [],
+        warteplatzEnde: in30, warteplatzLoading: false,
       })))
     } else if (isGroupMode && modus !== 'einzeln') {
       const map: Record<string, string[]> = {}
@@ -301,6 +320,7 @@ export default function SuggestionWizard() {
           geschlecht: exact.geschlecht || a.geschlecht,
           foundLocation: exact.location_name,
           foundEnde: exact.belegung_ende,
+          foundLocationId: exact.location_id,
           searching: false, searchDone: true, searchFound: true, searchResults: [],
         } : a))
       } else if (res.length > 0) {
@@ -318,6 +338,60 @@ export default function SuggestionWizard() {
       setBedAssignments(prev => prev.map((a, i) => i === idx ? {
         ...a, searching: false, searchDone: true, searchFound: false, searchResults: [],
       } : a))
+    }
+  }
+
+  async function handleOpenWarteplatz(idx: number) {
+    if (!locationId) return
+    setBedAssignments(prev => prev.map((a, i) => i === idx ? { ...a, warteplatzLoading: true } : a))
+    try {
+      type BedStatusRoom = { room_type: string; beds: Array<{ bed_id: string; bett_nummer: string; status: string }> }
+      const rooms = await get<BedStatusRoom[]>(`/api/locations/${locationId}/bed-status`)
+      const freeBed = rooms
+        .filter((r) => r.room_type === 'WARTEBEREICH')
+        .flatMap((r) => r.beds.filter((b) => b.status === 'FREI'))
+        .sort((a, b) => a.bett_nummer.localeCompare(b.bett_nummer, undefined, { numeric: true }))[0]
+      if (!freeBed) {
+        setSnackbar({ open: true, message: 'Kein freier Warteplatz verfügbar — Person bitte manuell einbuchen.', severity: 'error' })
+        setBedAssignments(prev => prev.map((a, i) => i === idx ? { ...a, warteplatzLoading: false } : a))
+        return
+      }
+      setBedAssignments(prev => prev.map((a, i) => i === idx ? {
+        ...a, warteplatzLoading: false, warteplatzOpen: true, warteplatzFreeBedId: freeBed.bed_id,
+      } : a))
+    } catch {
+      setSnackbar({ open: true, message: 'Bett-Status konnte nicht geladen werden.', severity: 'error' })
+      setBedAssignments(prev => prev.map((a, i) => i === idx ? { ...a, warteplatzLoading: false } : a))
+    }
+  }
+
+  async function handleSubmitWarteplatz(idx: number) {
+    const a = bedAssignments[idx]
+    if (!a?.warteplatzFreeBedId || !a.azr_id.trim()) return
+    setBedAssignments(prev => prev.map((b, i) => i === idx ? { ...b, warteplatzLoading: true } : b))
+    try {
+      type OccResp = { id: string; azr_id: string; geschlecht: string }
+      const occ = await post<OccResp>(`/api/beds/${a.warteplatzFreeBedId}/occupancy`, {
+        azr_id: a.azr_id.trim(),
+        geschlecht: a.warteplatzGeschlecht,
+        belegung_start: today,
+        belegung_ende: a.warteplatzEnde,
+      })
+      if (a.warteplatzLabels.length > 0) {
+        await patch(`/api/occupancy/${occ.id}/labels`, { labels: a.warteplatzLabels })
+      }
+      setBedAssignments(prev => prev.map((b, i) => i === idx ? {
+        ...b,
+        geschlecht: a.warteplatzGeschlecht,
+        labels: a.warteplatzLabels,
+        searchDone: true, searchFound: true, searching: false,
+        foundLocation: 'Wartebereich', foundLocationId: locationId ?? undefined,
+        warteplatzOpen: false, warteplatzLoading: false,
+      } : b))
+      setSnackbar({ open: true, message: `Warteplatz für ${a.azr_id.trim()} angelegt.`, severity: 'success' })
+    } catch {
+      setSnackbar({ open: true, message: 'Warteplatz-Anlage fehlgeschlagen.', severity: 'error' })
+      setBedAssignments(prev => prev.map((b, i) => i === idx ? { ...b, warteplatzLoading: false } : b))
     }
   }
 
@@ -1062,7 +1136,7 @@ export default function SuggestionWizard() {
                     <Box display="flex" gap={1} alignItems="flex-start" flexWrap="wrap">
                       <TextField
                         label="AZR-ID" size="small" value={assignment.azr_id}
-                        onChange={(e) => setBedAssignments(prev => prev.map((a, i) => i === idx ? { ...a, azr_id: e.target.value, searchDone: false, searchFound: false, labels: [], foundLocation: undefined, foundEnde: undefined, searchResults: [] } : a))}
+                        onChange={(e) => setBedAssignments(prev => prev.map((a, i) => i === idx ? { ...a, azr_id: e.target.value, searchDone: false, searchFound: false, labels: [], foundLocation: undefined, foundEnde: undefined, foundLocationId: undefined, searchResults: [], warteplatzOpen: false } : a))}
                         onKeyDown={(e) => { if (e.key === 'Enter') searchPersonForBed(idx) }}
                         placeholder="AZR-2024-0001-M01"
                         sx={{ flex: 2, minWidth: 150 }}
@@ -1107,56 +1181,148 @@ export default function SuggestionWizard() {
                         )}
                       </Box>
                     )}
-                    {assignment.searchDone && !assignment.searchFound && assignment.searchResults.length > 0 && (
-                      <Box mt={0.8}>
-                        <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ display: 'block', mb: 0.5 }}>
-                          {assignment.searchResults.length} Treffer — Person auswählen:
-                        </Typography>
-                        <Box display="flex" flexDirection="column" gap={0.5}>
-                          {assignment.searchResults.map((person, pi) => (
-                            <Box
-                              key={`${person.azr_id}-${pi}`}
-                              onClick={() => {
-                                setBedAssignments(prev => prev.map((a, i) => i === idx ? {
-                                  ...a,
-                                  azr_id: person.azr_id,
-                                  labels: Array.isArray(person.occ_labels) ? person.occ_labels : [],
-                                  geschlecht: person.geschlecht || a.geschlecht,
-                                  foundLocation: person.location_name,
-                                  foundEnde: person.belegung_ende,
-                                  searchDone: true, searchFound: true, searching: false,
-                                  searchResults: [],
-                                } : a))
-                              }}
-                              sx={{
-                                p: 1, borderRadius: 1, border: '1px solid #e0e0e0', cursor: 'pointer',
-                                bgcolor: 'white',
-                                '&:hover': { bgcolor: '#f5f5f5', borderColor: '#1565c0' },
-                              }}
-                            >
-                              <Box display="flex" alignItems="center" gap={0.8} flexWrap="wrap">
-                                <Typography variant="body2" fontWeight={700} fontFamily="monospace">{person.azr_id}</Typography>
-                                {person.location_name && (
-                                  <Typography variant="caption" color="text.secondary">· {person.location_name}</Typography>
-                                )}
-                              </Box>
-                              {(person.occ_labels ?? []).length > 0 && (
-                                <Box mt={0.3} display="flex" gap={0.3} flexWrap="wrap">
-                                  {(person.occ_labels ?? []).map(lbl => (
-                                    <Chip key={lbl} label={lbl} size="small" sx={{ height: 15, fontSize: 9, fontWeight: 600, bgcolor: '#ede7f6', color: '#6a1b9a' }} />
-                                  ))}
-                                </Box>
-                              )}
-                            </Box>
-                          ))}
-                        </Box>
+                    {/* Banners: externe Person + aktive Anfrage */}
+                    {assignment.searchFound && locationId && assignment.foundLocationId && assignment.foundLocationId !== locationId && (
+                      <Box mt={0.8} sx={{ p: 0.8, bgcolor: '#e3f2fd', border: '1px solid #90caf9', borderRadius: 1, display: 'flex', alignItems: 'flex-start', gap: 0.5 }}>
+                        <Typography variant="caption" color="#1565c0" fontWeight={600}>ℹ Diese Person ist in einer Fremdeinrichtung eingebucht — eine Verlegung muss vorab abgestimmt sein.</Typography>
                       </Box>
                     )}
+                    {assignment.searchFound && pendingReservationAzrIds.has(assignment.azr_id.trim()) && (
+                      <Box mt={0.8} sx={{ p: 0.8, bgcolor: '#fff8e1', border: '1px solid #ffe082', borderRadius: 1, display: 'flex', alignItems: 'flex-start', gap: 0.5 }}>
+                        <Typography variant="caption" color="#e65100" fontWeight={600}>⚠ Für diese Person läuft bereits eine Anfrage dieser Einrichtung.</Typography>
+                      </Box>
+                    )}
+                    {/* Gruppierte Trefferliste */}
+                    {assignment.searchDone && !assignment.searchFound && assignment.searchResults.length > 0 && (() => {
+                      const ownWb = locationId ? assignment.searchResults.filter(p => p.location_id === locationId && p.room_type === 'WARTEBEREICH') : []
+                      const ownOther = locationId ? assignment.searchResults.filter(p => p.location_id === locationId && p.room_type !== 'WARTEBEREICH') : []
+                      const external = locationId ? assignment.searchResults.filter(p => p.location_id !== locationId) : assignment.searchResults
+                      const renderGroup = (persons: OccupantSearchResult[], label: string, borderColor: string) => persons.length === 0 ? null : (
+                        <Box key={label} mb={0.5}>
+                          <Typography variant="overline" sx={{ fontSize: 9, color: borderColor, fontWeight: 700, display: 'block', lineHeight: 1.6 }}>{label}</Typography>
+                          <Box display="flex" flexDirection="column" gap={0.4}>
+                            {persons.map((person, pi) => (
+                              <Box
+                                key={`${person.azr_id}-${pi}`}
+                                onClick={() => {
+                                  setBedAssignments(prev => prev.map((a, i) => i === idx ? {
+                                    ...a,
+                                    azr_id: person.azr_id,
+                                    labels: Array.isArray(person.occ_labels) ? person.occ_labels : [],
+                                    geschlecht: person.geschlecht || a.geschlecht,
+                                    foundLocation: person.location_name,
+                                    foundEnde: person.belegung_ende,
+                                    foundLocationId: person.location_id,
+                                    searchDone: true, searchFound: true, searching: false,
+                                    searchResults: [],
+                                  } : a))
+                                }}
+                                sx={{
+                                  p: 0.8, borderRadius: 1, border: '1px solid #e0e0e0',
+                                  borderLeft: `3px solid ${borderColor}`, cursor: 'pointer', bgcolor: 'white',
+                                  '&:hover': { bgcolor: '#f5f5f5', borderColor: borderColor },
+                                }}
+                              >
+                                <Box display="flex" alignItems="center" gap={0.6} flexWrap="wrap">
+                                  <Typography variant="body2" fontWeight={700} fontFamily="monospace" fontSize={12}>{person.azr_id}</Typography>
+                                  <GenderChip g={person.geschlecht} />
+                                  {person.room_name && <Typography variant="caption" color="text.secondary">· {person.room_name}</Typography>}
+                                  {person.belegung_ende && <Typography variant="caption" color="text.secondary">bis {new Date(person.belegung_ende).toLocaleDateString('de-DE')}</Typography>}
+                                  {pendingReservationAzrIds.has(person.azr_id.trim()) && (
+                                    <Chip label="⚠ Anfrage läuft" size="small" sx={{ height: 16, fontSize: 9, bgcolor: '#fff8e1', color: '#e65100', fontWeight: 700 }} />
+                                  )}
+                                </Box>
+                                {(person.occ_labels ?? []).length > 0 && (
+                                  <Box mt={0.3} display="flex" gap={0.3} flexWrap="wrap">
+                                    {(person.occ_labels ?? []).map(lbl => (
+                                      <Chip key={lbl} label={lbl} size="small" sx={{ height: 14, fontSize: 9, fontWeight: 600, bgcolor: '#ede7f6', color: '#6a1b9a' }} />
+                                    ))}
+                                  </Box>
+                                )}
+                              </Box>
+                            ))}
+                          </Box>
+                        </Box>
+                      )
+                      return (
+                        <Box mt={0.8}>
+                          {renderGroup(ownWb, 'Wartebereich — eigene Einrichtung', '#2e7d32')}
+                          {renderGroup(ownOther, 'Eigene Einrichtung', '#1565c0')}
+                          {renderGroup(external, 'Andere Einrichtungen', '#757575')}
+                        </Box>
+                      )
+                    })()}
+                    {/* Keine Treffer: Warteplatz anlegen */}
                     {assignment.searchDone && !assignment.searchFound && assignment.searchResults.length === 0 && (
-                      <Box mt={0.8} sx={{ p: 0.8, bgcolor: '#fff8e1', border: '1px solid #ffe082', borderRadius: 1 }}>
-                        <Typography variant="caption" color="#e65100" fontWeight={600}>
-                          Person nicht im System gefunden — Geschlecht bitte manuell eintragen
-                        </Typography>
+                      <Box mt={0.8}>
+                        <Box sx={{ p: 0.8, bgcolor: '#fff8e1', border: '1px solid #ffe082', borderRadius: 1, mb: 0.8 }}>
+                          <Typography variant="caption" color="#e65100" fontWeight={600}>
+                            Person nicht im System gefunden.
+                          </Typography>
+                        </Box>
+                        {!assignment.warteplatzOpen && (
+                          <Button size="small" variant="outlined" color="warning"
+                            disabled={assignment.warteplatzLoading}
+                            startIcon={assignment.warteplatzLoading ? <CircularProgress size={12} /> : undefined}
+                            onClick={() => handleOpenWarteplatz(idx)}
+                            sx={{ fontSize: 11 }}>
+                            Warteplatz anlegen für {assignment.azr_id.trim()}
+                          </Button>
+                        )}
+                        {assignment.warteplatzOpen && (
+                          <Box sx={{ p: 1, border: '1px solid #a5d6a7', borderRadius: 1, bgcolor: '#f1f8e9', mt: 0.5 }}>
+                            <Typography variant="caption" fontWeight={700} color="#2e7d32" sx={{ display: 'block', mb: 1 }}>
+                              Warteplatz anlegen — {assignment.azr_id.trim()}
+                            </Typography>
+                            <Box display="flex" gap={1} flexWrap="wrap" mb={1}>
+                              <FormControl size="small" sx={{ minWidth: 110 }}>
+                                <InputLabel>Geschlecht *</InputLabel>
+                                <Select value={assignment.warteplatzGeschlecht} label="Geschlecht *"
+                                  disabled={assignment.warteplatzLoading}
+                                  onChange={(e) => setBedAssignments(prev => prev.map((a, i) => i === idx ? { ...a, warteplatzGeschlecht: e.target.value } : a))}>
+                                  <MenuItem value="M">Männlich</MenuItem>
+                                  <MenuItem value="W">Weiblich</MenuItem>
+                                  <MenuItem value="D">Divers</MenuItem>
+                                </Select>
+                              </FormControl>
+                              <TextField size="small" label="Bis (Datum)" type="date" value={assignment.warteplatzEnde}
+                                disabled={assignment.warteplatzLoading}
+                                onChange={(e) => setBedAssignments(prev => prev.map((a, i) => i === idx ? { ...a, warteplatzEnde: e.target.value } : a))}
+                                InputLabelProps={{ shrink: true }} sx={{ minWidth: 140 }} />
+                            </Box>
+                            {occLabelCatalog.length > 0 && (
+                              <Box mb={1}>
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.3 }}>Labels (optional):</Typography>
+                                <Box display="flex" gap={0.4} flexWrap="wrap">
+                                  {occLabelCatalog.map(lbl => {
+                                    const sel = assignment.warteplatzLabels.includes(lbl)
+                                    return (
+                                      <Chip key={lbl} label={lbl} size="small" clickable={!assignment.warteplatzLoading}
+                                        onClick={() => !assignment.warteplatzLoading && setBedAssignments(prev => prev.map((a, i) => i === idx ? {
+                                          ...a, warteplatzLabels: sel ? a.warteplatzLabels.filter(l => l !== lbl) : [...a.warteplatzLabels, lbl]
+                                        } : a))}
+                                        sx={{ height: 20, fontSize: 10, bgcolor: sel ? '#ede7f6' : '#f5f5f5', color: sel ? '#6a1b9a' : 'text.secondary', fontWeight: sel ? 700 : 400 }} />
+                                    )
+                                  })}
+                                </Box>
+                              </Box>
+                            )}
+                            <Box display="flex" gap={1}>
+                              <Button size="small" variant="contained" color="success"
+                                disabled={assignment.warteplatzLoading || !assignment.warteplatzGeschlecht || !assignment.warteplatzEnde}
+                                startIcon={assignment.warteplatzLoading ? <CircularProgress size={12} /> : undefined}
+                                onClick={() => handleSubmitWarteplatz(idx)}
+                                sx={{ fontSize: 11 }}>
+                                Warteplatz bestätigen
+                              </Button>
+                              <Button size="small" variant="text"
+                                onClick={() => setBedAssignments(prev => prev.map((a, i) => i === idx ? { ...a, warteplatzOpen: false } : a))}
+                                sx={{ fontSize: 11 }}>
+                                Abbrechen
+                              </Button>
+                            </Box>
+                          </Box>
+                        )}
                       </Box>
                     )}
                     {!assignment.searchDone && !assignment.searching && assignment.azr_id.trim() && (
@@ -1190,7 +1356,8 @@ export default function SuggestionWizard() {
           <Button onClick={() => { setConfirmOpen(false); setBedAssignments([]); setConfirmPersonLabels([]); setGroupPersonLabels({}) }}>
             Abbrechen
           </Button>
-          <Button variant="contained" onClick={handleAccept} disabled={loading}
+          <Button variant="contained" onClick={handleAccept}
+            disabled={loading || (!hasPerson && bedAssignments.some(a => a.searchDone && !a.searchFound))}
             sx={hasPerson ? { bgcolor: '#6a1b9a', '&:hover': { bgcolor: '#4a148c' } } : {}}>
             {loading ? <CircularProgress size={18} /> : hasPerson
               ? 'Verlegungsanfrage senden'
