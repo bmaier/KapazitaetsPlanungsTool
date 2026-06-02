@@ -246,3 +246,20 @@ Folgestory zu `spec-belegung-vormerken-suche-fix.md`. Setzt Ziel A (Bug-Fix + Tr
 
 - **Neue Person direkt anlegen wenn AZR nicht gefunden**: „Person nicht gefunden"-Zustand im Dialog um Formular erweitern (Geschlecht, Geburtsjahr, Herkunftsland) → POST `/api/beds/{bed_id}/occupancy` mit neuen Personendaten direkt auf lokalem Bett; kein Verlegungsworkflow nötig.
 - **Automatischer Warteplatz bei Verlegungsanfrage**: Wenn Person noch kein aktives Bett hat und lokale Kapazität vorhanden ist → vor dem POST `/api/reservations` automatisch ein lokales Bett als Warteplatz anlegen. Verhindert das „Verschwinden" der Person bei Ablehnung durch Zieleinrichtung. Erfordert: neuen Backend-Endpunkt oder atomare Frontend-Sequenz (Bett anlegen → Anfrage stellen).
+
+---
+
+## Review-Findings (spec-belegung-vormerken-suche-fix.md) — Zurückgestellt 2026-06-02
+
+Gefunden beim Review von Story 9-1. Nicht kritisch für Demo-Betrieb.
+
+- **`geschlecht: ""` leerer String nicht durch `??` gefangen**: In `searchPersonForBed` (Z.301) und im Trefferliste-Click-Handler (Z.1124) wird `person.geschlecht ?? a.geschlecht` verwendet. Der Nullish-Coalescing-Operator fängt nur `null`/`undefined`, nicht leere Strings. Fix: `person.geschlecht || a.geschlecht`.
+- **`belegung_ende` ohne Datumsformatierung**: `foundEnde` wird als roher API-String (z.B. `"2025-12-31"`) angezeigt. Für DE-Locale: `new Date(val).toLocaleDateString("de-DE")`. Pre-existing Pattern in allen Pfaden die `foundEnde` befüllen.
+
+---
+
+## Review-Findings (spec-bettsuche-hasperson-exactmatch.md) — Zurückgestellt 2026-06-02
+
+Gefunden beim Review von Story 10-1 (Edge Case Hunter). Kein Handlungsbedarf für Demo-Betrieb.
+
+- **Trefferliste: visuell identische Zeilen bei mehrfach-aktiven Belegungen**: Wenn dieselbe Person zwei gleichzeitige Belegungen hat, erscheint sie zweimal in `searchResults` mit identischen Darstellungen (nur `azr_id` + `location_name`). Der neue Composite-Key `${person.azr_id}-${pi}` behebt den React-Warning, aber der User kann nicht unterscheiden, welche Belegung er auswählt. Fix: Bett-Nummer oder Raum-Name in der Trefferliste ergänzen (`frontend/src/pages/SuggestionWizard.tsx` Z. ~1137–1141).

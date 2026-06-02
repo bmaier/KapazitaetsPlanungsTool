@@ -271,7 +271,7 @@ export default function SuggestionWizard() {
         try {
           type OccRes = { azr_id: string; occ_labels: string[] }
           const res = await get<OccRes[]>(`/api/occupants/search?q=${encodeURIComponent(person.azr_id)}`)
-          const found = res.find(r => r.azr_id === person.azr_id) ?? res[0]
+          const found = res.find(r => r.azr_id === person.azr_id)
           if (found) map[person.azr_id] = (found.occ_labels as string[]) ?? []
         } catch {}
       }
@@ -280,7 +280,7 @@ export default function SuggestionWizard() {
       try {
         type OccRes = { azr_id: string; occ_labels: string[] }
         const res = await get<OccRes[]>(`/api/occupants/search?q=${encodeURIComponent(currentPerson.azr_id)}`)
-        const found = res.find(r => r.azr_id === currentPerson.azr_id) ?? res[0]
+        const found = res.find(r => r.azr_id === currentPerson.azr_id)
         setConfirmPersonLabels((found?.occ_labels as string[]) ?? [])
       } catch { setConfirmPersonLabels([]) }
     }
@@ -298,7 +298,7 @@ export default function SuggestionWizard() {
         setBedAssignments(prev => prev.map((a, i) => i === idx ? {
           ...a,
           labels: Array.isArray(exact.occ_labels) ? exact.occ_labels : [],
-          geschlecht: exact.geschlecht ?? a.geschlecht,
+          geschlecht: exact.geschlecht || a.geschlecht,
           foundLocation: exact.location_name,
           foundEnde: exact.belegung_ende,
           searching: false, searchDone: true, searchFound: true, searchResults: [],
@@ -1113,15 +1113,15 @@ export default function SuggestionWizard() {
                           {assignment.searchResults.length} Treffer — Person auswählen:
                         </Typography>
                         <Box display="flex" flexDirection="column" gap={0.5}>
-                          {assignment.searchResults.map((person) => (
+                          {assignment.searchResults.map((person, pi) => (
                             <Box
-                              key={person.azr_id}
+                              key={`${person.azr_id}-${pi}`}
                               onClick={() => {
                                 setBedAssignments(prev => prev.map((a, i) => i === idx ? {
                                   ...a,
                                   azr_id: person.azr_id,
                                   labels: Array.isArray(person.occ_labels) ? person.occ_labels : [],
-                                  geschlecht: person.geschlecht ?? a.geschlecht,
+                                  geschlecht: person.geschlecht || a.geschlecht,
                                   foundLocation: person.location_name,
                                   foundEnde: person.belegung_ende,
                                   searchDone: true, searchFound: true, searching: false,
