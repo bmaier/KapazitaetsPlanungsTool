@@ -549,38 +549,74 @@ export default function SuggestionWizard() {
         setSnackbar({ open: true, message: `Verlegungsanfrage für ${azrId} fehlgeschlagen.`, severity: 'error' })
       }
     } else {
-      // No person context: Belegung vormerken
+      // No person context: Belegung vormerken / Verlegungsanfrage
       try {
-        // Betten mit Warteplatz-Flag überspringen — Person ist bereits im Wartebereich eingebucht
-        // und muss von dort per Verlegungsanfrage ans Zielbett zugewiesen werden
-        const assigned = bedAssignments.filter(a => a.azr_id.trim() && !a.warteplatzCreated)
-        if (assigned.length > 0) {
-          for (const a of assigned) {
-            await post(`/api/beds/${a.bed_id}/occupancy`, {
-              azr_id: a.azr_id.trim(),
-              geschlecht: a.geschlecht,
-              belegung_start: today,
-              belegung_ende: ende,
-            })
-          }
-        } else if (!bedAssignments.some(a => a.warteplatzCreated)) {
+        type BedStatusRoom = { room_type: string; beds: Array<{ bed_id: string; bett_nummer: string; status: string }> }
+
+        const hasPerson = bedAssignments.some(a => a.azr_id.trim())
+        if (!hasPerson) {
+          // Kein Personenbezug → Suggestion vormerken (lokale Belegungsvormerkung)
           await post(`/api/suggestions/${suggestion.suggestion_id}/accept`, { variant_index: selectedVariant })
         } else {
-          // Warteplatz angelegt + Ziel ist andere Einrichtung → Verlegungsanfrage senden
-          const warteplatzBeds = bedAssignments.filter(a => a.warteplatzCreated && a.azr_id.trim())
-          for (let i = 0; i < warteplatzBeds.length; i++) {
-            const a = warteplatzBeds[i]
+          for (let i = 0; i < bedAssignments.length; i++) {
+            const a = bedAssignments[i]
+            if (!a.azr_id.trim()) continue
             const targetBed = variant.beds[i] ?? variant.beds[0]
-            if (targetBed?.location_id && targetBed.location_id !== locationId) {
-              await post('/api/reservations', {
-                target_location_id: targetBed.location_id,
+            const isCrossLocation = !!targetBed?.location_id && targetBed.location_id !== locationId
+
+            if (a.warteplatzCreated) {
+              // Person bereits manuell im Wartebereich eingebucht → Reservation senden wenn cross-location
+              if (isCrossLocation && targetBed?.location_id) {
+                await post('/api/reservations', {
+                  target_location_id: targetBed.location_id,
+                  azr_id: a.azr_id.trim(),
+                  geschlecht: a.geschlecht,
+                  geburtsjahr: new Date().getFullYear() - 30,
+                  herkunftsland: 'UNK',
+                  belegung_start: start,
+                  belegung_ende: ende,
+                  suggested_bed_id: targetBed.bed_id ?? null,
+                })
+              }
+            } else if (a.searchDone && !a.searchFound && isCrossLocation && locationId) {
+              // Neue Person (nicht im System) + Cross-Location:
+              // 1. Freies Wartebereich-Bett finden und Person dort einbuchen
+              // 2. Dann Verlegungsanfrage an Zieleinrichtung senden
+              const rooms = await get<BedStatusRoom[]>(`/api/locations/${locationId}/bed-status`)
+              const freeBed = rooms
+                .filter(r => r.room_type === 'WARTEBEREICH')
+                .flatMap(r => r.beds.filter(b => b.status === 'FREI'))
+                .sort((x, y) => x.bett_nummer.localeCompare(y.bett_nummer, undefined, { numeric: true }))[0]
+              if (!freeBed) {
+                setSnackbar({ open: true, message: `Kein freier Warteplatz für ${a.azr_id.trim()} verfügbar — bitte manuell einbuchen.`, severity: 'error' })
+                setLoading(false)
+                return
+              }
+              await post(`/api/beds/${freeBed.bed_id}/occupancy`, {
                 azr_id: a.azr_id.trim(),
                 geschlecht: a.geschlecht,
-                geburtsjahr: new Date().getFullYear() - 30,
-                herkunftsland: 'UNK',
-                belegung_start: start,
+                belegung_start: today,
                 belegung_ende: ende,
-                suggested_bed_id: targetBed.bed_id ?? null,
+              })
+              if (targetBed?.location_id) {
+                await post('/api/reservations', {
+                  target_location_id: targetBed.location_id,
+                  azr_id: a.azr_id.trim(),
+                  geschlecht: a.geschlecht,
+                  geburtsjahr: new Date().getFullYear() - 30,
+                  herkunftsland: 'UNK',
+                  belegung_start: start,
+                  belegung_ende: ende,
+                  suggested_bed_id: targetBed.bed_id ?? null,
+                })
+              }
+            } else {
+              // Bekannte Person ODER lokales Zielbett → direkte Buchung
+              await post(`/api/beds/${a.bed_id}/occupancy`, {
+                azr_id: a.azr_id.trim(),
+                geschlecht: a.geschlecht,
+                belegung_start: today,
+                belegung_ende: ende,
               })
             }
           }
@@ -1427,7 +1463,7 @@ export default function SuggestionWizard() {
             Abbrechen
           </Button>
           <Button variant="contained" onClick={handleAccept}
-            disabled={loading || (!hasPerson && bedAssignments.some(a => a.searchDone && !a.searchFound && !a.warteplatzCreated))}
+            disabled={loading}
             sx={hasPerson ? { bgcolor: '#6a1b9a', '&:hover': { bgcolor: '#4a148c' } } : {}}>
             {loading ? <CircularProgress size={18} /> : hasPerson
               ? 'Verlegungsanfrage senden'
