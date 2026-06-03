@@ -5,6 +5,19 @@ Diese Ziele werden nach Abschluss von Ziel 1 sequenziell angegangen.
 
 ---
 
+## Review-Findings (spec-anfragen-workflow-bett-status-fixes.md) — Zurückgestellt 2026-06-03
+
+Gefunden beim Review. Kein Handlungsbedarf für Demo-Betrieb.
+
+- **Wartebereich-Panel: canEdit-Guard fehlt in handleBedClick** (`Drilldown.tsx` ~1024): Das Wartebereich-Bett-Panel ruft `handleBedClick` direkt ohne `canEdit &&`-Guard auf. Der neue `pending_reservation_id`-Guard navigiert daher zu `/reservations` auch wenn `canEdit=false`. Pre-existing Architekturproblem; Navigation ist weniger schädlich als Dialog ohne Berechtigung.
+- **ORDER BY created_at ohne Secondary-Sort bei Gleichwert** (`router.py` Subqueries): Wenn zwei PENDING-Anfragen exakt denselben `created_at`-Timestamp haben (z.B. Bulk-Insert in Demo-Daten), sind `pending_reservation_id` und `pending_requester_location_name` technisch non-deterministisch — bleiben aber konsistent zueinander. Fix: `ORDER BY pen_in.created_at, pen_in.id` als Tie-Breaker.
+- **hasPendingRequest-Zustand bei VORGEMERKT+PENDING unsichtbar** (`Drilldown.tsx:233`): Wenn ein Bett gleichzeitig VORGEMERKT (CONFIRMED) und `suggested_bed_id` einer PENDING-Anfrage ist, wird nur der VORGEMERKT-Zustand angezeigt. `pending_requester_location_name` wird befüllt aber nie gerendert. Seltener Edge-Case im Datenmodell.
+- **VORGEMERKT-Click ohne reservation_id ist silent** (`Drilldown.tsx:715`): `if (bed.reservation_id) navigate(...)` — kein else-Branch. Falls Backend je VORGEMERKT ohne reservation_id liefert, passiert beim Klick nichts. Pre-existing, API-Invariante verhindert diesen Fall aktuell.
+
+---
+
+---
+
 ## Ziel B — EU-Statistik-Report (zurückgestellt 2026-05-31)
 
 Separate EU-Kontingentauslastungs-Ansicht mit Zahlenstatistik-Tabelle + Charts, PDF-Export für EU-Versand. Baut auf Ziel A (spec-ziel11-zeitreihenstatistik-intern.md) Backend-Infrastruktur auf.
@@ -255,6 +268,14 @@ Gefunden beim Review von Story 9-1. Nicht kritisch für Demo-Betrieb.
 
 - **`geschlecht: ""` leerer String nicht durch `??` gefangen**: In `searchPersonForBed` (Z.301) und im Trefferliste-Click-Handler (Z.1124) wird `person.geschlecht ?? a.geschlecht` verwendet. Der Nullish-Coalescing-Operator fängt nur `null`/`undefined`, nicht leere Strings. Fix: `person.geschlecht || a.geschlecht`.
 - **`belegung_ende` ohne Datumsformatierung**: `foundEnde` wird als roher API-String (z.B. `"2025-12-31"`) angezeigt. Für DE-Locale: `new Date(val).toLocaleDateString("de-DE")`. Pre-existing Pattern in allen Pfaden die `foundEnde` befüllen.
+
+---
+
+## Deferred: Einrichtungsfilter in Bettensuche (zurückgestellt 2026-06-03)
+
+Zurückgestellt aus Session "Anfragen-Workflow-Fixes" — Ziel A des Split.
+
+In der Box "Standortübergreifend suchen" (Bettensuche ohne vorherige Personenauswahl) soll eine Multi-Select-Auswahl der aktuell angelegten Einrichtungen möglich sein. Design: ähnlich Raumfilter-Chips (MUI Chip / Toggle-Chip). Einrichtungsnamen exakt wie in der Administration hinterlegt anzeigen. API: `GET /api/locations` liefert die Daten.
 
 ---
 

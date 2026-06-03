@@ -220,6 +220,7 @@ class BedStatusItem(BaseModel):
     has_pending_transfer: bool = False        # BELEGT: Verlegungsanfrage läuft (PENDING)
     has_confirmed_transfer: bool = False      # BELEGT: Transfer bestätigt, Ausbuchung ausstehend (CONFIRMED)
     pending_reservation_id: Optional[UUID] = None  # FREI: Bett ist suggested_bed in PENDING-Anfrage
+    pending_requester_location_name: Optional[str] = None  # FREI: Name der anfragenden Einrichtung
 
 
 class RoomBedStatus(BaseModel):
