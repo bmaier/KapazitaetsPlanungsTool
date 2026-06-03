@@ -5,6 +5,19 @@ Diese Ziele werden nach Abschluss von Ziel 1 sequenziell angegangen.
 
 ---
 
+## Review-Findings (spec-anfragen-workflow-bett-status-fixes.md) — Zurückgestellt 2026-06-03
+
+Gefunden beim Review. Kein Handlungsbedarf für Demo-Betrieb.
+
+- **Wartebereich-Panel: canEdit-Guard fehlt in handleBedClick** (`Drilldown.tsx` ~1024): Das Wartebereich-Bett-Panel ruft `handleBedClick` direkt ohne `canEdit &&`-Guard auf. Der neue `pending_reservation_id`-Guard navigiert daher zu `/reservations` auch wenn `canEdit=false`. Pre-existing Architekturproblem; Navigation ist weniger schädlich als Dialog ohne Berechtigung.
+- **ORDER BY created_at ohne Secondary-Sort bei Gleichwert** (`router.py` Subqueries): Wenn zwei PENDING-Anfragen exakt denselben `created_at`-Timestamp haben (z.B. Bulk-Insert in Demo-Daten), sind `pending_reservation_id` und `pending_requester_location_name` technisch non-deterministisch — bleiben aber konsistent zueinander. Fix: `ORDER BY pen_in.created_at, pen_in.id` als Tie-Breaker.
+- **hasPendingRequest-Zustand bei VORGEMERKT+PENDING unsichtbar** (`Drilldown.tsx:233`): Wenn ein Bett gleichzeitig VORGEMERKT (CONFIRMED) und `suggested_bed_id` einer PENDING-Anfrage ist, wird nur der VORGEMERKT-Zustand angezeigt. `pending_requester_location_name` wird befüllt aber nie gerendert. Seltener Edge-Case im Datenmodell.
+- **VORGEMERKT-Click ohne reservation_id ist silent** (`Drilldown.tsx:715`): `if (bed.reservation_id) navigate(...)` — kein else-Branch. Falls Backend je VORGEMERKT ohne reservation_id liefert, passiert beim Klick nichts. Pre-existing, API-Invariante verhindert diesen Fall aktuell.
+
+---
+
+---
+
 ## Ziel B — EU-Statistik-Report (zurückgestellt 2026-05-31)
 
 Separate EU-Kontingentauslastungs-Ansicht mit Zahlenstatistik-Tabelle + Charts, PDF-Export für EU-Versand. Baut auf Ziel A (spec-ziel11-zeitreihenstatistik-intern.md) Backend-Infrastruktur auf.
@@ -225,3 +238,49 @@ Gefunden beim Review von `spec-prod-deployment-compose.md`. Kein Handlungsbedarf
 - **KC_PROXY=edge ohne Proxy-Header-Validierung:** Keycloak vertraut `X-Forwarded-Proto` bedingungslos. Hardening: `KC_PROXY_HEADERS=xforwarded` und `KC_HOSTNAME_STRICT=true` in Keycloak 24+ dokumentieren. Liegt in Verantwortung des Reverse-Proxy-Betreibers.
 - **KC_HOSTNAME_ADMIN_URL = öffentliche URL:** Keycloak Admin-Console über selbe öffentliche URL erreichbar wie die App. Für stärkere Isolation: Admin-URL auf interne Adresse zeigen lassen; erfordert aber separaten Ingress-Eintrag.
 - **Alembic-Migration vor uvicorn fehlt:** Backend startet ohne `alembic upgrade head`. Für vollständiges Prod-Readiness: Init-Container oder Entrypoint-Skript ergänzen. In `docker-compose.prod.yml` Design Notes als "Deferred (nächste Story)" dokumentiert.
+
+---
+
+## Review-Findings (spec-belegung-vormerken-suche-fix.md) — Zurückgestellt 2026-06-01
+
+Gefunden beim Review von Story 9-1. Kein Handlungsbedarf für diese Story.
+
+- **`?? res[0]` in `handleOpenConfirm` (hasPerson-Pfad)**: `handleOpenConfirm` für Einzelperson (Zeile ~283) und Gruppen (Zeile ~274) nutzt weiterhin `res.find(...) ?? res[0]` beim Laden der Person-Labels für den Bestätigungs-Dialog. Kann falsche Labels für eine falsch gematchte Person anzeigen. Pre-existing; hasPerson-Pfad war in dieser Story out-of-scope. Fix in separatem Ticket.
+- **Race condition bei schnellen aufeinanderfolgenden Suchen**: Zwei in-flight Requests für denselben `idx` — der später antwortende überschreibt das Ergebnis des neueren. Pre-existing Architekturmuster. Fix: AbortController oder monotoner Sequenzzähler in `searchPersonForBed`.
+- **Stale Callback nach Dialog-Close**: Wenn Dialog geschlossen wird während `searchPersonForBed` noch läuft, kann der Callback nach erneutem Dialog-Öffnen den frisch initialisierten `bedAssignments`-State korrumpieren. Pre-existing.
+- **Keyboard-Accessibility für Trefferliste**: Clickable `<Box>`-Elemente ohne `role="button"`, `tabIndex` oder `onKeyDown`. Keyboard- und Screen-Reader-Nutzer können nicht selektieren. Separates Accessibility-Ticket.
+- **Duplicate Keys bei doppelten Label-Strings**: `<Chip key={lbl}>` — wenn `occ_labels` identische Strings enthält, React-Warning und stilles Auslassen. Pre-existing Muster überall in der Komponente.
+
+---
+
+## Deferred: Belegung-vormerken — Ziel B (zurückgestellt 2026-06-01)
+
+Folgestory zu `spec-belegung-vormerken-suche-fix.md`. Setzt Ziel A (Bug-Fix + Trefferliste) voraus.
+
+- **Neue Person direkt anlegen wenn AZR nicht gefunden**: „Person nicht gefunden"-Zustand im Dialog um Formular erweitern (Geschlecht, Geburtsjahr, Herkunftsland) → POST `/api/beds/{bed_id}/occupancy` mit neuen Personendaten direkt auf lokalem Bett; kein Verlegungsworkflow nötig.
+- **Automatischer Warteplatz bei Verlegungsanfrage**: Wenn Person noch kein aktives Bett hat und lokale Kapazität vorhanden ist → vor dem POST `/api/reservations` automatisch ein lokales Bett als Warteplatz anlegen. Verhindert das „Verschwinden" der Person bei Ablehnung durch Zieleinrichtung. Erfordert: neuen Backend-Endpunkt oder atomare Frontend-Sequenz (Bett anlegen → Anfrage stellen).
+
+---
+
+## Review-Findings (spec-belegung-vormerken-suche-fix.md) — Zurückgestellt 2026-06-02
+
+Gefunden beim Review von Story 9-1. Nicht kritisch für Demo-Betrieb.
+
+- **`geschlecht: ""` leerer String nicht durch `??` gefangen**: In `searchPersonForBed` (Z.301) und im Trefferliste-Click-Handler (Z.1124) wird `person.geschlecht ?? a.geschlecht` verwendet. Der Nullish-Coalescing-Operator fängt nur `null`/`undefined`, nicht leere Strings. Fix: `person.geschlecht || a.geschlecht`.
+- **`belegung_ende` ohne Datumsformatierung**: `foundEnde` wird als roher API-String (z.B. `"2025-12-31"`) angezeigt. Für DE-Locale: `new Date(val).toLocaleDateString("de-DE")`. Pre-existing Pattern in allen Pfaden die `foundEnde` befüllen.
+
+---
+
+## Deferred: Einrichtungsfilter in Bettensuche (zurückgestellt 2026-06-03)
+
+Zurückgestellt aus Session "Anfragen-Workflow-Fixes" — Ziel A des Split.
+
+In der Box "Standortübergreifend suchen" (Bettensuche ohne vorherige Personenauswahl) soll eine Multi-Select-Auswahl der aktuell angelegten Einrichtungen möglich sein. Design: ähnlich Raumfilter-Chips (MUI Chip / Toggle-Chip). Einrichtungsnamen exakt wie in der Administration hinterlegt anzeigen. API: `GET /api/locations` liefert die Daten.
+
+---
+
+## Review-Findings (spec-bettsuche-hasperson-exactmatch.md) — Zurückgestellt 2026-06-02
+
+Gefunden beim Review von Story 10-1 (Edge Case Hunter). Kein Handlungsbedarf für Demo-Betrieb.
+
+- **Trefferliste: visuell identische Zeilen bei mehrfach-aktiven Belegungen**: Wenn dieselbe Person zwei gleichzeitige Belegungen hat, erscheint sie zweimal in `searchResults` mit identischen Darstellungen (nur `azr_id` + `location_name`). Der neue Composite-Key `${person.azr_id}-${pi}` behebt den React-Warning, aber der User kann nicht unterscheiden, welche Belegung er auswählt. Fix: Bett-Nummer oder Raum-Name in der Trefferliste ergänzen (`frontend/src/pages/SuggestionWizard.tsx` Z. ~1137–1141).

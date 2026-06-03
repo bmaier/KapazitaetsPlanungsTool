@@ -98,6 +98,7 @@ interface BedStatus {
   has_pending_transfer?: boolean
   has_confirmed_transfer?: boolean
   pending_reservation_id?: string
+  pending_requester_location_name?: string | null
 }
 
 interface RoomStatus {
@@ -230,9 +231,9 @@ function BedGrid({ room, canEdit, onBedClick, refDate }: BedGridProps) {
           const hasConfirmedTransfer = isBelegt && !!bed.has_confirmed_transfer
           const hasPendingTransfer = isBelegt && !hasConfirmedTransfer && !!bed.has_pending_transfer
           const hasPendingRequest = !isBelegt && !isVorgemerkt && !!bed.pending_reservation_id
-          const bedColor = !bedActive ? '#9e9e9e' : isVorgemerkt ? '#6a1b9a' : hasPendingRequest ? '#7b1fa2' : hasConfirmedTransfer ? '#0d47a1' : hasPendingTransfer ? '#e65100' : isBelegt ? '#c62828' : '#2e7d32'
-          const bedBg = !bedActive ? '#f5f5f5' : isVorgemerkt ? '#f3e5f5' : hasPendingRequest ? '#f3e5f5' : hasConfirmedTransfer ? '#e3f2fd' : hasPendingTransfer ? '#fff3e0' : isBelegt ? '#ffebee' : '#e8f5e9'
-          const bedBorder = !bedActive ? '#bdbdbd' : isVorgemerkt ? '#7b1fa2' : hasPendingRequest ? '#ab47bc' : hasConfirmedTransfer ? '#1565c0' : hasPendingTransfer ? '#fb8c00' : isBelegt ? '#e53935' : '#43a047'
+          const bedColor = !bedActive ? '#9e9e9e' : isVorgemerkt ? '#0d47a1' : hasPendingRequest ? '#7b1fa2' : hasConfirmedTransfer ? '#0d47a1' : hasPendingTransfer ? '#e65100' : isBelegt ? '#c62828' : '#2e7d32'
+          const bedBg = !bedActive ? '#f5f5f5' : isVorgemerkt ? '#e3f2fd' : hasPendingRequest ? '#f3e5f5' : hasConfirmedTransfer ? '#e3f2fd' : hasPendingTransfer ? '#fff3e0' : isBelegt ? '#ffebee' : '#e8f5e9'
+          const bedBorder = !bedActive ? '#bdbdbd' : isVorgemerkt ? '#1565c0' : hasPendingRequest ? '#ab47bc' : hasConfirmedTransfer ? '#1565c0' : hasPendingTransfer ? '#fb8c00' : isBelegt ? '#e53935' : '#43a047'
           const isClickable = canEdit && bedActive && (isBelegt || isVorgemerkt || (!isBelegt && !isVorgemerkt))
           return (
             <Tooltip
@@ -244,13 +245,13 @@ function BedGrid({ room, canEdit, onBedClick, refDate }: BedGridProps) {
                     : isVorgemerkt
                     ? `Vorgemerkt für: ${bed.reservation_azr_id ?? '–'} · ${bed.reservation_start} – ${bed.reservation_ende}`
                     : hasPendingRequest
-                    ? 'Verlegungsanfrage vorhanden — Bett vorgeschlagen'
+                    ? (bed.pending_requester_location_name ? `Verlegungsanfrage von: ${bed.pending_requester_location_name}` : 'Verlegungsanfrage vorhanden — Bett vorgeschlagen')
                     : isBelegt
                     ? `${bed.azr_id || '–'}${bed.alias_id ? ' · ' + bed.alias_id : ''} · ${bed.belegung_start} – ${bed.belegung_ende}${hasConfirmedTransfer ? ' · Verlegung genehmigt — Eincheck ausstehend' : hasPendingTransfer ? ' · Verlegungsanfrage läuft' : ''}`
                     : 'Bett frei'}
                   {(bed.bed_labels ?? []).length > 0 && ` · ${bed.bed_labels!.join(', ')}`}
                   {isBelegt && (bed.occ_labels ?? []).length > 0 && ` · ${bed.occ_labels!.join(', ')}`}
-                  {canEdit && bedActive && (isVorgemerkt ? ' · Klicken zur Reservierung' : isBelegt ? ' · Klicken zum Verwalten' : ' · Klicken zum Belegen')}
+                  {canEdit && bedActive && (isVorgemerkt ? ' · Klicken zur Reservierung' : hasPendingRequest ? ' · Klicken → Anfragen anzeigen' : isBelegt ? ' · Klicken zum Verwalten' : ' · Klicken zum Belegen')}
                 </Box>
               }
               arrow
@@ -267,7 +268,7 @@ function BedGrid({ room, canEdit, onBedClick, refDate }: BedGridProps) {
                   alignItems: 'center',
                   justifyContent: 'center',
                   bgcolor: bedBg,
-                  border: `2px ${hasPendingRequest || hasPendingTransfer || hasConfirmedTransfer ? 'dashed' : 'solid'} ${bedBorder}`,
+                  border: `2px ${isVorgemerkt || hasPendingRequest || hasPendingTransfer || hasConfirmedTransfer ? 'dashed' : 'solid'} ${bedBorder}`,
                   cursor: isClickable ? 'pointer' : 'default',
                   opacity: bedActive ? 1 : 0.5,
                   transition: 'all 0.15s',
@@ -284,7 +285,7 @@ function BedGrid({ room, canEdit, onBedClick, refDate }: BedGridProps) {
                   </Typography>
                 )}
                 {isVorgemerkt && bed.reservation_azr_id && (
-                  <Typography sx={{ fontSize: 7, color: '#6a1b9a', lineHeight: 1, maxWidth: 52, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', px: 0.3 }}>
+                  <Typography sx={{ fontSize: 7, color: '#0d47a1', lineHeight: 1, maxWidth: 52, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', px: 0.3 }}>
                     {bed.reservation_azr_id.slice(-6)}
                   </Typography>
                 )}
@@ -313,8 +314,8 @@ function BedGrid({ room, canEdit, onBedClick, refDate }: BedGridProps) {
         </Box>
         {vorgemerkt > 0 && (
           <Box display="flex" alignItems="center" gap={0.5}>
-            <Box sx={{ width: 10, height: 10, borderRadius: 0.5, bgcolor: '#7b1fa2' }} />
-            <Typography variant="caption" color="text.secondary">Vorgemerkt{canEdit && ' (zur Reservierung)'}</Typography>
+            <Box sx={{ width: 10, height: 10, borderRadius: 0.5, bgcolor: '#e3f2fd', border: '1.5px dashed #1565c0' }} />
+            <Typography variant="caption" color="text.secondary">Vorgemerkt (Eincheck ausst.){canEdit && ' (zur Reservierung)'}</Typography>
           </Box>
         )}
         <Box display="flex" alignItems="center" gap={0.5}>
@@ -695,6 +696,10 @@ export default function Drilldown() {
   }
 
   function handleBedClick(bed: BedStatus, room: RoomStatus) {
+    if (bed.pending_reservation_id && bed.status === 'FREI') {
+      navigate('/reservations')
+      return
+    }
     if (bed.status === 'FREI') {
       const roomGender = deriveRoomGender(room)
       setBelegGeschlecht(roomGender === 'D' ? 'M' : roomGender)

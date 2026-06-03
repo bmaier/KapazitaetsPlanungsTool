@@ -494,8 +494,19 @@ async def get_bed_status(
                   AND pen_in.status = 'PENDING'
                   AND pen_in.belegung_start < :date_to
                   AND pen_in.belegung_ende > :date_from
+                ORDER BY pen_in.created_at
                 LIMIT 1
-              ) AS pending_reservation_id
+              ) AS pending_reservation_id,
+              (
+                SELECT l.name FROM reservations.requests pen_in
+                JOIN capacity.locations l ON l.id = pen_in.requester_location_id
+                WHERE pen_in.suggested_bed_id = b.id
+                  AND pen_in.status = 'PENDING'
+                  AND pen_in.belegung_start < :date_to
+                  AND pen_in.belegung_ende > :date_from
+                ORDER BY pen_in.created_at
+                LIMIT 1
+              ) AS pending_requester_location_name
             FROM capacity.rooms r
             JOIN capacity.beds b ON b.room_id = r.id AND b.is_active = true AND b.bett_typ != 'DOPPEL'
             LEFT JOIN persons.occupants o
@@ -556,6 +567,7 @@ async def get_bed_status(
             has_pending_transfer=bool(row.get("has_pending_transfer") or False),
             has_confirmed_transfer=bool(row.get("has_confirmed_transfer") or False),
             pending_reservation_id=row.get("pending_reservation_id"),
+            pending_requester_location_name=row.get("pending_requester_location_name"),
         ))
     return [RoomBedStatus(**rooms_map[rid]) for rid in rooms_order]
 
@@ -573,7 +585,10 @@ async def search_occupants(
     Gibt Bett, Raum, Einrichtung und Belegungszeitraum zurück.
     """
     search_term = q or azr_id or alias_id
-    # At least one of search_term or labels must be provided
+    # "*" = Wildcard: alle aktiven Personen ohne AZR-Filter
+    wildcard_all = search_term and search_term.strip() == "*"
+
+    # Mindestens ein Filter (außer Wildcard) muss gesetzt sein
     if not search_term and not labels:
         return []
 
@@ -582,7 +597,7 @@ async def search_occupants(
     params: dict = {}
     where_clauses = ["o.belegung_ende >= CURRENT_DATE"]
 
-    if search_term:
+    if search_term and not wildcard_all:
         term = f"%{search_term.strip()}%"
         params["term"] = term
         where_clauses.append("(o.azr_id ILIKE :term OR o.alias_id ILIKE :term)")
@@ -611,6 +626,7 @@ async def search_occupants(
               b.labels      AS bed_labels,
               r.id          AS room_id,
               r.name        AS room_name,
+              r.room_type,
               r.geschlechts_designation,
               r.labels      AS room_labels,
               l.id          AS location_id,
