@@ -408,6 +408,7 @@ export default function Drilldown() {
   const [verlegenSaving, setVerlegenSaving] = useState(false)
   const [verlegenMismatch, setVerlegenMismatch] = useState(false)
   const [verlegenMismatchGrund, setVerlegenMismatchGrund] = useState('')
+  const [verlegenGrund, setVerlegenGrund] = useState('')
 
   // Pending requests assignment dialog
   const [pendingRequests, setPendingRequests] = useState<PendingReservation[]>([])
@@ -893,12 +894,14 @@ export default function Drilldown() {
         ...(verlegenMismatch && verlegenMismatchGrund.trim()
           ? { geschlecht_mismatch_grund: verlegenMismatchGrund.trim() }
           : {}),
+        ...(verlegenGrund.trim() ? { verlegung_grund: verlegenGrund.trim() } : {}),
       })
       await del(`/api/beds/${src.bed_id}/occupancy/${src.occupancy_id}`)
       setVerlegenOpen(false)
       setManageBed(null)
       setVerlegenMismatch(false)
       setVerlegenMismatchGrund('')
+      setVerlegenGrund('')
       loadBedStatus()
       setSnackbar({ open: true, message: 'Person erfolgreich verlegt.', severity: 'success' })
     } catch (err: unknown) {
@@ -1452,7 +1455,7 @@ export default function Drilldown() {
       </Dialog>
 
       {/* ── Intern verlegen Dialog ── */}
-      <Dialog open={verlegenOpen} onClose={() => { setVerlegenOpen(false); setVerlegenMismatch(false); setVerlegenMismatchGrund('') }} maxWidth="sm" fullWidth>
+      <Dialog open={verlegenOpen} onClose={() => { setVerlegenOpen(false); setVerlegenMismatch(false); setVerlegenMismatchGrund(''); setVerlegenGrund('') }} maxWidth="sm" fullWidth>
         <DialogTitle fontWeight={700}>Intern verlegen — Zielbett wählen</DialogTitle>
         <DialogContent sx={{ pt: 2 }}>
           {verlegenMismatch ? (
@@ -1517,6 +1520,14 @@ export default function Drilldown() {
                   </Paper>
                 ))}
               </Box>
+              <TextField
+                label="Begründung *"
+                fullWidth
+                sx={{ mt: 2 }}
+                value={verlegenGrund}
+                onChange={(e) => setVerlegenGrund(e.target.value)}
+                placeholder="z.B. Raumwechsel wegen Renovierung..."
+              />
             </Box>
           )}
         </DialogContent>
@@ -1532,8 +1543,8 @@ export default function Drilldown() {
             </>
           ) : (
             <>
-              <Button onClick={() => setVerlegenOpen(false)}>Abbrechen</Button>
-              <Button variant="contained" disabled={!verlegenTargetBed || verlegenSaving}
+              <Button onClick={() => { setVerlegenOpen(false); setVerlegenGrund('') }}>Abbrechen</Button>
+              <Button variant="contained" disabled={!verlegenTargetBed || !verlegenGrund.trim() || verlegenSaving}
                 onClick={handleVerlegen}>
                 {verlegenSaving ? <CircularProgress size={18} /> : 'Verlegen bestätigen'}
               </Button>

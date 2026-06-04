@@ -309,3 +309,15 @@ Gefunden beim adversarialen Review. Nicht kritisch für Demo-Betrieb.
 - **`_WRITER_PLUS` als lokale Variablen in Handlern:** In `cancel_reservation_with_grund` wird die Menge bei jedem Request neu angelegt. Fix: als Modul-Level-Konstante in `reservations/router.py` extrahieren.
 - **Tooltip-Text für FREI+pending:** Tooltip in `BedGrid` sagt "Klicken → Anfragen anzeigen", aber die Aktion ist jetzt eine Seitennavigation. UX-Verbesserung: Text auf "Zur Verlegungsanfrage" ändern.
 - **has_pending_transfer SQL ohne Location-Filter (capacity/router.py):** Subquery für `has_pending_transfer` und `outgoing_reservation_id` filtert nur auf `pen_out.azr_id = o.azr_id` ohne `pen_out.requester_location_id`-Constraint. Bei Datenduplikaten (gleiche AZR-ID in mehreren Einrichtungen) könnte ein fremder Transfer das Flag setzen. Pre-existing Design.
+
+---
+
+## Review-Findings (spec-verlegungsanfrage-konsistenzregeln.md) — Zurückgestellt 2026-06-04
+
+Gefunden beim adversarialen Review. Nicht kritisch für Demo-Betrieb.
+
+- **Race Condition Ein-Platz-Regel:** `create_occupancy` liest aktive Belegungen und prüft dann; zwei gleichzeitige Requests für dieselbe AZR-ID könnten beide die Prüfung bestehen. Fix: `SELECT ... FOR UPDATE` auf die Belegungszeile oder UNIQUE Partial Index auf `(azr_id)` WHERE `belegung_ende >= CURRENT_DATE`. Gleiche Problematik wie EU-Quota Race Condition.
+- **BDD Audit-Step Context Isolation:** `step_check_audit_grund` sucht nach `OCCUPANCY_DELETED` mit `context.guard_azr_id`; bei parallelen Test-Runs könnten Interferenzen auftreten. AZR-ID-Format ist quasi-unique (enthält Location-UUID-Prefix) aber kein echter Isolations-Mechanismus.
+- **belegung_ende Timezone in Ein-Platz-Query:** `belegung_ende >= CURRENT_DATE` wird im DB-Server-Timezone ausgewertet. Pre-existing Pattern (gleiche Problematik in Zeile 4a-Findings).
+- **check_no_active_reservation nicht self-sufficient:** Die Funktion erhält eine bereits gefilterte UUID und kann deren Kontext (PENDING/CONFIRMED) nicht eigenständig validieren. Für Produktions-Hardening: Funktion um den Status-String erweitern oder mit einem strukturierteren Parameter arbeiten.
+- **grund kein Längen-Limit:** `grund` (Query-Param in DELETE /occupancy) hat kein `max_length`. Fix: `grund: Optional[str] = Query(None, max_length=500)`.

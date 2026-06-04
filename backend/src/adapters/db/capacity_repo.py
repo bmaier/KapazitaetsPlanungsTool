@@ -359,20 +359,24 @@ class SqlOccupancyRepo(OccupancyRepo):
         id: UUID,
         user: Optional[UserContext] = None,
         location_id: Optional[UUID] = None,
+        grund: Optional[str] = None,
     ) -> None:
         result = await self._session.execute(
             select(OccupantModel).where(OccupantModel.id == id)
         )
         model = result.scalar_one_or_none()
         if model:
+            payload: dict = {
+                "id": str(id),
+                "bed_id": str(model.bed_id),
+                "azr_id": model.azr_id,
+            }
+            if grund:
+                payload["grund"] = grund
             await write_audit(
                 self._session,
                 "OCCUPANCY_DELETED",
-                {
-                    "id": str(id),
-                    "bed_id": str(model.bed_id),
-                    "azr_id": model.azr_id,
-                },
+                payload,
                 user=user,
                 location_id=location_id,
                 entity_type="OCCUPANCY",

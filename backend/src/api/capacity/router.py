@@ -55,6 +55,12 @@ from src.domain.capacity.rules import (
     check_notbett_duration,
 )
 from src.domain.capacity.value_objects import BedType
+from src.domain.reservations.rules import (
+    ActiveReservationBlocksError,
+    EinPlatzRuleError,
+    check_no_active_reservation,
+    check_single_occupancy,
+)
 
 router = APIRouter(tags=["capacity"])
 
@@ -1097,6 +1103,46 @@ async def create_occupancy(
         if loc_row.valid_until and body.belegung_start >= loc_row.valid_until:
             raise HTTPException(status_code=409, detail=f"Einrichtung ist ab {loc_row.valid_until} inaktiv")
 
+    # Ein-Platz-Regel: Person darf nicht gleichzeitig in anderer Einrichtung aktiv sein
+    ein_platz_row = await session.execute(
+        text("""
+            SELECT b.location_id FROM persons.occupants o
+            JOIN capacity.beds b ON b.id = o.bed_id
+            WHERE o.azr_id = :azr
+              AND o.belegung_ende >= CURRENT_DATE
+              AND b.location_id != :loc
+            LIMIT 1
+        """),
+        {"azr": body.azr_id, "loc": str(bed_location_id)},
+    )
+    ein_platz_result = ein_platz_row.fetchone()
+    try:
+        check_single_occupancy(
+            UUID(str(ein_platz_result.location_id)) if ein_platz_result else None,
+            bed_location_id,  # type: ignore[arg-type]
+        )
+    except EinPlatzRuleError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+    # Reservation-Guard: keine Cross-Location-Einbuchung bei aktiver Verlegungsanfrage
+    res_guard_row = await session.execute(
+        text("""
+            SELECT id, requester_location_id FROM reservations.requests
+            WHERE azr_id = :azr AND status IN ('PENDING', 'CONFIRMED')
+            LIMIT 1
+        """),
+        {"azr": body.azr_id},
+    )
+    res_guard = res_guard_row.fetchone()
+    if res_guard and bed_location_id and str(res_guard.requester_location_id) != str(bed_location_id):
+        try:
+            check_no_active_reservation(UUID(str(res_guard.id)))
+        except ActiveReservationBlocksError as e:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Einbuchen nicht möglich: {e} — Ziel-Einrichtung weicht von der laufenden Anfrage ab",
+            )
+
     existing = await occ_repo.get_active_for_bed(bed_id)
 
     try:
@@ -1132,6 +1178,22 @@ async def create_occupancy(
                     "bed_id": str(bed_id),
                     "geschlecht_person": body.geschlecht.value,
                     "mismatch_grund": body.geschlecht_mismatch_grund,
+                    "erstellt_von": user.sub if user else None,
+                })
+            },
+        )
+
+    if body.verlegung_grund:
+        await session.execute(
+            text(
+                "INSERT INTO audit.events (event_type, payload) "
+                "VALUES ('OCCUPANCY_VERLEGT', :p)"
+            ),
+            {
+                "p": json.dumps({
+                    "azr_id": body.azr_id,
+                    "bed_id": str(bed_id),
+                    "verlegung_grund": body.verlegung_grund,
                     "erstellt_von": user.sub if user else None,
                 })
             },
@@ -1220,12 +1282,25 @@ async def end_occupancy(
     )
     loc = loc_row.fetchone()
     bed_location_id: Optional[UUID] = UUID(str(loc.id)) if loc else None
-    if grund:
-        import logging as _logging
-        _logging.getLogger("capacity").info(
-            "Ausbuchen: occ=%s azr_id=%s grund=%s", occupancy_id, occupancy.azr_id, grund
+    active_res_row = await session.execute(
+        text("""
+            SELECT id FROM reservations.requests
+            WHERE azr_id = :azr AND status IN ('PENDING', 'CONFIRMED')
+            LIMIT 1
+        """),
+        {"azr": occupancy.azr_id},
+    )
+    active_res = active_res_row.fetchone()
+    try:
+        check_no_active_reservation(
+            UUID(str(active_res.id)) if active_res else None
         )
-    await occ_repo.delete(occupancy_id, user=user, location_id=bed_location_id)
+    except ActiveReservationBlocksError as e:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Ausbuchen nicht möglich: {e} — Verlegungsanfrage zuerst stornieren",
+        )
+    await occ_repo.delete(occupancy_id, user=user, location_id=bed_location_id, grund=grund)
     return {"ended": True, "grund": grund}
 
 
