@@ -64,3 +64,12 @@ class ReservationResponse(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ReservationDetailResponse(ReservationResponse):
+    requester_location_name: Optional[str] = None
+    target_location_name: Optional[str] = None
+
+
+class CancelRequest(BaseModel):
+    grund: str

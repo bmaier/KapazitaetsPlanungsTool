@@ -284,3 +284,28 @@ In der Box "Standortübergreifend suchen" (Bettensuche ohne vorherige Personenau
 Gefunden beim Review von Story 10-1 (Edge Case Hunter). Kein Handlungsbedarf für Demo-Betrieb.
 
 - **Trefferliste: visuell identische Zeilen bei mehrfach-aktiven Belegungen**: Wenn dieselbe Person zwei gleichzeitige Belegungen hat, erscheint sie zweimal in `searchResults` mit identischen Darstellungen (nur `azr_id` + `location_name`). Der neue Composite-Key `${person.azr_id}-${pi}` behebt den React-Warning, aber der User kann nicht unterscheiden, welche Belegung er auswählt. Fix: Bett-Nummer oder Raum-Name in der Trefferliste ergänzen (`frontend/src/pages/SuggestionWizard.tsx` Z. ~1137–1141).
+
+---
+
+## Deferred: Ziel B — Konsistenzregeln für aktive Verlegungsanfragen (zurückgestellt 2026-06-04)
+
+Zurückgestellt aus Session "Verlegungsanfrage: Bett-Dialog, Stornierung & Konsistenzregeln". Setzt Ziel A (spec-verlegungsanfrage-dialog-stornierung.md) voraus.
+
+- **Block Ausbuchen bei aktiver Anfrage:** Backend-Guard in `DELETE /api/beds/{id}/occupancy/{occ_id}` — wenn für die AZR-ID eine PENDING/CONFIRMED-Reservierung existiert → HTTP 409 + Fehlermeldung "Erst Verlegungsanfrage stornieren". Frontend: Dialog zeigt Hinweis mit "Zur Stornierung" statt direktem Ausbuchen.
+- **Block externes Verlegen bei aktiver Anfrage:** Backend-Guard in `POST /api/beds/{id}/occupancy` (cross-location) — prüft ob Person bereits aktive Reservierung hat → HTTP 409. Frontend-Guard in handleVerlegen.
+- **Internes Verlegen lässt Anfrage-Status unverändert:** Dokumentation + Test — `POST /api/beds/{id}/occupancy` + `DELETE /api/beds/{old_id}/occupancy/{occ_id}` für selbe Location ändert Reservierungsstatus nicht.
+- **Ein-Platz-Regel:** Backend-Guard in `POST /api/beds/{id}/occupancy` — prüft ob AZR-ID bereits ein aktives Bett hat (belegung_ende > today) → HTTP 409 außer bei internem Verlegen (del+add atomisch).
+- **Grund-Pflichtfeld beim Ausbuchen:** Dialog in Drilldown — Textfeld "Begründung *" vor dem Ausbuchen, Pflichtfeld. Backend: optionales `grund`-Feld in DELETE-Body für Audit-Log.
+- **Grund-Pflichtfeld allgemein beim Verlegen (intern):** Erweitern des handleVerlegen-Dialogs um allgemeines Grund-Feld (nicht nur bei Geschlecht-Mismatch).
+
+---
+
+## Review-Findings (spec-verlegungsanfrage-berechtigung-klick-korrektur.md) — Zurückgestellt 2026-06-04
+
+Gefunden beim adversarialen Review. Nicht kritisch für Demo-Betrieb.
+
+- **Task-UPDATE-Reihenfolge in POST /cancel:** `UPDATE tasks.inbox` wird vor `repo.update_status()` ausgeführt. Rollback funktioniert korrekt via SQLAlchemy-Transaktion (`session.begin()`), aber die Reihenfolge ist semantisch irreführend. Fix: UPDATE nach erfolgreichem `update_status` ausführen — klarer und robuster bei zukünftiger Refactoring.
+- **useEffect fehlende Keycloak-Abhängigkeit (Drilldown.tsx):** `useEffect` für Dialog-Datenladen hat `[transferDialogBed]` als Dep-Array, aber `keycloak.token` und `id` sind Closures. Bei Token-Refresh öffnet der Dialog mit altem Token. Pre-existing Pattern in allen anderen Dialogen. Fix: `updateToken(60)` vor dem Fetch aufrufen oder `keycloak.token` ins Dep-Array.
+- **`_WRITER_PLUS` als lokale Variablen in Handlern:** In `cancel_reservation_with_grund` wird die Menge bei jedem Request neu angelegt. Fix: als Modul-Level-Konstante in `reservations/router.py` extrahieren.
+- **Tooltip-Text für FREI+pending:** Tooltip in `BedGrid` sagt "Klicken → Anfragen anzeigen", aber die Aktion ist jetzt eine Seitennavigation. UX-Verbesserung: Text auf "Zur Verlegungsanfrage" ändern.
+- **has_pending_transfer SQL ohne Location-Filter (capacity/router.py):** Subquery für `has_pending_transfer` und `outgoing_reservation_id` filtert nur auf `pen_out.azr_id = o.azr_id` ohne `pen_out.requester_location_id`-Constraint. Bei Datenduplikaten (gleiche AZR-ID in mehreren Einrichtungen) könnte ein fremder Transfer das Flag setzen. Pre-existing Design.

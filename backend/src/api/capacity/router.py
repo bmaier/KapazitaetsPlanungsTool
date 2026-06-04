@@ -507,7 +507,31 @@ async def get_bed_status(
                   AND pen_in.belegung_ende > :date_from
                 ORDER BY pen_in.created_at
                 LIMIT 1
-              ) AS pending_requester_location_name
+              ) AS pending_requester_location_name,
+              (
+                SELECT pen_out.id FROM reservations.requests pen_out
+                WHERE pen_out.azr_id = o.azr_id
+                  AND pen_out.status IN ('PENDING','CONFIRMED')
+                ORDER BY pen_out.created_at
+                LIMIT 1
+              ) AS outgoing_reservation_id,
+              (
+                SELECT l.name FROM reservations.requests pen_out
+                JOIN capacity.locations l ON l.id = pen_out.target_location_id
+                WHERE pen_out.azr_id = o.azr_id
+                  AND pen_out.status IN ('PENDING','CONFIRMED')
+                ORDER BY pen_out.created_at
+                LIMIT 1
+              ) AS transfer_target_location_name,
+              (
+                SELECT pen_in.azr_id FROM reservations.requests pen_in
+                WHERE pen_in.suggested_bed_id = b.id
+                  AND pen_in.status = 'PENDING'
+                  AND pen_in.belegung_start < :date_to
+                  AND pen_in.belegung_ende > :date_from
+                ORDER BY pen_in.created_at
+                LIMIT 1
+              ) AS pending_azr_id
             FROM capacity.rooms r
             JOIN capacity.beds b ON b.room_id = r.id AND b.is_active = true AND b.bett_typ != 'DOPPEL'
             LEFT JOIN persons.occupants o
@@ -569,6 +593,9 @@ async def get_bed_status(
             has_confirmed_transfer=bool(row.get("has_confirmed_transfer") or False),
             pending_reservation_id=row.get("pending_reservation_id"),
             pending_requester_location_name=row.get("pending_requester_location_name"),
+            outgoing_reservation_id=row.get("outgoing_reservation_id"),
+            transfer_target_location_name=row.get("transfer_target_location_name"),
+            pending_azr_id=row.get("pending_azr_id"),
         ))
     return [RoomBedStatus(**rooms_map[rid]) for rid in rooms_order]
 

@@ -73,6 +73,17 @@ interface PendingReservation {
   requester_location_id: string
 }
 
+interface TransferReservationDetail {
+  id: string
+  azr_id: string
+  status: string
+  belegung_start: string
+  belegung_ende: string
+  requester_location_id?: string
+  requester_location_name?: string | null
+  target_location_name?: string | null
+}
+
 interface BedStatus {
   bed_id: string
   bett_nummer: string
@@ -99,6 +110,9 @@ interface BedStatus {
   has_confirmed_transfer?: boolean
   pending_reservation_id?: string
   pending_requester_location_name?: string | null
+  outgoing_reservation_id?: string
+  transfer_target_location_name?: string | null
+  pending_azr_id?: string | null
 }
 
 interface RoomStatus {
@@ -245,9 +259,9 @@ function BedGrid({ room, canEdit, onBedClick, refDate }: BedGridProps) {
                     : isVorgemerkt
                     ? `Vorgemerkt für: ${bed.reservation_azr_id ?? '–'} · ${bed.reservation_start} – ${bed.reservation_ende}`
                     : hasPendingRequest
-                    ? (bed.pending_requester_location_name ? `Verlegungsanfrage von: ${bed.pending_requester_location_name}` : 'Verlegungsanfrage vorhanden — Bett vorgeschlagen')
+                    ? `${bed.pending_azr_id ?? '?'} · Anfrage von: ${bed.pending_requester_location_name ?? '?'}`
                     : isBelegt
-                    ? `${bed.azr_id || '–'}${bed.alias_id ? ' · ' + bed.alias_id : ''} · ${bed.belegung_start} – ${bed.belegung_ende}${hasConfirmedTransfer ? ' · Verlegung genehmigt — Eincheck ausstehend' : hasPendingTransfer ? ' · Verlegungsanfrage läuft' : ''}`
+                    ? `${bed.azr_id || '–'}${bed.alias_id ? ' · ' + bed.alias_id : ''} · ${bed.belegung_start} – ${bed.belegung_ende}${hasConfirmedTransfer ? ' · Verlegung genehmigt — Eincheck ausstehend' : hasPendingTransfer ? ` · Verlegungsanfrage → ${bed.transfer_target_location_name ?? '?'}` : ''}`
                     : 'Bett frei'}
                   {(bed.bed_labels ?? []).length > 0 && ` · ${bed.bed_labels!.join(', ')}`}
                   {isBelegt && (bed.occ_labels ?? []).length > 0 && ` · ${bed.occ_labels!.join(', ')}`}
@@ -402,6 +416,11 @@ export default function Drilldown() {
   const [assignBed, setAssignBed] = useState<BedStatus | null>(null)
 
   // Verlegungsanfrage-Dialog (kontextsensitiv)
+  const [transferDialogBed, setTransferDialogBed] = useState<BedStatus | null>(null)
+  const [transferDialogDetail, setTransferDialogDetail] = useState<TransferReservationDetail | null>(null)
+  const [transferDialogLoading, setTransferDialogLoading] = useState(false)
+  const [transferDialogSaving, setTransferDialogSaving] = useState(false)
+  const [stornierGrund, setStornierGrund] = useState('')
 
   // Mehrfachauswahl Wartebereich
   const [multiSelect, setMultiSelect] = useState(false)
@@ -697,9 +716,61 @@ export default function Drilldown() {
     }
   }
 
+  useEffect(() => {
+    if (!transferDialogBed) return
+    const reservationId = transferDialogBed.outgoing_reservation_id
+    if (!reservationId) return
+    setTransferDialogLoading(true)
+    fetch(`/api/reservations/${reservationId}`, {
+      headers: {
+        Authorization: `Bearer ${keycloak?.token ?? ''}`,
+        ...(id ? { 'X-Location-Id': id } : {}),
+      },
+    })
+      .then((r) => r.json())
+      .then((data) => setTransferDialogDetail(data as TransferReservationDetail))
+      .catch(() => setTransferDialogDetail(null))
+      .finally(() => setTransferDialogLoading(false))
+  }, [transferDialogBed]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleStornieren() {
+    if (!transferDialogDetail || !stornierGrund.trim()) return
+    setTransferDialogSaving(true)
+    try {
+      const resp = await fetch(`/api/reservations/${transferDialogDetail.id}/cancel`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${keycloak?.token ?? ''}`,
+          ...(id ? { 'X-Location-Id': id } : {}),
+        },
+        body: JSON.stringify({ grund: stornierGrund.trim() }),
+      })
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}))
+        throw { detail: (err as { detail?: string }).detail ?? 'Stornierung fehlgeschlagen.' }
+      }
+      setTransferDialogBed(null)
+      setTransferDialogDetail(null)
+      setStornierGrund('')
+      loadBedStatus()
+      setSnackbar({ open: true, message: 'Verlegungsanfrage erfolgreich storniert.', severity: 'success' })
+    } catch (err: unknown) {
+      setSnackbar({ open: true, message: extractApiError(err), severity: 'error' })
+    } finally {
+      setTransferDialogSaving(false)
+    }
+  }
+
   function handleBedClick(bed: BedStatus, room: RoomStatus) {
     if (bed.pending_reservation_id && bed.status === 'FREI') {
-      navigate('/reservations')
+      navigate(`/reservations?highlight=${bed.pending_reservation_id}`)
+      return
+    }
+    if ((bed.has_pending_transfer || bed.has_confirmed_transfer) && bed.status === 'BELEGT' && bed.outgoing_reservation_id) {
+      setStornierGrund('')
+      setTransferDialogDetail(null)
+      setTransferDialogBed(bed)
       return
     }
     if (bed.status === 'FREI') {
@@ -1889,6 +1960,70 @@ export default function Drilldown() {
           {canEdit && (
             <Button variant="contained" onClick={() => navigate('/suggestions')}>
               Neue Verlegungsanfrage
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
+
+      {/* Verlegungsanfrage Detail-Dialog */}
+      <Dialog open={!!transferDialogBed} onClose={() => { setTransferDialogBed(null); setTransferDialogDetail(null); setStornierGrund('') }} maxWidth="sm" fullWidth>
+        <DialogTitle>Verlegungsanfrage</DialogTitle>
+        <DialogContent>
+          {transferDialogLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><CircularProgress /></Box>
+          ) : transferDialogDetail ? (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, pt: 1 }}>
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ minWidth: 110 }}>AZR-ID:</Typography>
+                <Typography variant="body2" fontWeight={700}>{transferDialogDetail.azr_id}</Typography>
+              </Box>
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ minWidth: 110 }}>Anfragende Einrichtung:</Typography>
+                <Typography variant="body2">{transferDialogDetail.requester_location_name ?? '–'}</Typography>
+              </Box>
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ minWidth: 110 }}>Ziel-Einrichtung:</Typography>
+                <Typography variant="body2">{transferDialogDetail.target_location_name ?? '–'}</Typography>
+              </Box>
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ minWidth: 110 }}>Status:</Typography>
+                <Chip label={transferDialogDetail.status} size="small" color={transferDialogDetail.status === 'PENDING' ? 'warning' : transferDialogDetail.status === 'CONFIRMED' ? 'info' : 'default'} />
+              </Box>
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ minWidth: 110 }}>Zeitraum:</Typography>
+                <Typography variant="body2">{transferDialogDetail.belegung_start} – {transferDialogDetail.belegung_ende}</Typography>
+              </Box>
+              {canEdit && transferDialogDetail?.requester_location_id === id && (
+                <>
+                  <Divider sx={{ my: 1 }} />
+                  <TextField
+                    label="Begründung für Stornierung *"
+                    value={stornierGrund}
+                    onChange={(e) => setStornierGrund(e.target.value)}
+                    multiline
+                    rows={2}
+                    fullWidth
+                    size="small"
+                  />
+                </>
+              )}
+            </Box>
+          ) : (
+            <Typography color="error">Anfrage konnte nicht geladen werden.</Typography>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => { setTransferDialogBed(null); setTransferDialogDetail(null); setStornierGrund('') }}>
+            Schließen
+          </Button>
+          {canEdit && transferDialogDetail?.requester_location_id === id && (
+            <Button
+              variant="contained"
+              color="error"
+              disabled={transferDialogSaving || !stornierGrund.trim() || !transferDialogDetail}
+              onClick={handleStornieren}
+            >
+              {transferDialogSaving ? <CircularProgress size={20} /> : 'Stornieren'}
             </Button>
           )}
         </DialogActions>

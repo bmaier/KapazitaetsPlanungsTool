@@ -222,6 +222,9 @@ class BedStatusItem(BaseModel):
     has_confirmed_transfer: bool = False      # BELEGT: Transfer bestätigt, Ausbuchung ausstehend (CONFIRMED)
     pending_reservation_id: Optional[UUID] = None  # FREI: Bett ist suggested_bed in PENDING-Anfrage
     pending_requester_location_name: Optional[str] = None  # FREI: Name der anfragenden Einrichtung
+    outgoing_reservation_id: Optional[UUID] = None  # BELEGT: ID der ausgehenden PENDING/CONFIRMED-Anfrage
+    transfer_target_location_name: Optional[str] = None  # BELEGT: Name der Ziel-Einrichtung
+    pending_azr_id: Optional[str] = None  # FREI: AZR-ID der anfragenden Person
 
 
 class RoomBedStatus(BaseModel):

@@ -16,9 +16,13 @@ from src.adapters.db.engine import AsyncSessionFactory
 from src.adapters.db.models import LocationModel
 from src.adapters.db.reservation_repo import SqlReservationRepo
 from src.adapters.keycloak.jwt import UserContext, get_current_user
+import json
+
 from src.api.reservations.schemas import (
+    CancelRequest,
     ReservationConfirmRequest,
     ReservationCreate,
+    ReservationDetailResponse,
     ReservationResponse,
 )
 from src.domain.reservations.rules import (
@@ -113,12 +117,111 @@ async def list_reservations(
 
     is_system_admin = "system-admin" in user.roles
     if location is None and is_system_admin:
+        # system-admin ohne X-Location-Id sieht alle Reservierungen
         results = await repo.list_all(status_filter=status)
     elif target == "mine" and location:
         results = await repo.list_pending_for_target(location.id)
+    elif location is not None:
+        results = await repo.list_for_location(location.id, status_filter=status)
     else:
-        results = await repo.list_for_location(location.id, status_filter=status)  # type: ignore[union-attr]
+        results = []
     return [ReservationResponse.model_validate(r) for r in results]
+
+
+@router.get("/reservations/{reservation_id}")
+async def get_reservation(
+    reservation_id: UUID,
+    request: Request,
+    user: UserContext = Depends(get_current_user),
+    session: AsyncSession = Depends(_get_session),
+) -> ReservationDetailResponse:
+    """
+    Lädt eine einzelne Reservierung per ID.
+    Sichtbar für requester_location, target_location und system-admin.
+    """
+    is_system_admin = "system-admin" in user.roles
+    location = await _resolve_location(request, user, session)
+    repo = SqlReservationRepo(session)
+    res = await repo.get(reservation_id)
+    if res is None:
+        raise HTTPException(status_code=404, detail="Reservierung nicht gefunden")
+    if not is_system_admin and location is not None:
+        if location.id not in (res.requester_location_id, res.target_location_id):
+            raise HTTPException(status_code=403, detail="Keine Berechtigung für diese Reservierung")
+
+    # Location-Namen nachladen
+    name_rows = await session.execute(
+        text("SELECT id, name FROM capacity.locations WHERE id IN (:req, :tgt)"),
+        {"req": str(res.requester_location_id), "tgt": str(res.target_location_id)},
+    )
+    names = {str(r.id): r.name for r in name_rows.fetchall()}
+
+    base = ReservationResponse.model_validate(res)
+    return ReservationDetailResponse(
+        **base.model_dump(),
+        requester_location_name=names.get(str(res.requester_location_id)),
+        target_location_name=names.get(str(res.target_location_id)),
+    )
+
+
+@router.post("/reservations/{reservation_id}/cancel")
+async def cancel_reservation_with_grund(
+    reservation_id: UUID,
+    body: CancelRequest,
+    request: Request,
+    user: UserContext = Depends(get_current_user),
+    session: AsyncSession = Depends(_get_session),
+) -> ReservationResponse:
+    """
+    Storniert eine Reservierung mit Begründung.
+    Setzt alle OPEN/IN_PROGRESS-Tasks der Reservierung auf DONE.
+    Erlaubt für writer, location-admin, system-admin.
+    """
+    _WRITER_PLUS = {"writer", "location-admin", "system-admin"}
+    if not (set(user.roles) & _WRITER_PLUS):
+        raise HTTPException(status_code=403, detail="Keine Schreibberechtigung")
+
+    is_system_admin = "system-admin" in user.roles
+    location = await _resolve_location(request, user, session)
+    repo = SqlReservationRepo(session)
+
+    # OPEN/IN_PROGRESS-Tasks zuerst auf DONE setzen
+    await session.execute(
+        text(
+            "UPDATE tasks.inbox SET status='DONE', updated_at=NOW() "
+            "WHERE related_reservation_id = :rid AND status IN ('OPEN','IN_PROGRESS')"
+        ),
+        {"rid": str(reservation_id)},
+    )
+
+    try:
+        result = await repo.update_status(
+            reservation_id,
+            "CANCELLED",
+            location_id=location.id if location else None,
+            is_system_admin=is_system_admin,
+            user=user,
+        )
+    except RetractionForbiddenError as e:
+        raise HTTPException(status_code=403, detail=e.message)
+    except InvalidStateTransitionError as e:
+        raise HTTPException(status_code=409, detail=e.message)
+
+    # Audit-Event mit Begründung
+    await session.execute(
+        text(
+            "INSERT INTO audit.events (event_type, payload) "
+            "VALUES ('RESERVATION_CANCELLED_WITH_GRUND', :p)"
+        ),
+        {"p": json.dumps({
+            "reservation_id": str(reservation_id),
+            "azr_id": result.azr_id,
+            "grund": body.grund,
+            "actor": user.sub,
+        })},
+    )
+
+    return ReservationResponse.model_validate(result)
 
 
 @router.delete("/reservations/{reservation_id}")

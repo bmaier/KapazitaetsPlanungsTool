@@ -370,3 +370,117 @@ def step_response_is_nonempty_list(context):
         f"Antwort ist keine Liste. Typ: {type(body)}"
     )
     assert len(body) > 0, "Liste ist leer, es wurden keine Einträge gefunden."
+
+
+# ---------------------------------------------------------------------------
+# Neue Schritte: GET /{id} + POST /{id}/cancel
+# ---------------------------------------------------------------------------
+
+
+def _get_reader_token(context) -> str:
+    """Holt einen Token für reader_user (kein writer-Recht)."""
+    if hasattr(context, "reader_auth_token"):
+        return context.reader_auth_token
+    keycloak_url = os.environ.get("KEYCLOAK_URL", "http://localhost:8080")
+    realm = os.environ.get("KEYCLOAK_REALM", "bordercapcontrol")
+    resp = requests.post(
+        f"{keycloak_url}/realms/{realm}/protocol/openid-connect/token",
+        data={
+            "grant_type": "password",
+            "client_id": "bordercapcontrol-test",
+            "client_secret": os.environ.get("KEYCLOAK_TEST_CLIENT_SECRET", "bordercapcontrol-test-secret"),
+            "username": "reader_user",
+            "password": os.environ.get("KEYCLOAK_READER_PASSWORD", "Reader1234!"),
+        },
+        timeout=15,
+    )
+    assert resp.status_code == 200, f"Reader-Token konnte nicht geholt werden: {resp.text}"
+    context.reader_auth_token = resp.json()["access_token"]
+    return context.reader_auth_token
+
+
+@when("ich GET /api/reservations/{reservation_id} sende als Einrichtung A")
+def step_get_reservation_as_a(context, reservation_id: str):
+    res_id = context.reservation_id if reservation_id == "{reservation_id}" else reservation_id
+    headers = _location_headers(context, context.location_a_id)
+    context.response = _get(f"/api/reservations/{res_id}", headers=headers)
+
+
+@when("ich GET /api/reservations/{reservation_id} sende als Einrichtung B")
+def step_get_reservation_as_b(context, reservation_id: str):
+    res_id = context.reservation_id if reservation_id == "{reservation_id}" else reservation_id
+    headers = _location_headers(context, context.location_b_id)
+    context.response = _get(f"/api/reservations/{res_id}", headers=headers)
+
+
+@when("ich GET /api/reservations/{reservation_id} sende als Einrichtung C")
+def step_get_reservation_as_c(context, reservation_id: str):
+    res_id = context.reservation_id if reservation_id == "{reservation_id}" else reservation_id
+    headers = _location_headers(context, context.location_c_id)
+    context.response = _get(f"/api/reservations/{res_id}", headers=headers)
+
+
+@when('ich POST /api/reservations/{reservation_id}/cancel sende als Einrichtung A mit Grund "{grund}"')
+def step_cancel_as_a(context, reservation_id: str, grund: str):
+    res_id = context.reservation_id if reservation_id == "{reservation_id}" else reservation_id
+    headers = _location_headers(context, context.location_a_id)
+    context.response = _post(f"/api/reservations/{res_id}/cancel", {"grund": grund}, headers=headers)
+
+
+@when('ich POST /api/reservations/{reservation_id}/cancel sende als Einrichtung B mit Grund "{grund}"')
+def step_cancel_as_b(context, reservation_id: str, grund: str):
+    res_id = context.reservation_id if reservation_id == "{reservation_id}" else reservation_id
+    headers = _location_headers(context, context.location_b_id)
+    context.response = _post(f"/api/reservations/{res_id}/cancel", {"grund": grund}, headers=headers)
+
+
+@when('ich POST /api/reservations/{reservation_id}/cancel sende als Einrichtung C mit Grund "{grund}"')
+def step_cancel_as_c(context, reservation_id: str, grund: str):
+    res_id = context.reservation_id if reservation_id == "{reservation_id}" else reservation_id
+    headers = _location_headers(context, context.location_c_id)
+    context.response = _post(f"/api/reservations/{res_id}/cancel", {"grund": grund}, headers=headers)
+
+
+@when('ich POST /api/reservations/{reservation_id}/cancel sende als Reader-User von Einrichtung A mit Grund "{grund}"')
+def step_cancel_as_reader(context, reservation_id: str, grund: str):
+    res_id = context.reservation_id if reservation_id == "{reservation_id}" else reservation_id
+    reader_token = _get_reader_token(context)
+    headers = {
+        "Authorization": f"Bearer {reader_token}",
+        "X-Location-Id": str(context.location_a_id),
+    }
+    context.response = _post(f"/api/reservations/{res_id}/cancel", {"grund": grund}, headers=headers)
+
+
+@then('die Antwort enthält Felder "id", "azr_id", "status"')
+def step_response_has_required_fields(context):
+    try:
+        body = context.response.json()
+    except Exception:
+        raise AssertionError(f"Antwort ist kein JSON. Body: {context.response.text[:500]}")
+    for field in ("id", "azr_id", "status"):
+        assert field in body, f"Feld '{field}' fehlt. Vorhanden: {list(body.keys())}"
+
+
+@then('alle Tasks der Reservierung haben Status "DONE" oder "CANCELLED"')
+def step_tasks_are_done(context):
+    conn = psycopg2.connect(
+        host=os.environ.get("POSTGRES_HOST", "localhost"),
+        port=int(os.environ.get("POSTGRES_PORT", "5432")),
+        dbname=os.environ.get("POSTGRES_DB", "bordercap"),
+        user=os.environ.get("POSTGRES_USER", "bordercap"),
+        password=os.environ.get("POSTGRES_PASSWORD", "bordercap_dev"),
+    )
+    conn.autocommit = True
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT status FROM tasks.inbox WHERE related_reservation_id = %s",
+            (context.reservation_id,),
+        )
+        rows = cur.fetchall()
+    conn.close()
+    assert rows, "Keine Tasks für diese Reservierung gefunden."
+    for (status,) in rows:
+        assert status in ("DONE", "CANCELLED"), (
+            f"Task hat unerwarteten Status '{status}' — erwartet DONE oder CANCELLED."
+        )
