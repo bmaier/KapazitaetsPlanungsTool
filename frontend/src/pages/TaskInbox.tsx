@@ -348,19 +348,20 @@ export default function TaskInbox() {
 
   const load = useCallback(async () => {
     setLoading(true)
+    const [rResult, lResult] = await Promise.allSettled([
+      get<Reservation[]>('/api/reservations'),
+      get<Location[]>('/api/locations'),
+    ])
+    if (rResult.status === 'fulfilled') setAllReservations(rResult.value)
+    else setSnackbar({ open: true, message: 'Verlegungsanfragen konnten nicht geladen werden.', severity: 'error' })
+    if (lResult.status === 'fulfilled') setLocations(lResult.value)
+    setLoading(false)
+    // Tasks separat — schlägt für system-admin (ohne Einrichtung) mit 403 fehl
     try {
-      const [t, r, l] = await Promise.all([
-        get<Task[]>('/api/tasks'),
-        get<Reservation[]>('/api/reservations'),
-        get<Location[]>('/api/locations'),
-      ])
+      const t = await get<Task[]>('/api/tasks')
       setTasks(t)
-      setAllReservations(r)
-      setLocations(l)
     } catch {
-      setSnackbar({ open: true, message: 'Postkorb konnte nicht geladen werden.', severity: 'error' })
-    } finally {
-      setLoading(false)
+      setTasks([])
     }
   }, [get])
 

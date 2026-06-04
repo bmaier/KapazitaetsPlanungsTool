@@ -144,20 +144,19 @@ export default function Reservations() {
 
   const loadAll = useCallback(async () => {
     setLoading(true)
-    try {
-      const [locs, all, inc] = await Promise.all([
-        get<Location[]>('/api/locations'),
-        get<Reservation[]>('/api/reservations'),
-        get<Reservation[]>('/api/reservations?target=mine'),
-      ])
-      setLocations(locs)
-      setReservations(all)
-      setIncoming(inc)
-    } catch {
-      setSnackbar({ open: true, message: 'Daten konnten nicht geladen werden.', severity: 'error' })
-    } finally {
-      setLoading(false)
-    }
+    let hasError = false
+    const [locsResult, allResult, incResult] = await Promise.allSettled([
+      get<Location[]>('/api/locations'),
+      get<Reservation[]>('/api/reservations'),
+      get<Reservation[]>('/api/reservations?target=mine'),
+    ])
+    if (locsResult.status === 'fulfilled') setLocations(locsResult.value)
+    else hasError = true
+    if (allResult.status === 'fulfilled') setReservations(allResult.value)
+    else hasError = true
+    if (incResult.status === 'fulfilled') setIncoming(incResult.value)
+    if (hasError) setSnackbar({ open: true, message: 'Einige Daten konnten nicht geladen werden.', severity: 'error' })
+    setLoading(false)
   }, [get])
 
   useEffect(() => { loadAll() }, [loadAll])

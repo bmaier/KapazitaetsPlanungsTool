@@ -564,6 +564,13 @@ export default function SuggestionWizard() {
             const targetBed = variant.beds[i] ?? variant.beds[0]
             const isCrossLocation = !!targetBed?.location_id && targetBed.location_id !== locationId
 
+            if (isCrossLocation && a.azr_id.trim() && !a.searchDone && !a.warteplatzCreated) {
+              // Sicherheitscheck: vor überregionaler Buchung muss AZR geprüft sein
+              setSnackbar({ open: true, message: `Bitte AZR „${a.azr_id.trim()}" prüfen — zuerst „Suchen" klicken (überregionales Bett ausgewählt).`, severity: 'error' })
+              setLoading(false)
+              return
+            }
+
             if (a.warteplatzCreated) {
               // Person bereits manuell im Wartebereich eingebucht → Reservation senden wenn cross-location
               if (isCrossLocation && targetBed?.location_id) {
@@ -911,8 +918,15 @@ export default function SuggestionWizard() {
           {suggestion.variants.length === 0 ? (
             <Box>
               <Alert severity="warning" sx={{ mb: 2, borderRadius: 2 }}>
-                Keine freien Plätze gefunden. Suchkriterien anpassen oder anderen Zeitraum wählen.
+                Keine freien Plätze gefunden.
+                {!crossLocation && ' Alle Betten in dieser Einrichtung sind belegt.'}
               </Alert>
+              {!crossLocation && (
+                <Button variant="contained" color="primary" sx={{ mb: 1.5, mr: 1 }}
+                  onClick={() => { setCrossLocation(true); setActiveStep(0) }}>
+                  Standortübergreifend suchen
+                </Button>
+              )}
               <Button variant="outlined" onClick={() => setActiveStep(0)}>Suche anpassen</Button>
             </Box>
           ) : (() => {
@@ -1240,6 +1254,7 @@ export default function SuggestionWizard() {
               {bedAssignments.map((assignment, idx) => {
                 const bed = selectedVariantData.beds[idx]
                 if (!bed) return null
+                const isBedCross = !!bed?.location_id && bed.location_id !== locationId
                 return (
                   <Paper key={assignment.bed_id} elevation={0} sx={{ p: 1.5, border: '1px solid #e0e0e0', borderRadius: 1.5 }}>
                     {/* Bett-Info + Raum-Labels + Bett-Labels */}
@@ -1351,7 +1366,9 @@ export default function SuggestionWizard() {
                             AZR-ID „{assignment.azr_id.trim()}" ist noch nicht im System bekannt.
                           </Typography>
                           <Typography variant="caption" color="#bf360c" sx={{ display: 'block' }}>
-                            Es wird automatisch ein Warteplatz in Ihrer Einrichtung angelegt. Von dort kann die Person anschließend über eine Verlegungsanfrage einem Bett zugewiesen werden. Bitte AZR-ID prüfen, falls es sich um einen Tippfehler handelt.
+                            {isBedCross
+                              ? 'Es wird automatisch ein Warteplatz in Ihrer Einrichtung angelegt und eine Verlegungsanfrage an die Ziel-Einrichtung gesendet.'
+                              : `Person wird direkt in Bett ${bed?.bett_nummer ?? '?'} eingebucht (erste Erfassung im System). Bitte AZR-ID prüfen, falls es sich um einen Tippfehler handelt.`}
                           </Typography>
                         </Box>
                         {!assignment.warteplatzOpen && (
@@ -1430,11 +1447,19 @@ export default function SuggestionWizard() {
                       </Box>
                     )}
                     {!assignment.searchDone && !assignment.searching && (
-                      <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block', fontStyle: 'italic' }}>
-                        {assignment.azr_id.trim()
-                          ? '→ „Suchen" klicken oder Enter drücken um Person zu laden'
-                          : '→ „Alle anzeigen" klicken oder * eingeben für Wildcard-Suche'}
-                      </Typography>
+                      isBedCross && assignment.azr_id.trim() ? (
+                        <Box mt={0.5} sx={{ p: 0.8, bgcolor: '#fff3e0', border: '1px solid #ffb74d', borderRadius: 1 }}>
+                          <Typography variant="caption" fontWeight={700} color="#e65100">
+                            ⚠ Überregionales Bett — bitte zuerst AZR-ID prüfen („Suchen" klicken).
+                          </Typography>
+                        </Box>
+                      ) : (
+                        <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block', fontStyle: 'italic' }}>
+                          {assignment.azr_id.trim()
+                            ? '→ „Suchen" klicken oder Enter drücken um Person zu laden'
+                            : '→ „Alle anzeigen" klicken oder * eingeben für Wildcard-Suche'}
+                        </Typography>
+                      )
                     )}
                   </Paper>
                 )
@@ -1463,7 +1488,10 @@ export default function SuggestionWizard() {
             Abbrechen
           </Button>
           <Button variant="contained" onClick={handleAccept}
-            disabled={loading}
+            disabled={loading || (!hasPerson && selectedVariantData != null && bedAssignments.some((a, idx) => {
+              const b = selectedVariantData!.beds[idx]
+              return !!b?.location_id && b.location_id !== locationId && !!a.azr_id.trim() && !a.searchDone && !a.warteplatzCreated
+            }))}
             sx={hasPerson ? { bgcolor: '#6a1b9a', '&:hover': { bgcolor: '#4a148c' } } : {}}>
             {loading ? <CircularProgress size={18} /> : hasPerson
               ? 'Verlegungsanfrage senden'
