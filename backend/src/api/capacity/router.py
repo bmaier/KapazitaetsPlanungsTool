@@ -1291,15 +1291,34 @@ async def end_occupancy(
         {"azr": occupancy.azr_id},
     )
     active_res = active_res_row.fetchone()
-    try:
-        check_no_active_reservation(
-            UUID(str(active_res.id)) if active_res else None
+    if active_res and bed_location_id:
+        # Internes Verlegen erkennen: Person hat bereits eine andere aktive Belegung
+        # an derselben Location → Guard überspringen, Reservation-Status unverändert lassen
+        internal_row = await session.execute(
+            text("""
+                SELECT o.id FROM persons.occupants o
+                JOIN capacity.beds b ON b.id = o.bed_id
+                WHERE o.azr_id = :azr
+                  AND o.id != :occ_id
+                  AND b.location_id = :loc
+                  AND o.belegung_ende >= CURRENT_DATE
+                LIMIT 1
+            """),
+            {"azr": occupancy.azr_id, "occ_id": str(occupancy_id), "loc": str(bed_location_id)},
         )
-    except ActiveReservationBlocksError as e:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Ausbuchen nicht möglich: {e} — Verlegungsanfrage zuerst stornieren",
-        )
+        is_internal_transfer = internal_row.fetchone() is not None
+    else:
+        is_internal_transfer = False
+    if not is_internal_transfer:
+        try:
+            check_no_active_reservation(
+                UUID(str(active_res.id)) if active_res else None
+            )
+        except ActiveReservationBlocksError as e:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Ausbuchen nicht möglich: {e} — Verlegungsanfrage zuerst stornieren",
+            )
     await occ_repo.delete(occupancy_id, user=user, location_id=bed_location_id, grund=grund)
     return {"ended": True, "grund": grund}
 
