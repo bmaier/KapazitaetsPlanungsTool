@@ -163,6 +163,25 @@ CONFIRMED → CANCELLED
 ```
 Ungültige Übergänge → HTTP 409. `SELECT ... FOR UPDATE` auf Reservation-Zeile bei confirm/reject/cancel.
 
+### Verlegungsanfragen — Rollenregeln (harte Invarianten)
+
+**Wer darf stornieren (POST /cancel, DELETE /reservations/{id}):**
+- Nur `requester_location_id` (anfragende Einrichtung) + `system-admin`
+- `target_location_id` darf **niemals** stornieren — nur `confirm` oder `reject`
+- `check_retraction_allowed` in `domain/reservations/rules.py` — Prüfbedingung: `location_id != req.requester_location_id`
+
+**Bett-Klick-Verhalten im Drilldown (Drilldown.tsx `handleBedClick`):**
+
+| Bett-Zustand | Einrichtungsrolle | Aktion |
+|---|---|---|
+| FREI + `pending_reservation_id` | Ziel-Einrichtung | `navigate('/reservations?highlight={pending_reservation_id}')` — **kein Dialog** |
+| BELEGT + `has_pending_transfer` + `outgoing_reservation_id` | Requester-Einrichtung | Dialog mit Stornieren-Button öffnen |
+| VORGEMERKT + `reservation_id` | beide | `navigate('/reservations?highlight={reservation_id}')` |
+
+**Stornieren-Button im Dialog:** Guard `canEdit && transferDialogDetail?.requester_location_id === id` — schützt, dass nur die Drilldown-Einrichtung die Anfrage stellte, den Button sieht.
+
+> Diese Regeln wurden durch `spec-verlegungsanfrage-berechtigung-klick-korrektur.md` eingeführt. Die ältere `spec-verlegungsanfrage-dialog-stornierung.md` enthält an mehreren Stellen **falsche** Gegenteilregeln — diese Spec nicht als Referenz für Rollenlogik verwenden.
+
 ### DSGVO-Minimalprofil
 
 Kein `name`-Feld auf Belegungen oder Reservierungen. Nur: `azr_id`, `alias_id` (optional), `geschlecht` (M/W/D), `belegung_start`, `belegung_ende`, `labels: TEXT[]`
@@ -226,4 +245,4 @@ Realm: `bordercapcontrol` · Client-ID: `bordercapcontrol-frontend` · Flow: Sta
 - Regeln entfernen sobald sie offensichtlich werden
 - Quartalsweise auf Aktualität prüfen
 
-_Zuletzt aktualisiert: 2026-05-31_
+_Zuletzt aktualisiert: 2026-06-04_

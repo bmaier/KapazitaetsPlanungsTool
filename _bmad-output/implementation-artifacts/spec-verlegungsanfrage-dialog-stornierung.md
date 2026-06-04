@@ -7,6 +7,14 @@ baseline_commit: '8b9cf41149d5f64b7de341f92e0d82b78d7cc285'
 context: []
 ---
 
+> **⚠ IMPLEMENTIERUNGSFEHLER KORRIGIERT** — Diese Spec enthält zwei falsche Regeln, die in der Implementierung behoben wurden:
+>
+> 1. **Cancel-Berechtigung (Zeile 23, 56, 76):** Die Regel „OR location_id == target_location_id" ist **falsch**. Nur die **anfragende Einrichtung (requester_location_id)** + system-admin darf stornieren. Die Ziel-Einrichtung kann ausschließlich `confirm` oder `reject` aufrufen.
+> 2. **FREI-Bett-Klick (Zeile 39, 71, 95):** Ein FREI-Bett mit `pending_reservation_id` gehört der **Ziel-Einrichtung** — Klick soll zu `/reservations?highlight={pending_reservation_id}` navigieren (nicht Dialog öffnen). Dialog + Stornieren-Button gilt nur für BELEGT-Betten in der **Requester-Einrichtung** (`has_pending_transfer=true`).
+>
+> **Korrektur-Spec:** `spec-verlegungsanfrage-berechtigung-klick-korrektur.md` (status: done, commit 4ebf5db)
+> **Kanonische Regeln:** Abschnitt „Verlegungsanfragen — Rollenregeln" in `project-context.md`
+
 <frozen-after-approval reason="human-owned intent — do not modify unless human renegotiates">
 
 ## Intent
