@@ -6,7 +6,8 @@ from datetime import date
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+import math
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.domain.capacity.value_objects import BedType, GenderDesignation
 
@@ -165,6 +166,20 @@ class LocationUpdateRequest(BaseModel):
     lon: Optional[float] = None
     valid_from: Optional[date] = None
     valid_until: Optional[date] = None
+
+    @field_validator('lat')
+    @classmethod
+    def validate_lat(cls, v: Optional[float]) -> Optional[float]:
+        if v is not None and (not math.isfinite(v) or v < -90 or v > 90):
+            raise ValueError('Breitengrad muss eine endliche Zahl zwischen -90 und 90 sein.')
+        return v
+
+    @field_validator('lon')
+    @classmethod
+    def validate_lon(cls, v: Optional[float]) -> Optional[float]:
+        if v is not None and (not math.isfinite(v) or v < -180 or v > 180):
+            raise ValueError('Längengrad muss eine endliche Zahl zwischen -180 und 180 sein.')
+        return v
 
 
 class BedUpdateRequest(BaseModel):

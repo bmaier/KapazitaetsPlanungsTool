@@ -430,6 +430,7 @@ export default function Drilldown() {
   // Edit dialog extra fields
   const [editLat, setEditLat] = useState('')
   const [editLon, setEditLon] = useState('')
+  const [geoError, setGeoError] = useState('')
   const [editLocLabels, setEditLocLabels] = useState<string[]>([])
   const [editValidFrom, setEditValidFrom] = useState('')
   const [editValidUntil, setEditValidUntil] = useState('')
@@ -555,6 +556,22 @@ export default function Drilldown() {
 
   async function saveEdit() {
     if (!id) return
+    // GEO-Validierung vor dem API-Aufruf
+    if (editLat !== '') {
+      const v = parseFloat(editLat)
+      if (!isFinite(v) || v < -90 || v > 90) {
+        setGeoError('Breitengrad muss eine Zahl zwischen -90 und 90 sein.')
+        return
+      }
+    }
+    if (editLon !== '') {
+      const v = parseFloat(editLon)
+      if (!isFinite(v) || v < -180 || v > 180) {
+        setGeoError('Längengrad muss eine Zahl zwischen -180 und 180 sein.')
+        return
+      }
+    }
+    setGeoError('')
     setSaving(true)
     try {
       const body: Record<string, unknown> = {
@@ -1554,7 +1571,7 @@ export default function Drilldown() {
       </Dialog>
 
       {/* ── Einrichtung bearbeiten Dialog (tabbed) ── */}
-      <Dialog open={editOpen} onClose={() => setEditOpen(false)} maxWidth="md" fullWidth>
+      <Dialog open={editOpen} onClose={() => { setEditOpen(false); setGeoError('') }} maxWidth="md" fullWidth>
         <DialogTitle fontWeight={700}>
           <Box display="flex" alignItems="center" gap={1}>
             <EditIcon sx={{ color: '#003366' }} />
@@ -1585,13 +1602,15 @@ export default function Drilldown() {
                 onChange={(e) => setEditAdresse(e.target.value)} fullWidth multiline rows={2} />
               <Box display="flex" gap={2}>
                 <TextField label="Breitengrad (Lat)" type="number" value={editLat}
-                  onChange={(e) => setEditLat(e.target.value)}
+                  onChange={(e) => { setEditLat(e.target.value); setGeoError('') }}
                   placeholder="z.B. 50.0264" fullWidth
-                  helperText="Für Kartenansicht" />
+                  error={!!geoError && geoError.includes('Breitengrad')}
+                  helperText={geoError && geoError.includes('Breitengrad') ? geoError : 'Für Kartenansicht'} />
                 <TextField label="Längengrad (Lon)" type="number" value={editLon}
-                  onChange={(e) => setEditLon(e.target.value)}
+                  onChange={(e) => { setEditLon(e.target.value); setGeoError('') }}
                   placeholder="z.B. 8.5431" fullWidth
-                  helperText="Für Kartenansicht" />
+                  error={!!geoError && geoError.includes('Längengrad')}
+                  helperText={geoError && geoError.includes('Längengrad') ? geoError : 'Für Kartenansicht'} />
               </Box>
               <Box display="flex" gap={2}>
                 <TextField
@@ -1822,7 +1841,7 @@ export default function Drilldown() {
         </DialogContent>
 
         <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setEditOpen(false)}>Schließen</Button>
+          <Button onClick={() => { setEditOpen(false); setGeoError('') }}>Schließen</Button>
           {editTab === 0 && (
             <Button variant="contained" onClick={saveEdit} disabled={saving}>
               {saving ? <CircularProgress size={18} /> : 'Stammdaten speichern'}

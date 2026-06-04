@@ -284,7 +284,7 @@ export default function Dashboard() {
       </Box>
 
       {/* Neue Einrichtung Dialog */}
-      <Dialog open={newLocOpen} onClose={() => setNewLocOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog open={newLocOpen} onClose={() => { setNewLocOpen(false); setNewName(''); setNewAdresse(''); setNewKontingent('10'); setNewNotbett('0'); setNewLocSaving(false) }} maxWidth="sm" fullWidth>
         <DialogTitle fontWeight={700}>Neue Einrichtung anlegen</DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, pt: 2 }}>
           <TextField label="Name der Einrichtung *" value={newName}
@@ -306,7 +306,7 @@ export default function Dashboard() {
           </Alert>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setNewLocOpen(false)}>Abbrechen</Button>
+          <Button onClick={() => { setNewLocOpen(false); setNewName(''); setNewAdresse(''); setNewKontingent('10'); setNewNotbett('0') }}>Abbrechen</Button>
           <Button variant="contained" disabled={!newName.trim() || newLocSaving} onClick={handleCreateLocation}>
             {newLocSaving ? <CircularProgress size={18} /> : 'Anlegen'}
           </Button>

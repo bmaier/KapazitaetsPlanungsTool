@@ -40,7 +40,7 @@ const LOCATION_COORDS_FALLBACK: Record<string, [number, number]> = {
 }
 
 function getCoords(loc: LocationSummary): [number, number] {
-  if (loc.lat != null && loc.lon != null) return [loc.lat, loc.lon]
+  if (loc.lat != null && loc.lon != null && isFinite(loc.lat) && isFinite(loc.lon)) return [loc.lat, loc.lon]
   const key = Object.keys(LOCATION_COORDS_FALLBACK).find((k) => loc.name.includes(k))
   return key ? LOCATION_COORDS_FALLBACK[key] : [51.1, 10.4]
 }

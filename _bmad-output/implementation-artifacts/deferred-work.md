@@ -321,3 +321,17 @@ Gefunden beim adversarialen Review. Nicht kritisch für Demo-Betrieb.
 - **belegung_ende Timezone in Ein-Platz-Query:** `belegung_ende >= CURRENT_DATE` wird im DB-Server-Timezone ausgewertet. Pre-existing Pattern (gleiche Problematik in Zeile 4a-Findings).
 - **check_no_active_reservation nicht self-sufficient:** Die Funktion erhält eine bereits gefilterte UUID und kann deren Kontext (PENDING/CONFIRMED) nicht eigenständig validieren. Für Produktions-Hardening: Funktion um den Status-String erweitern oder mit einem strukturierteren Parameter arbeiten.
 - **grund kein Längen-Limit:** `grund` (Query-Param in DELETE /occupancy) hat kein `max_length`. Fix: `grund: Optional[str] = Query(None, max_length=500)`.
+
+---
+
+## Ziel 2 — Location Karte-Sichtbarkeit — Zurückgestellt 2026-06-04
+
+Neues Feld `show_on_map: bool` (default `true`) in `capacity.locations`. Admin-Toggle in Stammdaten-Edit-Dialog (Drilldown Tab 0). Dashboard-Karte (`MapView.tsx`) rendert nur Locations mit `show_on_map = true`. Migration: ALTER TABLE + Alembic. `is_active` (Soft-Delete) bleibt eigenständig.
+
+---
+
+## Ziel 3 — Kontingent-Redesign (national + Reporting) — Zurückgestellt 2026-06-04
+
+**Konzept:** `eu_gesamtquote` (bereits in `SystemSettingsModel`) ist das nationale Gesamt-Kontingent (EU/Bund). Es wird vom system-admin auf Locations verteilt — das bestehende `kontingent`-Feld per Location bleibt erhalten, wird aber nur noch durch system-admin editierbar (nicht durch Location-Writer). Reguläre Betten = `bett_typ NOT IN ('NOTBETT','WARTEPLATZ')` + `is_active=true`. Reporting: Abweichung pro Location = `kontingent` − reguläre Betten; Summe aller Abweichungen gegen `eu_gesamtquote`. Neuer Endpunkt `GET /api/system/kontingent-report` liefert die Kennzahlen. UI: neues Reporting-Panel im Dashboard (nur system-admin sichtbar).
+
+**Vorgehen:** Vor Schema-Change explizit fragen, ob Breaking Change durchgeführt werden soll. `kontingent`-Feld darf niemals gelöscht werden (bestehende Arbeit). Nur Berechtigung + Reporting hinzufügen.
