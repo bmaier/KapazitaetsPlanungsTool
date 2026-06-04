@@ -60,20 +60,31 @@ def _get_db_connection():
 
 
 def after_scenario(context, scenario):
+    # Nur die vom Test angelegten Locations löschen (via context.loc_map).
+    # ON DELETE CASCADE entfernt zugehörige Rooms, Beds und Occupants automatisch.
+    # Demo-Daten bleiben erhalten.
+    test_loc_ids = list(getattr(context, "loc_map", {}).values())
+    if not test_loc_ids:
+        return
     try:
         conn = _get_db_connection()
         conn.autocommit = True
         with conn.cursor() as cur:
-            # Tasks und Reservierungen zuerst löschen (FK-Abhängigkeiten)
-            cur.execute("DELETE FROM tasks.inbox")
-            cur.execute("DELETE FROM reservations.requests")
-            cur.execute("DELETE FROM persons.occupants")
-            cur.execute("DELETE FROM capacity.beds")
-            cur.execute("DELETE FROM capacity.rooms")
-            cur.execute("DELETE FROM capacity.locations")
-            cur.execute("DELETE FROM audit.events")
+            placeholders = ",".join(["%s"] * len(test_loc_ids))
+            # Reservierungen und Tasks zu diesen Locations zuerst löschen
             cur.execute(
-                "UPDATE capacity.system_settings SET eu_gesamtquote = 0 WHERE id = 1"
+                f"DELETE FROM reservations.requests WHERE requester_location_id IN ({placeholders}) "
+                f"OR target_location_id IN ({placeholders})",
+                test_loc_ids + test_loc_ids,
+            )
+            cur.execute(
+                f"DELETE FROM tasks.inbox WHERE location_id IN ({placeholders})",
+                test_loc_ids,
+            )
+            # Locations löschen — CASCADE entfernt Rooms, Beds, Occupants
+            cur.execute(
+                f"DELETE FROM capacity.locations WHERE id IN ({placeholders})",
+                test_loc_ids,
             )
         conn.close()
     except Exception:

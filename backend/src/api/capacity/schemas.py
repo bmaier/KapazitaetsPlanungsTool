@@ -102,6 +102,7 @@ class OccupancyCreate(BaseModel):
     geschlecht: GenderDesignation
     belegung_start: date
     belegung_ende: date
+    geschlecht_mismatch_grund: Optional[str] = None
 
     @model_validator(mode="after")
     def ende_after_start(self) -> "OccupancyCreate":

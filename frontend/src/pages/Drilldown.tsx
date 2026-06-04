@@ -392,6 +392,8 @@ export default function Drilldown() {
   const [verlegenOpen, setVerlegenOpen] = useState(false)
   const [verlegenTargetBed, setVerlegenTargetBed] = useState('')
   const [verlegenSaving, setVerlegenSaving] = useState(false)
+  const [verlegenMismatch, setVerlegenMismatch] = useState(false)
+  const [verlegenMismatchGrund, setVerlegenMismatchGrund] = useState('')
 
   // Pending requests assignment dialog
   const [pendingRequests, setPendingRequests] = useState<PendingReservation[]>([])
@@ -798,10 +800,17 @@ export default function Drilldown() {
     let verlBelegStart = src.belegung_start ?? today
     let verlBelegEnde = src.belegung_ende ?? in14
     if (targetBedInfo?.is_notbett) {
-      // Notbett: max 1 Nacht — auf heute/morgen setzen
       verlBelegStart = today
       const d = new Date(Date.now() + 86400000)
       verlBelegEnde = d.toISOString().slice(0, 10)
+    }
+    // Geschlecht-Mismatch: Ziel-Raum hat andere Designation als Person → erst bestätigen lassen
+    const personGeschlecht = src.occ_geschlecht ?? 'D'
+    const raumGeschlecht = targetBedInfo?.geschlecht ?? 'D'
+    if (!verlegenMismatch && raumGeschlecht !== 'D' && raumGeschlecht !== personGeschlecht) {
+      setVerlegenMismatch(true)
+      setVerlegenSaving(false)
+      return
     }
     try {
       await post(`/api/beds/${verlegenTargetBed}/occupancy`, {
@@ -810,14 +819,23 @@ export default function Drilldown() {
         geschlecht: src.occ_geschlecht || 'M',
         belegung_start: verlBelegStart,
         belegung_ende: verlBelegEnde,
+        ...(verlegenMismatch && verlegenMismatchGrund.trim()
+          ? { geschlecht_mismatch_grund: verlegenMismatchGrund.trim() }
+          : {}),
       })
       await del(`/api/beds/${src.bed_id}/occupancy/${src.occupancy_id}`)
       setVerlegenOpen(false)
       setManageBed(null)
+      setVerlegenMismatch(false)
+      setVerlegenMismatchGrund('')
       loadBedStatus()
       setSnackbar({ open: true, message: 'Person erfolgreich verlegt.', severity: 'success' })
-    } catch {
-      setSnackbar({ open: true, message: 'Verlegen fehlgeschlagen.', severity: 'error' })
+    } catch (err: unknown) {
+      if ((err as { status?: number }).status === 404) {
+        setSnackbar({ open: true, message: 'Bett nicht mehr verfügbar — bitte Seite aktualisieren.', severity: 'error' })
+      } else {
+        setSnackbar({ open: true, message: extractApiError(err), severity: 'error' })
+      }
     } finally {
       setVerlegenSaving(false)
     }
@@ -1363,10 +1381,27 @@ export default function Drilldown() {
       </Dialog>
 
       {/* ── Intern verlegen Dialog ── */}
-      <Dialog open={verlegenOpen} onClose={() => setVerlegenOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog open={verlegenOpen} onClose={() => { setVerlegenOpen(false); setVerlegenMismatch(false); setVerlegenMismatchGrund('') }} maxWidth="sm" fullWidth>
         <DialogTitle fontWeight={700}>Intern verlegen — Zielbett wählen</DialogTitle>
         <DialogContent sx={{ pt: 2 }}>
-          {freiBeds.filter((b) => b.bed_id !== manageBed?.bed.bed_id).length === 0 ? (
+          {verlegenMismatch ? (
+            <Box display="flex" flexDirection="column" gap={2}>
+              <Alert severity="warning" icon={<WarningAmberIcon />}>
+                <strong>Geschlecht-Warnung:</strong> Die Person ({manageBed?.bed.occ_geschlecht ?? '?'}) wird in einen Raum verlegt, der für{' '}
+                {genderLabel(freiBeds.find((b) => b.bed_id === verlegenTargetBed)?.geschlecht ?? 'D')} vorgesehen ist. Bitte Begründung angeben.
+              </Alert>
+              <TextField
+                label="Begründung *"
+                multiline
+                minRows={2}
+                fullWidth
+                value={verlegenMismatchGrund}
+                onChange={(e) => setVerlegenMismatchGrund(e.target.value)}
+                placeholder="z.B. Notsituation, keine anderen Betten verfügbar..."
+                autoFocus
+              />
+            </Box>
+          ) : freiBeds.filter((b) => b.bed_id !== manageBed?.bed.bed_id).length === 0 ? (
             <Alert severity="warning">Keine freien Betten in dieser Einrichtung verfügbar.</Alert>
           ) : (
             <Box>
@@ -1388,7 +1423,7 @@ export default function Drilldown() {
                   <Paper
                     key={b.bed_id}
                     elevation={verlegenTargetBed === b.bed_id ? 4 : 1}
-                    onClick={() => setVerlegenTargetBed(b.bed_id)}
+                    onClick={() => { setVerlegenTargetBed(b.bed_id); setVerlegenMismatch(false); setVerlegenMismatchGrund('') }}
                     sx={{
                       p: 1.5, borderRadius: 2, cursor: 'pointer',
                       border: verlegenTargetBed === b.bed_id
@@ -1415,11 +1450,24 @@ export default function Drilldown() {
           )}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setVerlegenOpen(false)}>Abbrechen</Button>
-          <Button variant="contained" disabled={!verlegenTargetBed || verlegenSaving}
-            onClick={handleVerlegen}>
-            {verlegenSaving ? <CircularProgress size={18} /> : 'Verlegen bestätigen'}
-          </Button>
+          {verlegenMismatch ? (
+            <>
+              <Button onClick={() => { setVerlegenMismatch(false); setVerlegenMismatchGrund('') }}>Zurück</Button>
+              <Button variant="contained" color="warning"
+                disabled={!verlegenMismatchGrund.trim() || verlegenSaving}
+                onClick={handleVerlegen}>
+                {verlegenSaving ? <CircularProgress size={18} /> : 'Override bestätigen'}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button onClick={() => setVerlegenOpen(false)}>Abbrechen</Button>
+              <Button variant="contained" disabled={!verlegenTargetBed || verlegenSaving}
+                onClick={handleVerlegen}>
+                {verlegenSaving ? <CircularProgress size={18} /> : 'Verlegen bestätigen'}
+              </Button>
+            </>
+          )}
         </DialogActions>
       </Dialog>
 

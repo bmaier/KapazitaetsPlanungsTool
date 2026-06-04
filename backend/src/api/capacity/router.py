@@ -6,6 +6,7 @@ Schichtentrennung:
 - Repos: DB-Zugriff, Audit-Log
 - Domain-Rules: reine Logik ohne I/O
 """
+import json
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from typing import List, Optional
@@ -1091,6 +1092,23 @@ async def create_occupancy(
         belegung_ende=body.belegung_ende,
     )
     created = await occ_repo.create(occupancy, user=user, location_id=bed_location_id)
+
+    if body.geschlecht_mismatch_grund:
+        await session.execute(
+            text(
+                "INSERT INTO audit.events (event_type, payload) "
+                "VALUES ('OCCUPANCY_GESCHLECHT_MISMATCH', :p)"
+            ),
+            {
+                "p": json.dumps({
+                    "azr_id": body.azr_id,
+                    "bed_id": str(bed_id),
+                    "geschlecht_person": body.geschlecht.value,
+                    "mismatch_grund": body.geschlecht_mismatch_grund,
+                    "erstellt_von": user.sub if user else None,
+                })
+            },
+        )
 
     if warn_12w:
         response.headers["X-12W-Warning"] = "true"
