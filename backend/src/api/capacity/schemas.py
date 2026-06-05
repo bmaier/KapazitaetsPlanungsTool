@@ -146,6 +146,22 @@ class EuQuotaUpdate(BaseModel):
     eu_gesamtquote: int = Field(..., ge=0)
 
 
+class KontingentReportLocation(BaseModel):
+    id: UUID
+    name: str
+    kontingent: int
+    regulaere_betten: int
+    abweichung: int  # kontingent - regulaere_betten; negativ = Betten fehlen
+
+
+class KontingentReportResponse(BaseModel):
+    eu_gesamtquote: int
+    sum_kontingent: int
+    sum_regulaere_betten: int
+    abweichung_gesamt: int  # sum_kontingent - sum_regulaere_betten
+    locations: list[KontingentReportLocation]
+
+
 # ---------------------------------------------------------------------------
 # Location Summary (Dashboard)
 # ---------------------------------------------------------------------------

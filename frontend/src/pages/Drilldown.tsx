@@ -356,6 +356,7 @@ export default function Drilldown() {
   const roles = ((keycloak?.tokenParsed as Record<string, unknown>)?.realm_access as { roles?: string[] } | undefined)?.roles ?? []
   const canEdit = roles.some((r) => ['location-admin', 'system-admin', 'writer'].includes(r))
   const isAdmin = roles.some((r) => ['location-admin', 'system-admin'].includes(r))
+  const isSysAdmin = roles.includes('system-admin')
 
   const today = new Date().toISOString().slice(0, 10)
   const in14 = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10)
@@ -1599,9 +1600,11 @@ export default function Drilldown() {
             <Box display="flex" flexDirection="column" gap={2.5}>
               <Box display="flex" gap={2}>
                 <TextField
-                  label={<>Kontingent (Plätze)<HelpTooltip text="EU-quotenrelevante Gesamtkapazität. Reduktion unter aktuelle Belegung erzeugt eine Überkapazität im EU-Reporting." /></>}
+                  label={<>Kontingent (Plätze)<HelpTooltip text="EU-quotenrelevante Gesamtkapazität. Nur system-admin kann diesen Wert ändern." /></>}
                   type="number" value={editKontingent}
-                  onChange={(e) => setEditKontingent(e.target.value)} inputProps={{ min: 0 }} fullWidth />
+                  onChange={(e) => setEditKontingent(e.target.value)} inputProps={{ min: 0 }} fullWidth
+                  disabled={!isSysAdmin}
+                  helperText={!isSysAdmin ? 'Nur system-admin kann das Kontingent ändern.' : undefined} />
                 <TextField
                   label={<>Notbett-Kapazität<HelpTooltip text="Max. gleichzeitige Notbett-Belegungen. Notbetten sind max. 1 Nacht, nicht EU-quotenrelevant." /></>}
                   type="number" value={editNotbett}

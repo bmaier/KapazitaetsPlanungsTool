@@ -32,6 +32,8 @@ from src.api.capacity.schemas import (
     BedStatusItem,
     BedUpdateRequest,
     EuQuotaUpdate,
+    KontingentReportLocation,
+    KontingentReportResponse,
     LabelCatalogEntry,
     LabelCatalogResponse,
     LabelsUpdateRequest,
@@ -149,6 +151,58 @@ async def get_eu_quota(session: AsyncSession = Depends(get_session)):
     repo = SqlSystemSettingsRepo(session)
     settings = await repo.get()
     return {"eu_gesamtquote": settings.eu_gesamtquote}
+
+
+@router.get("/system/kontingent-report", response_model=KontingentReportResponse)
+async def get_kontingent_report(
+    session: AsyncSession = Depends(get_session),
+    _: UserContext = Depends(get_current_user),
+):
+    """Kontingent-Reporting: eu_gesamtquote vs. Summe der Location-Kontingente vs. reguläre Betten."""
+    settings_repo = SqlSystemSettingsRepo(session)
+    sys_settings = await settings_repo.get()
+
+    result = await session.execute(
+        text("""
+            SELECT
+                l.id,
+                l.name,
+                l.kontingent,
+                COUNT(b.id) FILTER (
+                    WHERE b.is_active = true
+                      AND b.bett_typ NOT IN ('NOTBETT', 'WARTEPLATZ')
+                ) AS regulaere_betten
+            FROM capacity.locations l
+            LEFT JOIN capacity.rooms r ON r.location_id = l.id AND r.is_active = true
+            LEFT JOIN capacity.beds b ON b.room_id = r.id
+            WHERE l.is_active = true
+            GROUP BY l.id, l.name, l.kontingent
+            ORDER BY l.name
+        """)
+    )
+    rows = result.mappings().all()
+
+    location_items = [
+        KontingentReportLocation(
+            id=row["id"],
+            name=row["name"],
+            kontingent=row["kontingent"],
+            regulaere_betten=int(row["regulaere_betten"]),
+            abweichung=row["kontingent"] - int(row["regulaere_betten"]),
+        )
+        for row in rows
+    ]
+
+    sum_kontingent = sum(loc.kontingent for loc in location_items)
+    sum_regulaere = sum(loc.regulaere_betten for loc in location_items)
+
+    return KontingentReportResponse(
+        eu_gesamtquote=sys_settings.eu_gesamtquote,
+        sum_kontingent=sum_kontingent,
+        sum_regulaere_betten=sum_regulaere,
+        abweichung_gesamt=sum_kontingent - sum_regulaere,
+        locations=location_items,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -348,6 +402,8 @@ async def update_location(
     if body.adresse is not None:
         updates["adresse"] = body.adresse
     if body.kontingent is not None:
+        if "system-admin" not in user.roles:
+            raise HTTPException(status_code=403, detail="Nur system-admin kann das Kontingent ändern.")
         updates["kontingent"] = body.kontingent
     if body.notbett_kapazitaet is not None:
         updates["notbett_kapazitaet"] = body.notbett_kapazitaet

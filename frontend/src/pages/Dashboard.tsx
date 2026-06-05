@@ -17,6 +17,11 @@ import {
   Grid,
   Paper,
   Snackbar,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
   TextField,
   ToggleButton,
   ToggleButtonGroup,
@@ -56,6 +61,22 @@ interface Reservation {
   target_location_id: string
   azr_id: string
   status: string
+}
+
+interface KontingentReportLocation {
+  id: string
+  name: string
+  kontingent: number
+  regulaere_betten: number
+  abweichung: number
+}
+
+interface KontingentReport {
+  eu_gesamtquote: number
+  sum_kontingent: number
+  sum_regulaere_betten: number
+  abweichung_gesamt: number
+  locations: KontingentReportLocation[]
 }
 
 type AmpelStatus = 'GRUEN' | 'GELB' | 'ROT'
@@ -101,6 +122,10 @@ export default function Dashboard() {
 
   const roles = ((keycloak?.tokenParsed as Record<string, unknown>)?.realm_access as { roles?: string[] } | undefined)?.roles ?? []
   const isAdmin = roles.some((r) => ['system-admin', 'location-admin'].includes(r))
+  const isSysAdmin = roles.includes('system-admin')
+
+  const [report, setReport] = useState<KontingentReport | null>(null)
+  const [reportLoading, setReportLoading] = useState(false)
 
   useEffect(() => {
     if (initialized && !locationId) setWarnOpen(true)
@@ -128,6 +153,15 @@ export default function Dashboard() {
   }, [get, locationId])
 
   useEffect(() => { loadData() }, [loadData])
+
+  useEffect(() => {
+    if (!isSysAdmin) return
+    setReportLoading(true)
+    get<KontingentReport>('/api/system/kontingent-report')
+      .then(setReport)
+      .catch(() => setReport(null))
+      .finally(() => setReportLoading(false))
+  }, [isSysAdmin, get])
 
   const myReservations = reservations.filter(
     (r) => r.requester_location_id === locationId || r.target_location_id === locationId
@@ -283,6 +317,73 @@ export default function Dashboard() {
       <Box sx={{ display: viewMode === 'map' ? 'block' : 'none' }}>
         <MapView locations={locations} visible={viewMode === 'map'} />
       </Box>
+
+      {/* Kontingent-Reporting Panel (nur system-admin) */}
+      {isSysAdmin && (
+        <Paper elevation={0} sx={{ p: 2.5, mt: 3, borderRadius: 2, border: '1px solid #e0e0e0' }}>
+          <Typography fontWeight={700} variant="body2" color="#003366" sx={{ mb: 1.5 }}>
+            Kontingent-Reporting
+          </Typography>
+          {reportLoading && <CircularProgress size={20} />}
+          {!reportLoading && report && (
+            <>
+              <Box display="flex" gap={3} mb={2} flexWrap="wrap">
+                <Box>
+                  <Typography variant="caption" color="text.secondary">EU-Gesamtquote</Typography>
+                  <Typography fontWeight={700}>{report.eu_gesamtquote} Plätze</Typography>
+                </Box>
+                <Divider orientation="vertical" flexItem />
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Summe Kontingente</Typography>
+                  <Typography fontWeight={700}>{report.sum_kontingent} Plätze</Typography>
+                </Box>
+                <Divider orientation="vertical" flexItem />
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Reguläre Betten</Typography>
+                  <Typography fontWeight={700}>{report.sum_regulaere_betten} Betten</Typography>
+                </Box>
+                <Divider orientation="vertical" flexItem />
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Abweichung gesamt</Typography>
+                  <Typography fontWeight={700} sx={{ color: report.abweichung_gesamt > 0 ? '#e65100' : report.abweichung_gesamt < 0 ? '#b71c1c' : '#1b5e20' }}>
+                    {report.abweichung_gesamt > 0 ? '+' : ''}{report.abweichung_gesamt}
+                  </Typography>
+                </Box>
+              </Box>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 700 }}>Einrichtung</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700 }}>Kontingent</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700 }}>Reg. Betten</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700 }}>Abweichung</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {report.locations.map((loc) => (
+                    <TableRow key={loc.id} hover>
+                      <TableCell>{loc.name}</TableCell>
+                      <TableCell align="right">{loc.kontingent}</TableCell>
+                      <TableCell align="right">{loc.regulaere_betten}</TableCell>
+                      <TableCell align="right">
+                        <Chip
+                          label={`${loc.abweichung > 0 ? '+' : ''}${loc.abweichung}`}
+                          size="small"
+                          sx={{
+                            bgcolor: loc.abweichung > 0 ? '#fff3e0' : loc.abweichung < 0 ? '#ffebee' : '#e8f5e9',
+                            color: loc.abweichung > 0 ? '#e65100' : loc.abweichung < 0 ? '#b71c1c' : '#1b5e20',
+                            fontWeight: 600, fontSize: 11,
+                          }}
+                        />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </>
+          )}
+        </Paper>
+      )}
 
       {/* Neue Einrichtung Dialog */}
       <Dialog open={newLocOpen} onClose={() => { setNewLocOpen(false); setNewName(''); setNewAdresse(''); setNewKontingent('10'); setNewNotbett('0'); setNewLocSaving(false) }} maxWidth="sm" fullWidth>
