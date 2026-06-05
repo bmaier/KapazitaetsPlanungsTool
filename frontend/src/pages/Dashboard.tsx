@@ -47,6 +47,7 @@ interface LocationSummary {
   lon?: number | null
   valid_from?: string | null
   valid_until?: string | null
+  show_on_map?: boolean | null
 }
 
 interface Reservation {

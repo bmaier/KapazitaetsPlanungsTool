@@ -324,6 +324,16 @@ Gefunden beim adversarialen Review. Nicht kritisch für Demo-Betrieb.
 
 ---
 
+## Review-Findings (spec-location-sichtbarkeit-deaktivierung.md) — Zurückgestellt 2026-06-05
+
+- **Writer-Rolle kann is_active/show_on_map via PATCH setzen** (`router.py` update_location): Backend prüft nur writer+ Rolle, kein feldspezifischer Admin-Check. Frontend-seitig korrekt mit `isAdmin` gesperrt. Für Produktions-Hardening: zusätzliche Role-Check-Middleware oder Feld-spezifische Prüfung in `update_location`.
+- **PATCH is_active=false ohne Occupancy-Guard**: Kein Check ob Location noch aktive Belegungen hat. `POST /locations/{id}/deactivate` (falls vorhanden) hat diesen Guard. Für Produktions-Betrieb: vor Deaktivierung auf `active_occupancies > 0` prüfen und mit 409 ablehnen oder warnen.
+- **PATCH is_active=true ohne EU-Quota-Check**: Reaktivierung zählt kontingent sofort zur nationalen Quote, aber `check_eu_quota` wird nicht gerufen. Gehört zu Ziel 3 (Kontingent-Redesign).
+- **MapController fitBounds schließt show_on_map=false-Locations aus**: Wenn die einzige Location mit Koordinaten `show_on_map=false` ist, springt `fitBounds` nicht an (points.length=0 → Default-Center). Low-impact, da Locations mit Koordinaten üblicherweise auch auf der Karte sichtbar sind.
+- **Spurious kontingent_history-Einträge**: `saveEdit()` sendet immer kontingent+notbett, auch wenn nur show_on_map geändert wurde → jedes Speichern erzeugt History-Eintrag. Pre-existing Pattern in saveEdit().
+
+---
+
 ## Ziel 2 — Location Karte-Sichtbarkeit — Zurückgestellt 2026-06-04
 
 Neues Feld `show_on_map: bool` (default `true`) in `capacity.locations`. Admin-Toggle in Stammdaten-Edit-Dialog (Drilldown Tab 0). Dashboard-Karte (`MapView.tsx`) rendert nur Locations mit `show_on_map = true`. Migration: ALTER TABLE + Alembic. `is_active` (Soft-Delete) bleibt eigenständig.

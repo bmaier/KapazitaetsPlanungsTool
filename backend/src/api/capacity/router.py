@@ -197,6 +197,7 @@ async def create_location(
         lon=None,
         valid_from=None,
         valid_until=None,
+        show_on_map=True,
     )
 
 
@@ -210,7 +211,7 @@ async def list_locations(
     result = await session.execute(
         text(f"""
             SELECT id, name, adresse, kontingent, notbett_kapazitaet, is_active,
-                   labels, lat, lon, valid_from, valid_until
+                   labels, lat, lon, valid_from, valid_until, show_on_map
             FROM capacity.locations
             {where_clause}
             ORDER BY name
@@ -230,6 +231,7 @@ async def list_locations(
             lon=row["lon"],
             valid_from=row["valid_from"],
             valid_until=row["valid_until"],
+            show_on_map=row["show_on_map"],
         )
         for row in rows
     ]
@@ -255,6 +257,7 @@ async def get_locations_summary() -> List[LocationSummaryResponse]:
                     l.lon,
                     l.valid_from,
                     l.valid_until,
+                    l.show_on_map,
                     COUNT(o.id) FILTER (
                         WHERE o.belegung_ende >= CURRENT_DATE
                     ) AS belegt,
@@ -273,7 +276,7 @@ async def get_locations_summary() -> List[LocationSummaryResponse]:
                 LEFT JOIN capacity.beds b ON b.room_id = r.id AND b.is_active = true
                 LEFT JOIN persons.occupants o ON o.bed_id = b.id
                 WHERE l.is_active = true
-                GROUP BY l.id, l.name, l.kontingent, l.notbett_kapazitaet, l.is_active, l.lat, l.lon, l.valid_from, l.valid_until
+                GROUP BY l.id, l.name, l.kontingent, l.notbett_kapazitaet, l.is_active, l.lat, l.lon, l.valid_from, l.valid_until, l.show_on_map
                 ORDER BY l.name
             """)
         )
@@ -291,6 +294,7 @@ async def get_locations_summary() -> List[LocationSummaryResponse]:
             lon=row["lon"],
             valid_from=row["valid_from"],
             valid_until=row["valid_until"],
+            show_on_map=row["show_on_map"],
         )
         for row in rows
     ]
@@ -305,7 +309,7 @@ async def get_location(
     result = await session.execute(
         text("""
             SELECT id, name, adresse, kontingent, notbett_kapazitaet, is_active,
-                   labels, lat, lon, valid_from, valid_until
+                   labels, lat, lon, valid_from, valid_until, show_on_map
             FROM capacity.locations
             WHERE id = :id
         """),
@@ -326,6 +330,7 @@ async def get_location(
         lon=row["lon"],
         valid_from=row["valid_from"],
         valid_until=row["valid_until"],
+        show_on_map=row["show_on_map"],
     )
 
 
@@ -356,6 +361,10 @@ async def update_location(
         updates["valid_from"] = body.valid_from
     if body.valid_until is not None:
         updates["valid_until"] = body.valid_until
+    if body.is_active is not None:
+        updates["is_active"] = body.is_active
+    if body.show_on_map is not None:
+        updates["show_on_map"] = body.show_on_map
 
     if not updates:
         raise HTTPException(status_code=422, detail="Keine Felder zum Aktualisieren")
@@ -394,7 +403,7 @@ async def update_location(
         text(
             f"UPDATE capacity.locations SET {set_clause}, updated_at = NOW() "
             f"WHERE id = :id RETURNING id, name, adresse, kontingent, notbett_kapazitaet, "
-            f"is_active, labels, lat, lon, valid_from, valid_until"
+            f"is_active, labels, lat, lon, valid_from, valid_until, show_on_map"
         ),
         updates,
     )
@@ -427,6 +436,7 @@ async def update_location(
         lon=row["lon"],
         valid_from=row["valid_from"],
         valid_until=row["valid_until"],
+        show_on_map=row["show_on_map"],
     )
 
 

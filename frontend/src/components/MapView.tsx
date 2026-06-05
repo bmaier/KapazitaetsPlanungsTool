@@ -25,6 +25,7 @@ export interface LocationSummary {
   notbett_kapazitaet?: number
   lat?: number | null
   lon?: number | null
+  show_on_map?: boolean | null
 }
 
 interface MapViewProps {
@@ -101,7 +102,7 @@ function MapController({ locations, visible }: { locations: LocationSummary[]; v
 
 export default function MapView({ locations, visible = true }: MapViewProps) {
   const navigate = useNavigate()
-  const active = locations.filter((l) => l.is_active)
+  const active = locations.filter((l) => l.is_active && l.show_on_map !== false)
 
   return (
     <Box sx={{ position: 'relative', height: '75vh', width: '100%', borderRadius: 2, overflow: 'hidden', boxShadow: 2 }}>

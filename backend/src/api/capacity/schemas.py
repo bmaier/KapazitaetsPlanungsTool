@@ -36,6 +36,7 @@ class LocationResponse(BaseModel):
     lon: Optional[float] = None
     valid_from: Optional[date] = None
     valid_until: Optional[date] = None
+    show_on_map: bool = True
 
     model_config = {"from_attributes": True}
 
@@ -166,6 +167,8 @@ class LocationUpdateRequest(BaseModel):
     lon: Optional[float] = None
     valid_from: Optional[date] = None
     valid_until: Optional[date] = None
+    is_active: Optional[bool] = None
+    show_on_map: Optional[bool] = None
 
     @field_validator('lat')
     @classmethod
@@ -200,6 +203,7 @@ class LocationSummaryResponse(BaseModel):
     lon: Optional[float] = None
     valid_from: Optional[date] = None
     valid_until: Optional[date] = None
+    show_on_map: bool = True
 
     model_config = ConfigDict(from_attributes=True)
 

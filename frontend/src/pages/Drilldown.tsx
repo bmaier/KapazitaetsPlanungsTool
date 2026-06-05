@@ -13,6 +13,7 @@ import {
   DialogTitle,
   Divider,
   FormControl,
+  FormControlLabel,
   Grid,
   IconButton,
   InputLabel,
@@ -21,6 +22,7 @@ import {
   Paper,
   Select,
   Snackbar,
+  Switch,
   Tab,
   Tabs,
   TextField,
@@ -61,6 +63,7 @@ interface Location {
   lon?: number | null
   valid_from?: string | null
   valid_until?: string | null
+  show_on_map?: boolean
 }
 
 interface PendingReservation {
@@ -434,6 +437,8 @@ export default function Drilldown() {
   const [editLocLabels, setEditLocLabels] = useState<string[]>([])
   const [editValidFrom, setEditValidFrom] = useState('')
   const [editValidUntil, setEditValidUntil] = useState('')
+  const [editIsActive, setEditIsActive] = useState(true)
+  const [editShowOnMap, setEditShowOnMap] = useState(true)
 
   // Bed timed deactivation
   const [deaktBedId, setDeaktBedId] = useState<string | null>(null)
@@ -531,6 +536,8 @@ export default function Drilldown() {
     setEditLocLabels(location?.labels ?? [])
     setEditValidFrom(location?.valid_from ?? '')
     setEditValidUntil(location?.valid_until ?? '')
+    setEditIsActive(location?.is_active ?? true)
+    setEditShowOnMap(location?.show_on_map ?? true)
     setEditTab(0)
     setEditOpen(true)
     if (isAdmin) loadMgmtRooms()
@@ -579,6 +586,8 @@ export default function Drilldown() {
         notbett_kapazitaet: Number(editNotbett),
         adresse: editAdresse,
         labels: editLocLabels,
+        is_active: editIsActive,
+        show_on_map: editShowOnMap,
       }
       if (editLat !== '') body.lat = parseFloat(editLat)
       if (editLon !== '') body.lon = parseFloat(editLon)
@@ -1643,6 +1652,18 @@ export default function Drilldown() {
                   onSaved={(l) => setEditLocLabels(l)}
                 />
               </Box>
+              {isAdmin && (
+                <Box display="flex" gap={3}>
+                  <FormControlLabel
+                    control={<Switch checked={editIsActive} onChange={(e) => setEditIsActive(e.target.checked)} color="primary" />}
+                    label="Einrichtung aktiv"
+                  />
+                  <FormControlLabel
+                    control={<Switch checked={editShowOnMap} onChange={(e) => setEditShowOnMap(e.target.checked)} color="primary" />}
+                    label="Auf Karte anzeigen"
+                  />
+                </Box>
+              )}
             </Box>
           )}
 
