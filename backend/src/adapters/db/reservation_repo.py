@@ -149,6 +149,7 @@ class SqlReservationRepo(AbstractReservationRepo):
         location_id: UUID,
         confirmed_bed_id: UUID,
         user: Optional[UserContext] = None,
+        mismatch_grund: Optional[str] = None,
     ) -> ReservationRequest:
         """
         Bestätigt eine Reservierung und weist ein Bett zu (VORGEMERKT).
@@ -220,7 +221,8 @@ class SqlReservationRepo(AbstractReservationRepo):
         model.confirmed_at = now
         model.updated_at = now
 
-        await self._create_task_and_audit(model, "CONFIRMED", location_id, user=user)
+        extra: Optional[dict] = {"geschlecht_mismatch_grund": mismatch_grund} if mismatch_grund else None
+        await self._create_task_and_audit(model, "CONFIRMED", location_id, user=user, extra_payload=extra)
         await self._session.flush()
         return _to_entity(model)
 
@@ -399,10 +401,13 @@ class SqlReservationRepo(AbstractReservationRepo):
         location_id: Optional[UUID],
         azr_id: Optional[str] = None,
         user: Optional[UserContext] = None,
+        extra_payload: Optional[dict] = None,
     ) -> None:
         payload = {"reservation_id": str(reservation_id), "action": action}
         if azr_id:
             payload["azr_id"] = azr_id
+        if extra_payload:
+            payload.update(extra_payload)
         await write_audit(
             self._session,
             f"RESERVATION_{action}",
@@ -419,6 +424,7 @@ class SqlReservationRepo(AbstractReservationRepo):
         new_status: str,
         location_id: UUID,
         user: Optional[UserContext] = None,
+        extra_payload: Optional[dict] = None,
     ) -> None:
         """
         Erzeugt Task(s) und Audit-Eintrag für einen Statusübergang.
@@ -479,4 +485,4 @@ class SqlReservationRepo(AbstractReservationRepo):
             )
 
         await self._write_audit(model.id, new_status, location_id,
-                                azr_id=model.azr_id, user=user)
+                                azr_id=model.azr_id, user=user, extra_payload=extra_payload)

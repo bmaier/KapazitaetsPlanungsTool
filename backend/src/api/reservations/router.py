@@ -276,11 +276,13 @@ async def confirm_reservation(
             if not existing:
                 raise HTTPException(status_code=404, detail="Reservierung nicht gefunden")
             result = await repo.confirm(
-                reservation_id, existing.target_location_id, body.confirmed_bed_id, user=user
+                reservation_id, existing.target_location_id, body.confirmed_bed_id,
+                user=user, mismatch_grund=body.geschlecht_mismatch_grund,
             )
         else:
             result = await repo.confirm(
-                reservation_id, location.id, body.confirmed_bed_id, user=user  # type: ignore[union-attr]
+                reservation_id, location.id, body.confirmed_bed_id,  # type: ignore[union-attr]
+                user=user, mismatch_grund=body.geschlecht_mismatch_grund,
             )
     except RetractionForbiddenError as e:
         raise HTTPException(status_code=403, detail=e.message)

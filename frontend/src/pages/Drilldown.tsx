@@ -115,6 +115,8 @@ interface BedStatus {
   pending_requester_location_name?: string | null
   outgoing_reservation_id?: string
   transfer_target_location_name?: string | null
+  transfer_target_room_name?: string | null
+  transfer_target_bed_nummer?: string | null
   pending_azr_id?: string | null
 }
 
@@ -194,6 +196,183 @@ function bedIsActive(bed: BedStatus, refDate: string): boolean {
   return true
 }
 
+function BedTooltipContent({
+  bed, isBelegt, isVorgemerkt, bedActive, hasConfirmedTransfer, hasPendingTransfer, hasPendingRequest, canEdit, refDate,
+}: {
+  bed: BedStatus; isBelegt: boolean; isVorgemerkt: boolean; bedActive: boolean
+  hasConfirmedTransfer: boolean; hasPendingTransfer: boolean; hasPendingRequest: boolean
+  canEdit: boolean; refDate: string
+}) {
+  if (!bedActive) {
+    return (
+      <Typography variant="caption">
+        {bed.bed_valid_from && refDate < bed.bed_valid_from
+          ? `Verfügbar ab ${bed.bed_valid_from}`
+          : `Deaktiviert ab ${bed.deaktiviert_ab}`}
+      </Typography>
+    )
+  }
+  return (
+    <Box sx={{ minWidth: 160, maxWidth: 280 }}>
+      {isBelegt && (
+        <>
+          <Box display="flex" gap={0.5} alignItems="baseline" mb={0.2}>
+            <Typography variant="caption" fontWeight={700} sx={{ fontFamily: 'monospace', letterSpacing: 0.3 }}>
+              {bed.azr_id || '–'}
+            </Typography>
+            {bed.alias_id && (
+              <Typography variant="caption" sx={{ opacity: 0.75 }}>({bed.alias_id})</Typography>
+            )}
+          </Box>
+          <Typography variant="caption" display="block" sx={{ opacity: 0.85 }}>
+            {bed.belegung_start} – {bed.belegung_ende}
+          </Typography>
+          {(bed.occ_labels ?? []).length > 0 && (
+            <Typography variant="caption" display="block" sx={{ mt: 0.3, opacity: 0.85 }}>
+              Person-Labels: {bed.occ_labels!.join(', ')}
+            </Typography>
+          )}
+        </>
+      )}
+      {isVorgemerkt && (
+        <>
+          <Typography variant="caption" fontWeight={700} display="block">Vorgemerkt für:</Typography>
+          <Typography variant="caption" display="block" sx={{ fontFamily: 'monospace' }}>
+            {bed.reservation_azr_id ?? '–'}
+          </Typography>
+          <Typography variant="caption" display="block" sx={{ opacity: 0.85 }}>
+            {bed.reservation_start} – {bed.reservation_ende}
+          </Typography>
+        </>
+      )}
+      {hasPendingRequest && (
+        <>
+          <Typography variant="caption" fontWeight={700} display="block">Eingehende Anfrage:</Typography>
+          <Typography variant="caption" display="block" sx={{ fontFamily: 'monospace' }}>{bed.pending_azr_id ?? '?'}</Typography>
+          <Typography variant="caption" display="block">von: {bed.pending_requester_location_name ?? '?'}</Typography>
+        </>
+      )}
+      {!isBelegt && !isVorgemerkt && !hasPendingRequest && (
+        <Typography variant="caption" display="block">Bett frei</Typography>
+      )}
+      {(bed.bed_labels ?? []).length > 0 && (
+        <Typography variant="caption" display="block" sx={{ mt: 0.5, opacity: 0.85 }}>
+          Bett-Labels: {bed.bed_labels!.join(', ')}
+        </Typography>
+      )}
+      {(hasConfirmedTransfer || hasPendingTransfer) && (
+        <Box mt={0.5} sx={{ borderTop: '1px solid rgba(255,255,255,0.25)', pt: 0.5 }}>
+          {hasConfirmedTransfer ? (
+            <>
+              <Typography variant="caption" fontWeight={700} display="block" sx={{ color: '#90caf9' }}>
+                ✓ Verlegen genehmigt
+              </Typography>
+              <Typography variant="caption" display="block">
+                → {bed.transfer_target_location_name ?? '?'}
+              </Typography>
+              {bed.transfer_target_room_name && (
+                <Typography variant="caption" display="block" sx={{ opacity: 0.85 }}>
+                  Raum: {bed.transfer_target_room_name}
+                </Typography>
+              )}
+              {bed.transfer_target_bed_nummer && (
+                <Typography variant="caption" display="block" sx={{ opacity: 0.85 }}>
+                  Bett: {bed.transfer_target_bed_nummer}
+                </Typography>
+              )}
+              <Typography variant="caption" display="block" sx={{ color: '#ffb74d' }}>
+                Eincheck ausstehend
+              </Typography>
+            </>
+          ) : (
+            <>
+              <Typography variant="caption" fontWeight={700} display="block" sx={{ color: '#ffb74d' }}>
+                ⟶ Verlegungsanfrage läuft
+              </Typography>
+              <Typography variant="caption" display="block">
+                → {bed.transfer_target_location_name ?? '?'}
+              </Typography>
+            </>
+          )}
+        </Box>
+      )}
+      {canEdit && (
+        <Typography variant="caption" display="block" sx={{ mt: 0.5, opacity: 0.55, fontStyle: 'italic' }}>
+          {isVorgemerkt ? '→ zur Reservierung'
+            : hasPendingRequest ? '→ Anfragen anzeigen'
+            : isBelegt ? '→ Verwalten'
+            : '→ Belegen'}
+        </Typography>
+      )}
+    </Box>
+  )
+}
+
+function WarteplatzTooltipContent({ bed, isBelegt, canEdit }: { bed: BedStatus; isBelegt: boolean; canEdit: boolean }) {
+  if (!isBelegt) {
+    return (
+      <Typography variant="caption">
+        Warteplatz frei{canEdit ? ' · Klicken zum Belegen' : ''}
+      </Typography>
+    )
+  }
+  return (
+    <Box sx={{ minWidth: 160, maxWidth: 280 }}>
+      <Box display="flex" gap={0.5} alignItems="baseline" mb={0.2}>
+        <Typography variant="caption" fontWeight={700} sx={{ fontFamily: 'monospace', letterSpacing: 0.3 }}>
+          {bed.azr_id}
+        </Typography>
+        {bed.alias_id && (
+          <Typography variant="caption" sx={{ opacity: 0.75 }}>({bed.alias_id})</Typography>
+        )}
+      </Box>
+      <Typography variant="caption" display="block" sx={{ opacity: 0.85 }}>
+        {bed.belegung_start} – {bed.belegung_ende}
+      </Typography>
+      {(bed.occ_labels ?? []).length > 0 && (
+        <Typography variant="caption" display="block" sx={{ mt: 0.3, opacity: 0.85 }}>
+          Person-Labels: {bed.occ_labels!.join(', ')}
+        </Typography>
+      )}
+      {(bed.has_confirmed_transfer || bed.has_pending_transfer) && (
+        <Box mt={0.5} sx={{ borderTop: '1px solid rgba(255,255,255,0.25)', pt: 0.5 }}>
+          {bed.has_confirmed_transfer ? (
+            <>
+              <Typography variant="caption" fontWeight={700} display="block" sx={{ color: '#90caf9' }}>
+                ✓ Verlegen genehmigt
+              </Typography>
+              <Typography variant="caption" display="block">→ {bed.transfer_target_location_name ?? '?'}</Typography>
+              {bed.transfer_target_room_name && (
+                <Typography variant="caption" display="block" sx={{ opacity: 0.85 }}>
+                  Raum: {bed.transfer_target_room_name}
+                </Typography>
+              )}
+              {bed.transfer_target_bed_nummer && (
+                <Typography variant="caption" display="block" sx={{ opacity: 0.85 }}>
+                  Bett: {bed.transfer_target_bed_nummer}
+                </Typography>
+              )}
+              <Typography variant="caption" display="block" sx={{ color: '#ffb74d' }}>Eincheck ausstehend</Typography>
+            </>
+          ) : (
+            <>
+              <Typography variant="caption" fontWeight={700} display="block" sx={{ color: '#ffb74d' }}>
+                ⟶ Verlegungsanfrage läuft
+              </Typography>
+              <Typography variant="caption" display="block">→ {bed.transfer_target_location_name ?? '?'}</Typography>
+            </>
+          )}
+        </Box>
+      )}
+      {canEdit && (
+        <Typography variant="caption" display="block" sx={{ mt: 0.5, opacity: 0.55, fontStyle: 'italic' }}>
+          → Verwalten
+        </Typography>
+      )}
+    </Box>
+  )
+}
+
 interface BedGridProps {
   room: RoomStatus
   canEdit: boolean
@@ -256,20 +435,11 @@ function BedGrid({ room, canEdit, onBedClick, refDate }: BedGridProps) {
             <Tooltip
               key={bed.bed_id}
               title={
-                <Box>
-                  {!bedActive
-                    ? (bed.bed_valid_from && refDate < bed.bed_valid_from ? `Verfügbar ab ${bed.bed_valid_from}` : `Deaktiviert ab ${bed.deaktiviert_ab}`)
-                    : isVorgemerkt
-                    ? `Vorgemerkt für: ${bed.reservation_azr_id ?? '–'} · ${bed.reservation_start} – ${bed.reservation_ende}`
-                    : hasPendingRequest
-                    ? `${bed.pending_azr_id ?? '?'} · Anfrage von: ${bed.pending_requester_location_name ?? '?'}`
-                    : isBelegt
-                    ? `${bed.azr_id || '–'}${bed.alias_id ? ' · ' + bed.alias_id : ''} · ${bed.belegung_start} – ${bed.belegung_ende}${hasConfirmedTransfer ? ' · Verlegung genehmigt — Eincheck ausstehend' : hasPendingTransfer ? ` · Verlegungsanfrage → ${bed.transfer_target_location_name ?? '?'}` : ''}`
-                    : 'Bett frei'}
-                  {(bed.bed_labels ?? []).length > 0 && ` · ${bed.bed_labels!.join(', ')}`}
-                  {isBelegt && (bed.occ_labels ?? []).length > 0 && ` · ${bed.occ_labels!.join(', ')}`}
-                  {canEdit && bedActive && (isVorgemerkt ? ' · Klicken zur Reservierung' : hasPendingRequest ? ' · Klicken → Anfragen anzeigen' : isBelegt ? ' · Klicken zum Verwalten' : ' · Klicken zum Belegen')}
-                </Box>
+                <BedTooltipContent
+                  bed={bed} isBelegt={isBelegt} isVorgemerkt={isVorgemerkt} bedActive={bedActive}
+                  hasConfirmedTransfer={hasConfirmedTransfer} hasPendingTransfer={hasPendingTransfer}
+                  hasPendingRequest={hasPendingRequest} canEdit={canEdit} refDate={refDate}
+                />
               }
               arrow
             >
@@ -397,6 +567,8 @@ export default function Drilldown() {
   const [belegLabels, setBelegLabels] = useState<string[]>([])
   const [belegSaving, setBelegSaving] = useState(false)
   const [warn12w, setWarn12w] = useState(false)
+  const [belegMismatch, setBelegMismatch] = useState(false)
+  const [belegMismatchGrund, setBelegMismatchGrund] = useState('')
 
   // Belegung verwalten Dialog (belegtes Bett klicken)
   const [manageBed, setManageBed] = useState<{ bed: BedStatus; room: RoomStatus } | null>(null)
@@ -429,6 +601,15 @@ export default function Drilldown() {
 
   // Mehrfachauswahl Wartebereich
   const [multiSelect, setMultiSelect] = useState(false)
+  const [batchInternOpen, setBatchInternOpen] = useState(false)
+  const [batchAssignments, setBatchAssignments] = useState<Record<string, string>>({})
+  const [batchMismatchGrunds, setBatchMismatchGrunds] = useState<Record<string, string>>({})
+  const [batchSaving, setBatchSaving] = useState(false)
+  const [batchPersons, setBatchPersons] = useState<Array<{
+    bed_id: string; azr_id: string; geschlecht: string; occupancy_id: string
+    belegung_start: string; belegung_ende: string; alias_id?: string
+  }>>([])
+
   const [selectedAnkunftBeds, setSelectedAnkunftBeds] = useState<Set<string>>(new Set())
 
   // Edit dialog extra fields
@@ -477,7 +658,7 @@ export default function Drilldown() {
     if (sseCount > 0) loadBedStatus()
   }, [sseCount]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // When navigated from person search: auto-open the bed management dialog
+  // When navigated from person search: auto-open the bed management dialog (only once — clear param immediately)
   useEffect(() => {
     if (!highlightBedId || rooms.length === 0) return
     for (const room of rooms) {
@@ -485,6 +666,7 @@ export default function Drilldown() {
       if (bed) {
         setCheckoutConfirm(false)
         setManageBed({ bed, room })
+        setSearchParams({})
         break
       }
     }
@@ -823,6 +1005,13 @@ export default function Drilldown() {
 
   async function handleBelegen() {
     if (!belegBed) return
+    // Geschlechts-Mismatch: Raum hat klare Designation, Person weicht ab → erst bestätigen lassen
+    const roomGender = deriveRoomGender(belegBed.room)
+    if (!belegMismatch && roomGender !== 'D' && roomGender !== belegGeschlecht
+        && !belegBed.bed.is_notbett && belegBed.room.room_type !== 'WARTEBEREICH') {
+      setBelegMismatch(true)
+      return
+    }
     setBelegSaving(true)
     try {
       const response = await fetch(`/api/beds/${belegBed.bed.bed_id}/occupancy`, {
@@ -837,6 +1026,7 @@ export default function Drilldown() {
           geschlecht: belegGeschlecht,
           belegung_start: belegStart,
           belegung_ende: belegEnde,
+          ...(belegMismatch && belegMismatchGrund.trim() ? { geschlecht_mismatch_grund: belegMismatchGrund.trim() } : {}),
         }),
       })
       if (!response.ok) {
@@ -858,6 +1048,8 @@ export default function Drilldown() {
         await patch(`/api/rooms/${roomId}/labels`, { labels: [...existingLabels, genderLabel] }).catch(() => {})
       }
       setBelegBed(null)
+      setBelegMismatch(false)
+      setBelegMismatchGrund('')
       setBelegLabels([])
       loadBedStatus()
       setSnackbar({
@@ -906,13 +1098,14 @@ export default function Drilldown() {
     // Geschlecht-Mismatch: Ziel-Raum hat andere Designation als Person → erst bestätigen lassen
     const personGeschlecht = src.occ_geschlecht ?? 'D'
     const raumGeschlecht = targetBedInfo?.geschlecht ?? 'D'
-    if (!verlegenMismatch && raumGeschlecht !== 'D' && raumGeschlecht !== personGeschlecht) {
+    if (!verlegenMismatch && raumGeschlecht !== 'D' && raumGeschlecht !== personGeschlecht
+        && !targetBedInfo?.is_notbett && targetBedInfo?.bett_typ !== 'WARTEPLATZ') {
       setVerlegenMismatch(true)
       setVerlegenSaving(false)
       return
     }
     try {
-      await post(`/api/beds/${verlegenTargetBed}/occupancy`, {
+      const newOcc = await post<{ id: string }>(`/api/beds/${verlegenTargetBed}/occupancy`, {
         azr_id: src.azr_id,
         alias_id: src.alias_id || null,
         geschlecht: src.occ_geschlecht || 'M',
@@ -923,7 +1116,13 @@ export default function Drilldown() {
           : {}),
         ...(verlegenGrund.trim() ? { verlegung_grund: verlegenGrund.trim() } : {}),
       })
-      await del(`/api/beds/${src.bed_id}/occupancy/${src.occupancy_id}`)
+      try {
+        await del(`/api/beds/${src.bed_id}/occupancy/${src.occupancy_id}`)
+      } catch (delErr) {
+        // Rollback: neue Belegung rückgängig machen
+        try { await del(`/api/beds/${verlegenTargetBed}/occupancy/${newOcc.id}`) } catch {}
+        throw delErr
+      }
       setVerlegenOpen(false)
       setManageBed(null)
       setVerlegenMismatch(false)
@@ -990,6 +1189,79 @@ export default function Drilldown() {
     }
     if (persons.length === 0) return
     navigate(`/suggestions?group=${encodeURIComponent(persons.join(','))}&cross=1`)
+  }
+
+  function openBatchIntern(ankunftRooms: RoomStatus[]) {
+    const persons: Array<{ bed_id: string; azr_id: string; geschlecht: string; occupancy_id: string; belegung_start: string; belegung_ende: string; alias_id?: string }> = []
+    for (const room of ankunftRooms) {
+      for (const bed of room.beds) {
+        if (selectedAnkunftBeds.has(bed.bed_id) && bed.azr_id && bed.occupancy_id) {
+          persons.push({
+            bed_id: bed.bed_id,
+            azr_id: bed.azr_id,
+            geschlecht: bed.occ_geschlecht ?? 'M',
+            occupancy_id: bed.occupancy_id,
+            belegung_start: bed.belegung_start ?? today,
+            belegung_ende: bed.belegung_ende ?? in14,
+            alias_id: bed.alias_id,
+          })
+        }
+      }
+    }
+    if (persons.length === 0) return
+    setBatchPersons(persons)
+    setBatchAssignments({})
+    setBatchMismatchGrunds({})
+    setBatchInternOpen(true)
+  }
+
+  async function handleBatchIntern() {
+    setBatchSaving(true)
+    let failed = 0
+    try {
+      for (const person of batchPersons) {
+        const targetBedId = batchAssignments[person.bed_id]
+        if (!targetBedId) continue
+        let newOccId: string | null = null
+        try {
+          const newOcc = await post<{ id: string }>(`/api/beds/${targetBedId}/occupancy`, {
+            azr_id: person.azr_id,
+            alias_id: person.alias_id || null,
+            geschlecht: person.geschlecht,
+            belegung_start: person.belegung_start,
+            belegung_ende: person.belegung_ende,
+            verlegung_grund: 'Intern verlegt',
+            ...(batchMismatchGrunds[person.bed_id]?.trim()
+              ? { geschlecht_mismatch_grund: batchMismatchGrunds[person.bed_id].trim() }
+              : {}),
+          })
+          newOccId = newOcc.id
+        } catch {
+          failed++
+          continue
+        }
+        try {
+          await del(`/api/beds/${person.bed_id}/occupancy/${person.occupancy_id}`)
+        } catch {
+          // Rollback: neue Belegung rückgängig machen
+          if (newOccId) {
+            try { await del(`/api/beds/${targetBedId}/occupancy/${newOccId}`) } catch {}
+          }
+          failed++
+        }
+      }
+      setBatchInternOpen(false)
+      setMultiSelect(false)
+      setSelectedAnkunftBeds(new Set())
+      loadBedStatus()
+      if (failed === 0) {
+        setSnackbar({ open: true, message: `${batchPersons.length} Personen intern verlegt.`, severity: 'success' })
+      } else {
+        setSnackbar({ open: true, message: `Verlegen teilweise fehlgeschlagen — ${failed} Person(en) nicht verlegt. Bitte Seite prüfen.`, severity: 'warning' })
+      }
+    } finally {
+      setBatchSaving(false)
+    }
   }
 
   return (
@@ -1114,12 +1386,20 @@ export default function Drilldown() {
                     </Button>
                   )}
                   {multiSelect && selectedAnkunftBeds.size > 0 && (
-                    <Button size="small" variant="contained"
-                      startIcon={<SwapHorizIcon />}
-                      sx={{ bgcolor: '#6a1b9a', '&:hover': { bgcolor: '#4a148c' } }}
-                      onClick={() => openGruppenVerlegung(ankunftRooms)}>
-                      {selectedAnkunftBeds.size} Personen verlegen
-                    </Button>
+                    <>
+                      <Button size="small" variant="contained"
+                        startIcon={<SwapHorizIcon />}
+                        sx={{ bgcolor: '#1565c0', '&:hover': { bgcolor: '#0d47a1' } }}
+                        onClick={() => openBatchIntern(ankunftRooms)}>
+                        Intern verlegen
+                      </Button>
+                      <Button size="small" variant="contained"
+                        startIcon={<SwapHorizIcon />}
+                        sx={{ bgcolor: '#6a1b9a', '&:hover': { bgcolor: '#4a148c' } }}
+                        onClick={() => openGruppenVerlegung(ankunftRooms)}>
+                        Extern verlegen
+                      </Button>
+                    </>
                   )}
                 </Box>
                 <Paper elevation={0} sx={{ p: 2.5, borderRadius: 3, bgcolor: '#fff8f0', border: '2px solid #ffcc80' }}>
@@ -1135,9 +1415,7 @@ export default function Drilldown() {
                           const hasPendingTransferAnk = isBelegt && !!bed.has_pending_transfer
                           return (
                             <Tooltip key={bed.bed_id} arrow title={
-                              isBelegt
-                                ? `${bed.azr_id} · ${bed.belegung_start} – ${bed.belegung_ende}${hasPendingTransferAnk ? ' · Verlegungsanfrage läuft' : ''}`
-                                : 'Warteplatz frei'
+                              <WarteplatzTooltipContent bed={bed} isBelegt={isBelegt} canEdit={canEdit} />
                             }>
                               <Box
                                 onClick={() => {
@@ -1280,7 +1558,7 @@ export default function Drilldown() {
       })()}
 
       {/* ── Bett belegen Dialog ── */}
-      <Dialog open={!!belegBed} onClose={() => setBelegBed(null)} maxWidth="sm" fullWidth>
+      <Dialog open={!!belegBed} onClose={() => { setBelegBed(null); setBelegMismatch(false); setBelegMismatchGrund('') }} maxWidth="sm" fullWidth>
         <DialogTitle fontWeight={700}>
           <Box display="flex" alignItems="center" gap={1}>
             <BedIcon sx={{ color: '#003366' }} />
@@ -1350,10 +1628,27 @@ export default function Drilldown() {
           {warn12w && (
             <Alert severity="warning">Belegungsdauer überschreitet 12 Wochen.</Alert>
           )}
+          {belegMismatch && (
+            <Alert severity="warning" sx={{ mt: 1 }}>
+              <strong>Geschlecht-Abweichung:</strong> Der Raum ist für{' '}
+              {deriveRoomGender(belegBed!.room) === 'M' ? 'Männer' : 'Frauen'} vorgesehen,
+              die Person ist als {belegGeschlecht === 'M' ? 'männlich' : belegGeschlecht === 'W' ? 'weiblich' : 'divers'} erfasst.
+              Bitte Begründung eingeben:
+              <TextField
+                fullWidth size="small" sx={{ mt: 1 }}
+                label="Begründung *"
+                placeholder="z.B. einziges freies Bett, Notfall-Belegung…"
+                value={belegMismatchGrund}
+                onChange={(e) => setBelegMismatchGrund(e.target.value)}
+                required
+              />
+            </Alert>
+          )}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setBelegBed(null)}>Abbrechen</Button>
-          <Button variant="contained" onClick={handleBelegen} disabled={belegSaving || !azrId.trim()}>
+          <Button onClick={() => { setBelegBed(null); setBelegMismatch(false); setBelegMismatchGrund('') }}>Abbrechen</Button>
+          <Button variant="contained" onClick={handleBelegen}
+            disabled={belegSaving || !azrId.trim() || (belegMismatch && !belegMismatchGrund.trim())}>
             {belegSaving ? <CircularProgress size={18} /> : 'Bett belegen'}
           </Button>
         </DialogActions>
@@ -1505,21 +1800,21 @@ export default function Drilldown() {
           ) : freiBeds.filter((b) => b.bed_id !== manageBed?.bed.bed_id).length === 0 ? (
             <Alert severity="warning">Keine freien Betten in dieser Einrichtung verfügbar.</Alert>
           ) : (
-            <Box>
+            <Box display="flex" flexDirection="column" gap={0}>
               {verlegenTargetBed && freiBeds.find((b) => b.bed_id === verlegenTargetBed)?.is_notbett && (
-                <Alert severity="info" sx={{ mb: 2 }}>
+                <Alert severity="info" sx={{ mb: 1.5 }}>
                   Notbett: Belegung wird auf heute + 1 Nacht angepasst (max. 1 Tag).
                 </Alert>
               )}
               {verlegenTargetBed && freiBeds.find((b) => b.bed_id === verlegenTargetBed)?.bett_typ === 'WARTEPLATZ' && (
-                <Alert severity="info" sx={{ mb: 2 }}>
+                <Alert severity="info" sx={{ mb: 1.5 }}>
                   Warteplatz: Person wird in den Wartebereich verlegt.
                 </Alert>
               )}
-              <Typography variant="body2" color="text.secondary" mb={2}>
+              <Typography variant="body2" color="text.secondary" mb={1}>
                 Freie Plätze und Betten in dieser Einrichtung:
               </Typography>
-              <Box display="flex" flexDirection="column" gap={1}>
+              <Box sx={{ overflowY: 'auto', maxHeight: '40vh', display: 'flex', flexDirection: 'column', gap: 1, mb: 2 }}>
                 {freiBeds.filter((b) => b.bed_id !== manageBed?.bed.bed_id).map((b) => (
                   <Paper
                     key={b.bed_id}
@@ -1550,10 +1845,11 @@ export default function Drilldown() {
               <TextField
                 label="Begründung *"
                 fullWidth
-                sx={{ mt: 2 }}
                 value={verlegenGrund}
                 onChange={(e) => setVerlegenGrund(e.target.value)}
                 placeholder="z.B. Raumwechsel wegen Renovierung..."
+                helperText="Pflichtfeld — wird im Protokoll erfasst"
+                required
               />
             </Box>
           )}
@@ -2080,6 +2376,139 @@ export default function Drilldown() {
               {transferDialogSaving ? <CircularProgress size={20} /> : 'Stornieren'}
             </Button>
           )}
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Batch Intern Verlegen Dialog ── */}
+      <Dialog open={batchInternOpen} onClose={() => setBatchInternOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle fontWeight={700}>Intern verlegen — Zielbetten zuweisen</DialogTitle>
+        <DialogContent sx={{ pt: 2 }}>
+          <Typography variant="body2" color="text.secondary" mb={2}>
+            Wähle für jede Person ein freies Bett. Karte erneut anklicken hebt die Auswahl auf. Personen ohne Zuweisung werden übersprungen.
+          </Typography>
+          {batchPersons.map((person) => {
+            const assignedBedId = batchAssignments[person.bed_id] ?? ''
+            const targetBed = freiBeds.find((b) => b.bed_id === assignedBedId)
+            const mismatch = assignedBedId && targetBed
+              ? targetBed.bett_typ !== 'WARTEPLATZ' && !targetBed.is_notbett
+                && targetBed.geschlecht !== 'D' && targetBed.geschlecht !== person.geschlecht
+              : false
+            const grund = batchMismatchGrunds[person.bed_id] ?? ''
+            const occLabels = rooms.flatMap((r) => r.beds).find((b) => b.bed_id === person.bed_id)?.occ_labels ?? []
+            const availableBeds = freiBeds.filter((b) =>
+              b.bed_id === assignedBedId || (b.bett_typ !== 'WARTEPLATZ' && !Object.values(batchAssignments).includes(b.bed_id))
+            )
+            return (
+              <Box key={person.bed_id} sx={{ mb: 3, p: 2, border: '1px solid #e0e0e0', borderRadius: 2 }}>
+                <Box display="flex" alignItems="center" gap={1} mb={occLabels.length > 0 ? 0.5 : 1.5} flexWrap="wrap">
+                  {genderIcon(person.geschlecht)}
+                  <Typography fontWeight={600} sx={{ fontFamily: 'monospace' }}>{person.azr_id}</Typography>
+                  {person.alias_id && (
+                    <Typography variant="caption" color="text.secondary">({person.alias_id})</Typography>
+                  )}
+                  <Typography variant="caption" color="text.secondary">
+                    {person.belegung_start} – {person.belegung_ende}
+                  </Typography>
+                </Box>
+                {occLabels.length > 0 && (
+                  <Box display="flex" gap={0.5} flexWrap="wrap" mb={1.5} ml={3.5}>
+                    {occLabels.map((l) => (
+                      <Chip key={l} label={l} size="small"
+                        sx={{ bgcolor: '#f3e5f5', color: '#6a1b9a', height: 20, fontSize: '0.7rem' }} />
+                    ))}
+                  </Box>
+                )}
+                {availableBeds.length === 0 ? (
+                  <Alert severity="warning" sx={{ mb: 1 }}>Keine freien STANDARD-Betten verfügbar.</Alert>
+                ) : (
+                  <Box sx={{ overflowY: 'auto', maxHeight: 220, display: 'flex', flexDirection: 'column', gap: 1, mb: 1 }}>
+                    {availableBeds.map((b) => (
+                      <Paper
+                        key={b.bed_id}
+                        elevation={assignedBedId === b.bed_id ? 4 : 1}
+                        onClick={() => {
+                          const newId = assignedBedId === b.bed_id ? '' : b.bed_id
+                          setBatchAssignments((prev) => ({ ...prev, [person.bed_id]: newId }))
+                          setBatchMismatchGrunds((prev) => ({ ...prev, [person.bed_id]: '' }))
+                        }}
+                        sx={{
+                          p: 1.5, borderRadius: 2, cursor: 'pointer',
+                          border: assignedBedId === b.bed_id
+                            ? `2px solid ${b.is_notbett ? '#ff9800' : '#003366'}`
+                            : '2px solid transparent',
+                          bgcolor: assignedBedId === b.bed_id
+                            ? (b.is_notbett ? '#fff3e0' : '#e3f2fd')
+                            : 'white',
+                          transition: 'all 0.15s',
+                        }}
+                      >
+                        <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                          <BedIcon sx={{ color: b.is_notbett ? '#ff9800' : '#43a047', fontSize: 20 }} />
+                          <Typography fontWeight={600} variant="body2">
+                            {b.room_name} — Bett {b.bett_nummer}
+                          </Typography>
+                          {b.is_notbett && (
+                            <Chip label="Notbett" size="small"
+                              sx={{ bgcolor: '#fff3e0', color: '#e65100', fontWeight: 600, height: 20 }} />
+                          )}
+                          <Chip label={genderLabel(b.geschlecht)} size="small"
+                            sx={{ bgcolor: genderColor(b.geschlecht) + '15', color: genderColor(b.geschlecht), height: 20 }} />
+                        </Box>
+                        {((b.room_labels ?? []).length > 0 || (b.bed_labels ?? []).length > 0) && (
+                          <Box display="flex" gap={0.5} flexWrap="wrap" mt={0.5} ml={3.5}>
+                            {(b.room_labels ?? []).map((l) => (
+                              <Chip key={l} label={l} size="small"
+                                sx={{ bgcolor: '#e0f2f1', color: '#00695c', height: 18, fontSize: '0.7rem' }} />
+                            ))}
+                            {(b.bed_labels ?? []).map((l) => (
+                              <Chip key={l} label={l} size="small"
+                                sx={{ bgcolor: '#fff8e1', color: '#f57f17', height: 18, fontSize: '0.7rem' }} />
+                            ))}
+                          </Box>
+                        )}
+                      </Paper>
+                    ))}
+                  </Box>
+                )}
+                {mismatch && (
+                  <>
+                    <Alert severity="warning" icon={<WarningAmberIcon />} sx={{ mt: 1 }}>
+                      Geschlechtsdiskrepanz: Person ({genderLabel(person.geschlecht)}) → Raum ({genderLabel(targetBed?.geschlecht ?? 'D')}). Bitte Begründung angeben.
+                    </Alert>
+                    <TextField
+                      label="Begründung Geschlechtsdiskrepanz *"
+                      value={grund}
+                      onChange={(e) => setBatchMismatchGrunds((prev) => ({ ...prev, [person.bed_id]: e.target.value }))}
+                      fullWidth size="small" multiline rows={2} sx={{ mt: 1 }}
+                      placeholder="z.B. Notlage, kein gleichgeschlechtliches Bett verfügbar, …"
+                    />
+                  </>
+                )}
+              </Box>
+            )
+          })}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setBatchInternOpen(false)}>Abbrechen</Button>
+          <Button
+            variant="contained"
+            disabled={
+              batchSaving ||
+              batchPersons.every((p) => !batchAssignments[p.bed_id]) ||
+              batchPersons.some((p) => {
+                const assignedBedId = batchAssignments[p.bed_id]
+                if (!assignedBedId) return false
+                const targetBed = freiBeds.find((b) => b.bed_id === assignedBedId)
+                if (!targetBed) return false
+                const mismatch = targetBed.bett_typ !== 'WARTEPLATZ' && !targetBed.is_notbett
+                  && targetBed.geschlecht !== 'D' && targetBed.geschlecht !== p.geschlecht
+                return mismatch && !(batchMismatchGrunds[p.bed_id]?.trim())
+              })
+            }
+            onClick={handleBatchIntern}
+          >
+            {batchSaving ? <CircularProgress size={18} /> : 'Verlegen'}
+          </Button>
         </DialogActions>
       </Dialog>
 

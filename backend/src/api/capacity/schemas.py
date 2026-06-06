@@ -260,6 +260,8 @@ class BedStatusItem(BaseModel):
     pending_requester_location_name: Optional[str] = None  # FREI: Name der anfragenden Einrichtung
     outgoing_reservation_id: Optional[UUID] = None  # BELEGT: ID der ausgehenden PENDING/CONFIRMED-Anfrage
     transfer_target_location_name: Optional[str] = None  # BELEGT: Name der Ziel-Einrichtung
+    transfer_target_room_name: Optional[str] = None   # BELEGT: Ziel-Raum (nur wenn Bett bereits bestätigt)
+    transfer_target_bed_nummer: Optional[str] = None  # BELEGT: Ziel-Bett-Nr (nur wenn Bett bereits bestätigt)
     pending_azr_id: Optional[str] = None  # FREI: AZR-ID der anfragenden Person
 
 

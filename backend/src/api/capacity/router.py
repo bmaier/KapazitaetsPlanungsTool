@@ -596,6 +596,25 @@ async def get_bed_status(
                 LIMIT 1
               ) AS transfer_target_location_name,
               (
+                SELECT r2.name FROM reservations.requests pen_out
+                JOIN capacity.beds b2 ON b2.id = pen_out.confirmed_bed_id
+                JOIN capacity.rooms r2 ON r2.id = b2.room_id
+                WHERE pen_out.azr_id = o.azr_id
+                  AND pen_out.status IN ('PENDING','CONFIRMED')
+                  AND pen_out.confirmed_bed_id IS NOT NULL
+                ORDER BY pen_out.created_at
+                LIMIT 1
+              ) AS transfer_target_room_name,
+              (
+                SELECT b2.bett_nummer FROM reservations.requests pen_out
+                JOIN capacity.beds b2 ON b2.id = pen_out.confirmed_bed_id
+                WHERE pen_out.azr_id = o.azr_id
+                  AND pen_out.status IN ('PENDING','CONFIRMED')
+                  AND pen_out.confirmed_bed_id IS NOT NULL
+                ORDER BY pen_out.created_at
+                LIMIT 1
+              ) AS transfer_target_bed_nummer,
+              (
                 SELECT pen_in.azr_id FROM reservations.requests pen_in
                 WHERE pen_in.suggested_bed_id = b.id
                   AND pen_in.status = 'PENDING'
@@ -667,6 +686,8 @@ async def get_bed_status(
             pending_requester_location_name=row.get("pending_requester_location_name"),
             outgoing_reservation_id=row.get("outgoing_reservation_id"),
             transfer_target_location_name=row.get("transfer_target_location_name"),
+            transfer_target_room_name=row.get("transfer_target_room_name"),
+            transfer_target_bed_nummer=row.get("transfer_target_bed_nummer"),
             pending_azr_id=row.get("pending_azr_id"),
         ))
     return [RoomBedStatus(**rooms_map[rid]) for rid in rooms_order]
@@ -1172,11 +1193,12 @@ async def create_occupancy(
     # Ein-Platz-Regel: Person darf nicht gleichzeitig in anderer Einrichtung aktiv sein
     ein_platz_row = await session.execute(
         text("""
-            SELECT b.location_id FROM persons.occupants o
+            SELECT r.location_id FROM persons.occupants o
             JOIN capacity.beds b ON b.id = o.bed_id
+            JOIN capacity.rooms r ON r.id = b.room_id
             WHERE o.azr_id = :azr
               AND o.belegung_ende >= CURRENT_DATE
-              AND b.location_id != :loc
+              AND r.location_id != :loc
             LIMIT 1
         """),
         {"azr": body.azr_id, "loc": str(bed_location_id)},
@@ -1218,6 +1240,35 @@ async def create_occupancy(
         )
     except DomainError as e:
         _raise_422(e)
+
+    # Einzel-Belegung-Guard: azr_id darf zum selben Zeitraum nicht bereits woanders belegt sein.
+    # Ausnahme: verlegung_grund gesetzt → absichtliches Verlegen, alte Belegung wird unmittelbar danach gelöscht.
+    if not body.verlegung_grund:
+        dup_row = await session.execute(
+            text("""
+                SELECT o.azr_id, o.belegung_start, o.belegung_ende,
+                       b.bett_nummer, r.name AS room_name, l.name AS location_name
+                FROM persons.occupants o
+                JOIN capacity.beds b ON b.id = o.bed_id
+                JOIN capacity.rooms r ON r.id = b.room_id
+                JOIN capacity.locations l ON l.id = r.location_id
+                WHERE o.azr_id = :azr_id
+                  AND o.belegung_start < :ende
+                  AND o.belegung_ende > :start
+                LIMIT 1
+            """),
+            {"azr_id": body.azr_id, "start": body.belegung_start, "ende": body.belegung_ende},
+        )
+        dup = dup_row.fetchone()
+        if dup:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Person {body.azr_id} bereits aktiv belegt: "
+                    f"{dup.location_name}, {dup.room_name}, Bett {dup.bett_nummer} "
+                    f"({dup.belegung_start} – {dup.belegung_ende})"
+                ),
+            )
 
     warn_12w = check_12_weeks(body.belegung_start, body.belegung_ende)
 
@@ -1364,9 +1415,10 @@ async def end_occupancy(
             text("""
                 SELECT o.id FROM persons.occupants o
                 JOIN capacity.beds b ON b.id = o.bed_id
+                JOIN capacity.rooms r ON r.id = b.room_id
                 WHERE o.azr_id = :azr
                   AND o.id != :occ_id
-                  AND b.location_id = :loc
+                  AND r.location_id = :loc
                   AND o.belegung_ende >= CURRENT_DATE
                 LIMIT 1
             """),

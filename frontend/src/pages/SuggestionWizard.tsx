@@ -151,7 +151,7 @@ function SearchResultList({ results, locationId, pendingAzrIds, onSelect }: {
 }
 
 export default function SuggestionWizard() {
-  const { post, get } = useApiClient()
+  const { post, get, del } = useApiClient()
   const navigate = useNavigate()
   const { locationId } = useKeycloak()
   const [searchParams] = useSearchParams()
@@ -254,7 +254,7 @@ export default function SuggestionWizard() {
   const [selectedVariant, setSelectedVariant] = useState<number | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [completed, setCompleted] = useState(false)
-  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
+  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'warning' }>({
     open: false, message: '', severity: 'success',
   })
 
@@ -405,6 +405,19 @@ export default function SuggestionWizard() {
     if (!locationId || !a?.azr_id.trim()) return
     setBedAssignments(prev => prev.map((b, i) => i === idx ? { ...b, warteplatzLoading: true } : b))
     try {
+      // Pre-Check: Person darf keine aktive Belegung haben (belegung_ende >= today)
+      const existingOccs = await get<OccupantSearchResult[]>(`/api/occupants/search?azr_id=${encodeURIComponent(a.azr_id.trim())}`)
+      const activeOcc = existingOccs.find(o => o.belegung_ende >= today)
+      if (activeOcc) {
+        setBedAssignments(prev => prev.map((b, i) => i === idx ? { ...b, warteplatzLoading: false } : b))
+        setSnackbar({
+          open: true,
+          message: `Person ${a.azr_id.trim()} bereits aktiv belegt: ${activeOcc.location_name}${activeOcc.room_name ? ', ' + activeOcc.room_name : ''} (bis ${activeOcc.belegung_ende}) — kein Warteplatz angelegt.`,
+          severity: 'warning',
+        })
+        return
+      }
+
       type BedStatusRoom = { room_id: string; room_type: string; beds: Array<{ bed_id: string; bett_nummer: string; status: string }> }
       const rooms = await get<BedStatusRoom[]>(`/api/locations/${locationId}/bed-status`)
       const wartebereichRooms = rooms.filter(r => r.room_type === 'WARTEBEREICH')
@@ -421,9 +434,14 @@ export default function SuggestionWizard() {
         targetBedId = freeBed.bed_id
       } else {
         const firstRoom = wartebereichRooms[0]
+        const allExistingBeds = wartebereichRooms.flatMap(r => r.beds)
+        const maxNum = allExistingBeds.reduce((max, b) => {
+          const n = parseInt(b.bett_nummer.replace(/\D/g, ''), 10)
+          return isNaN(n) ? max : Math.max(max, n)
+        }, 0)
         type BedResp = { id: string }
         const newBed = await post<BedResp>(`/api/rooms/${firstRoom.room_id}/beds`, {
-          bett_nummer: `W-AUTO-${Date.now()}`,
+          bett_nummer: String(maxNum + 1),
           bett_typ: 'WARTEPLATZ',
         })
         targetBedId = newBed.id
@@ -476,21 +494,45 @@ export default function SuggestionWizard() {
         setLoading(false)
         return
       }
+      const isInternal = targetLocationId === locationId
       const results: { azr_id: string; success: boolean }[] = []
       for (let i = 0; i < preGroup.length; i++) {
         const person = preGroup[i]
         const bed = variant.beds[i]
+        if (!bed?.bed_id) { results.push({ azr_id: person.azr_id, success: false }); continue }
         try {
-          await post('/api/reservations', {
-            target_location_id: targetLocationId,
-            azr_id: person.azr_id,
-            geschlecht: person.geschlecht,
-            geburtsjahr: new Date().getFullYear() - 30,
-            herkunftsland: 'UNK',
-            belegung_start: start,
-            belegung_ende: ende,
-            suggested_bed_id: bed?.bed_id ?? null,
-          })
+          if (isInternal) {
+            type OccSearch = { bed_id: string; occupancy_id: string; belegung_ende: string }
+            const existingOccs = await get<OccSearch[]>(`/api/occupants/search?azr_id=${encodeURIComponent(person.azr_id)}`)
+            const activeOcc = existingOccs.find((o) => o.belegung_ende >= today)
+            const newOcc = await post<{ id: string }>(`/api/beds/${bed.bed_id}/occupancy`, {
+              azr_id: person.azr_id,
+              geschlecht: person.geschlecht,
+              belegung_start: start,
+              belegung_ende: ende,
+              verlegung_grund: 'Intern verlegt (Wizard)',
+            })
+            if (activeOcc) {
+              try {
+                await del(`/api/beds/${activeOcc.bed_id}/occupancy/${activeOcc.occupancy_id}`)
+              } catch {
+                try { await del(`/api/beds/${bed.bed_id}/occupancy/${newOcc.id}`) } catch {}
+                results.push({ azr_id: person.azr_id, success: false })
+                continue
+              }
+            }
+          } else {
+            await post('/api/reservations', {
+              target_location_id: targetLocationId,
+              azr_id: person.azr_id,
+              geschlecht: person.geschlecht,
+              geburtsjahr: new Date().getFullYear() - 30,
+              herkunftsland: 'UNK',
+              belegung_start: start,
+              belegung_ende: ende,
+              suggested_bed_id: bed.bed_id,
+            })
+          }
           results.push({ azr_id: person.azr_id, success: true })
         } catch {
           results.push({ azr_id: person.azr_id, success: false })
@@ -502,50 +544,97 @@ export default function SuggestionWizard() {
       setActiveStep(2)
       const failed = results.filter((r) => !r.success).length
       if (failed > 0) {
-        setSnackbar({ open: true, message: `${failed} Verlegungsanfrage(n) fehlgeschlagen.`, severity: 'error' })
+        setSnackbar({ open: true, message: `${failed} ${isInternal ? 'Verlegung(en)' : 'Verlegungsanfrage(n)'} fehlgeschlagen.`, severity: 'error' })
       }
     } else if (hasPerson && currentPerson) {
       // Einzelperson oder Einzeln-Modus (zyklisch durch Gruppe)
       const azrId = currentPerson.azr_id
       const targetLocationId = variant.beds[0]?.location_id
-      if (!targetLocationId) {
+      const targetBedId = variant.beds[0]?.bed_id
+      if (!targetLocationId || !targetBedId) {
         setSnackbar({ open: true, message: 'Keine Ziel-Einrichtung in der ausgewählten Option.', severity: 'error' })
         setLoading(false)
         return
       }
-      try {
-        await post('/api/reservations', {
-          target_location_id: targetLocationId,
-          azr_id: azrId,
-          geschlecht: currentPerson.geschlecht,
-          geburtsjahr: new Date().getFullYear() - 30,
-          herkunftsland: 'UNK',
-          belegung_start: start,
-          belegung_ende: ende,
-          suggested_bed_id: variant.beds[0]?.bed_id ?? null,
-        })
 
-        if (isGroupMode && groupIndex + 1 < preGroup.length) {
-          // More persons in group — advance
-          const nextIdx = groupIndex + 1
-          setGroupResults((prev) => [...prev, { azr_id: azrId, success: true }])
-          setGroupIndex(nextIdx)
-          setConfirmOpen(false)
-          setActiveStep(0)
-          setSuggestion(null)
-          setSelectedVariant(null)
-          setGeschlecht(preGroup[nextIdx]?.geschlecht ?? 'M')
-          setSnackbar({ open: true, message: `Verlegungsanfrage für ${azrId} gesendet. Weiter mit Person ${nextIdx + 1}/${preGroup.length}.`, severity: 'success' })
-        } else {
-          // Done
-          setGroupResults((prev) => [...prev, { azr_id: azrId, success: true }])
-          setConfirmOpen(false)
-          setCompleted(true)
-          setActiveStep(2)
+      if (targetLocationId === locationId) {
+        // INTERNE Verlegung — direkte Belegung, kein Postkorb-Umlauf
+        try {
+          type OccSearch = { bed_id: string; occupancy_id: string; belegung_ende: string }
+          const existingOccs = await get<OccSearch[]>(`/api/occupants/search?azr_id=${encodeURIComponent(azrId)}`)
+          const activeOcc = existingOccs.find((o) => o.belegung_ende >= today)
+          const newOcc = await post<{ id: string }>(`/api/beds/${targetBedId}/occupancy`, {
+            azr_id: azrId,
+            geschlecht: currentPerson.geschlecht,
+            belegung_start: start,
+            belegung_ende: ende,
+            verlegung_grund: 'Intern verlegt (Wizard)',
+          })
+          if (activeOcc) {
+            try {
+              await del(`/api/beds/${activeOcc.bed_id}/occupancy/${activeOcc.occupancy_id}`)
+            } catch {
+              try { await del(`/api/beds/${targetBedId}/occupancy/${newOcc.id}`) } catch {}
+              setSnackbar({ open: true, message: 'Interne Verlegung fehlgeschlagen — alte Belegung nicht gelöscht. Bitte manuell prüfen.', severity: 'error' })
+              setLoading(false)
+              return
+            }
+          }
+          if (isGroupMode && groupIndex + 1 < preGroup.length) {
+            const nextIdx = groupIndex + 1
+            setGroupResults((prev) => [...prev, { azr_id: azrId, success: true }])
+            setGroupIndex(nextIdx)
+            setConfirmOpen(false)
+            setActiveStep(0)
+            setSuggestion(null)
+            setSelectedVariant(null)
+            setGeschlecht(preGroup[nextIdx]?.geschlecht ?? 'M')
+            setSnackbar({ open: true, message: `${azrId} intern verlegt. Weiter mit Person ${nextIdx + 1}/${preGroup.length}.`, severity: 'success' })
+          } else {
+            setGroupResults((prev) => [...prev, { azr_id: azrId, success: true }])
+            setConfirmOpen(false)
+            setCompleted(true)
+            setActiveStep(2)
+          }
+        } catch (err) {
+          const apiErr = err as { detail?: string }
+          setGroupResults((prev) => [...prev, { azr_id: azrId, success: false }])
+          setSnackbar({ open: true, message: apiErr?.detail ?? 'Interne Verlegung fehlgeschlagen.', severity: 'error' })
         }
-      } catch {
-        setGroupResults((prev) => [...prev, { azr_id: azrId, success: false }])
-        setSnackbar({ open: true, message: `Verlegungsanfrage für ${azrId} fehlgeschlagen.`, severity: 'error' })
+      } else {
+        // EXTERNE Verlegungsanfrage — geht in Postkorb der Ziel-Einrichtung
+        try {
+          await post('/api/reservations', {
+            target_location_id: targetLocationId,
+            azr_id: azrId,
+            geschlecht: currentPerson.geschlecht,
+            geburtsjahr: new Date().getFullYear() - 30,
+            herkunftsland: 'UNK',
+            belegung_start: start,
+            belegung_ende: ende,
+            suggested_bed_id: targetBedId,
+          })
+
+          if (isGroupMode && groupIndex + 1 < preGroup.length) {
+            const nextIdx = groupIndex + 1
+            setGroupResults((prev) => [...prev, { azr_id: azrId, success: true }])
+            setGroupIndex(nextIdx)
+            setConfirmOpen(false)
+            setActiveStep(0)
+            setSuggestion(null)
+            setSelectedVariant(null)
+            setGeschlecht(preGroup[nextIdx]?.geschlecht ?? 'M')
+            setSnackbar({ open: true, message: `Verlegungsanfrage für ${azrId} gesendet. Weiter mit Person ${nextIdx + 1}/${preGroup.length}.`, severity: 'success' })
+          } else {
+            setGroupResults((prev) => [...prev, { azr_id: azrId, success: true }])
+            setConfirmOpen(false)
+            setCompleted(true)
+            setActiveStep(2)
+          }
+        } catch {
+          setGroupResults((prev) => [...prev, { azr_id: azrId, success: false }])
+          setSnackbar({ open: true, message: `Verlegungsanfrage für ${azrId} fehlgeschlagen.`, severity: 'error' })
+        }
       }
     } else {
       // No person context: Belegung vormerken / Verlegungsanfrage
@@ -609,6 +698,8 @@ export default function SuggestionWizard() {
   }
 
   const selectedVariantData = suggestion && selectedVariant !== null ? suggestion.variants[selectedVariant] : null
+  const isInternalTarget = !!selectedVariantData && !!locationId &&
+    selectedVariantData.beds[0]?.location_id === locationId
 
   return (
     <Box sx={{ p: 3, maxWidth: 820, mx: 'auto' }}>
@@ -1056,7 +1147,11 @@ export default function SuggestionWizard() {
                     disabled={selectedVariant === null}
                     size="large"
                     sx={hasPerson ? { bgcolor: accentColor, '&:hover': { bgcolor: '#4a148c' } } : {}}>
-                    {hasPerson ? 'Verlegungsanfrage stellen →' : 'Option bestätigen →'}
+                    {hasPerson
+                    ? (selectedVariant !== null && !!locationId && suggestion?.variants[selectedVariant]?.beds[0]?.location_id === locationId
+                        ? 'Intern verlegen →'
+                        : 'Verlegungsanfrage stellen →')
+                    : 'Option bestätigen →'}
                   </Button>
                 </Box>
               </Box>
@@ -1071,12 +1166,16 @@ export default function SuggestionWizard() {
           <CheckCircleIcon sx={{ fontSize: 64, color: completed ? '#43a047' : '#bdbdbd', mb: 2 }} />
           <Typography variant="h6" fontWeight={700} sx={{ mb: 1 }}>
             {isGroupMode && groupResults.length > 1
-              ? `${groupResults.filter((r) => r.success).length}/${groupResults.length} Verlegungsanfragen gesendet`
-              : hasPerson ? 'Verlegungsanfrage gesendet' : 'Abgeschlossen'}
+              ? `${groupResults.filter((r) => r.success).length}/${groupResults.length} ${isInternalTarget ? 'Verlegungen durchgeführt' : 'Verlegungsanfragen gesendet'}`
+              : hasPerson
+                ? isInternalTarget ? 'Interne Verlegung durchgeführt' : 'Verlegungsanfrage gesendet'
+                : 'Abgeschlossen'}
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
             {hasPerson
-              ? 'Die Anfrage erscheint im Postkorb der Ziel-Einrichtung zur Bestätigung.'
+              ? isInternalTarget
+                ? 'Die Person wurde direkt auf das neue Bett umgebucht.'
+                : 'Die Anfrage erscheint im Postkorb der Ziel-Einrichtung zur Bestätigung.'
               : 'Der Eintrag erscheint im Postkorb zur weiteren Bearbeitung.'}
           </Typography>
           {isGroupMode && groupResults.length > 0 && (
@@ -1088,7 +1187,10 @@ export default function SuggestionWizard() {
             </Box>
           )}
           <Box display="flex" gap={2} justifyContent="center">
-            <Button variant="contained" onClick={() => navigate('/tasks')}>Zum Postkorb</Button>
+            {hasPerson && isInternalTarget
+              ? <Button variant="contained" onClick={() => navigate(`/locations/${locationId}`)}>Zur Einrichtung</Button>
+              : <Button variant="contained" onClick={() => navigate('/tasks')}>Zum Postkorb</Button>
+            }
             <Button variant="outlined" onClick={() => navigate('/')}>Zum Dashboard</Button>
           </Box>
         </Box>
@@ -1105,10 +1207,10 @@ export default function SuggestionWizard() {
             {hasPerson ? <FlightIcon sx={{ color: '#6a1b9a' }} /> : <CheckCircleIcon sx={{ color: '#003366' }} />}
             {hasPerson
               ? (isGroupMode && modus !== 'einzeln'
-                  ? `Gruppenverlegung — ${preGroup.length} Personen`
+                  ? `${isInternalTarget ? 'Interne Verlegung' : 'Gruppenverlegung'} — ${preGroup.length} Personen`
                   : isGroupMode
-                  ? `Verlegungsanfrage ${groupIndex + 1}/${preGroup.length}`
-                  : 'Verlegungsanfrage bestätigen')
+                  ? `${isInternalTarget ? 'Interne Verlegung' : 'Verlegungsanfrage'} ${groupIndex + 1}/${preGroup.length}`
+                  : isInternalTarget ? 'Interne Verlegung bestätigen' : 'Verlegungsanfrage bestätigen')
               : 'Belegung vormerken'}
           </Box>
         </DialogTitle>
@@ -1419,7 +1521,12 @@ export default function SuggestionWizard() {
             <Typography variant="body2" fontWeight={600}>{start} – {ende}</Typography>
           </Box>
 
-          {hasPerson && (
+          {hasPerson && isInternalTarget && (
+            <Alert severity="success" sx={{ py: 0.5, fontSize: 12 }}>
+              <strong>Interne Verlegung</strong> — Ziel-Bett ist in dieser Einrichtung. Die Person wird sofort umgebucht, kein Postkorb-Umlauf.
+            </Alert>
+          )}
+          {hasPerson && !isInternalTarget && (
             <Alert severity="info" sx={{ py: 0.5, fontSize: 12 }}>
               Die Anfrage erscheint im Postkorb der Ziel-Einrichtung und muss dort bestätigt werden.
             </Alert>
@@ -1436,7 +1543,7 @@ export default function SuggestionWizard() {
             }))}
             sx={hasPerson ? { bgcolor: '#6a1b9a', '&:hover': { bgcolor: '#4a148c' } } : {}}>
             {loading ? <CircularProgress size={18} /> : hasPerson
-              ? 'Verlegungsanfrage senden'
+              ? isInternalTarget ? 'Jetzt intern verlegen' : 'Verlegungsanfrage senden'
               : bedAssignments.some(a => a.azr_id.trim() && !a.warteplatzCreated)
                 ? 'Jetzt einbuchen'
                 : bedAssignments.some(a => a.warteplatzCreated)

@@ -44,6 +44,7 @@ class ReservationCreate(BaseModel):
 
 class ReservationConfirmRequest(BaseModel):
     confirmed_bed_id: uuid.UUID
+    geschlecht_mismatch_grund: Optional[str] = None
 
 
 class ReservationResponse(BaseModel):
