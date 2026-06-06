@@ -42,11 +42,19 @@ def before_all(context):
         )
         resp.raise_for_status()
         context.auth_token = resp.json()["access_token"]
+        context._keycloak_error = None
     except Exception as exc:
+        context.auth_token = None
+        context._keycloak_error = exc
+
+
+def before_feature(context, feature):
+    """Bricht bei Keycloak-Fehler ab, außer bei @agent-Features (standalone)."""
+    if "agent" not in feature.tags and context._keycloak_error is not None:
         raise AssertionError(
-            f"Keycloak-Token konnte nicht geholt werden: {exc}\n"
+            f"Keycloak-Token konnte nicht geholt werden: {context._keycloak_error}\n"
             f"Bitte 'make dev' ausführen und Keycloak unter {KEYCLOAK_URL} erreichbar machen."
-        ) from exc
+        ) from context._keycloak_error
 
 
 def _get_db_connection():
