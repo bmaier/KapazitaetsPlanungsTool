@@ -62,7 +62,12 @@ export function useApiClient() {
       method: 'DELETE',
       headers: buildHeaders(kc?.token, locRef.current),
     })
-    if (!r.ok) throw new Error(`DELETE ${path}: ${r.status}`)
+    if (!r.ok) {
+      const body = await r.json().catch(() => ({}))
+      const err = new Error(`DELETE ${path}: ${r.status}`) as Error & { detail?: string }
+      err.detail = typeof body?.detail === 'string' ? body.detail : undefined
+      throw err
+    }
   }, [])
 
   return useMemo(() => ({ get, post, patch, del }), [get, post, patch, del])

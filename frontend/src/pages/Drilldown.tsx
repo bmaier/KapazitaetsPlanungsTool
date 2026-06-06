@@ -44,7 +44,6 @@ import BlockIcon from '@mui/icons-material/Block'
 import ChairAltIcon from '@mui/icons-material/ChairAlt'
 import CheckBoxIcon from '@mui/icons-material/CheckBox'
 import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank'
-import PersonAddIcon from '@mui/icons-material/PersonAdd'
 import DeleteIcon from '@mui/icons-material/Delete'
 import { extractApiError, useApiClient } from '../api/client'
 import { useKeycloak } from '../auth/KeycloakProvider'
@@ -613,16 +612,12 @@ export default function Drilldown() {
 
   const [selectedAnkunftBeds, setSelectedAnkunftBeds] = useState<Set<string>>(new Set())
 
-  // Schnelleinbuchen Warteplatz
-  const [wpOpen, setWpOpen] = useState(false)
-  const [wpAzrId, setWpAzrId] = useState('')
-  const [wpGeschlecht, setWpGeschlecht] = useState('M')
-  const [wpStart, setWpStart] = useState(today)
-  const [wpEnde, setWpEnde] = useState(new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10))
-  const [wpSaving, setWpSaving] = useState(false)
+  // Warteplatz hinzufügen (leeres Bett anlegen)
+  const [wpAddingBed, setWpAddingBed] = useState(false)
 
   // Delete Warteplatz-Bett Confirm
   const [deleteConfirmBedId, setDeleteConfirmBedId] = useState<string | null>(null)
+  const [deleteConfirmSaving, setDeleteConfirmSaving] = useState(false)
 
   // Edit dialog extra fields
   const [editLat, setEditLat] = useState('')
@@ -1269,53 +1264,37 @@ export default function Drilldown() {
     }
   }
 
-  async function handleWpSave() {
-    if (!wpAzrId.trim() || !id) return
-    setWpSaving(true)
+  async function handleAddWarteplatz() {
+    if (!id) return
+    setWpAddingBed(true)
     try {
       const warteRooms = rooms.filter(r => r.room_type === 'WARTEBEREICH')
       if (warteRooms.length === 0) {
         setSnackbar({ open: true, message: 'Kein Wartebereich vorhanden — bitte Administrator kontaktieren.', severity: 'error' })
         return
       }
-      const freeBed = warteRooms.flatMap(r => r.beds.filter(b => b.status === 'FREI'))
-        .sort((a, b) => a.bett_nummer.localeCompare(b.bett_nummer, undefined, { numeric: true }))[0]
-      let targetBedId: string
-      if (freeBed) {
-        targetBedId = freeBed.bed_id
-      } else {
-        const firstRoom = warteRooms[0]
-        const allBeds = warteRooms.flatMap(r => r.beds)
-        const maxNum = allBeds.reduce((max, b) => {
-          const n = parseInt(b.bett_nummer.replace(/\D/g, ''), 10)
-          return isNaN(n) ? max : Math.max(max, n)
-        }, 0)
-        const newBed = await post<{ id: string }>(`/api/rooms/${firstRoom.room_id}/beds`, {
-          bett_nummer: String(maxNum + 1),
-          bett_typ: 'WARTEPLATZ',
-        })
-        targetBedId = newBed.id
-      }
-      await post(`/api/beds/${targetBedId}/occupancy`, {
-        azr_id: wpAzrId.trim(),
-        geschlecht: wpGeschlecht,
-        belegung_start: wpStart,
-        belegung_ende: wpEnde,
+      const firstRoom = warteRooms[0]
+      const allBeds = warteRooms.flatMap(r => r.beds)
+      const maxNum = allBeds.reduce((max, b) => {
+        const n = parseInt(b.bett_nummer.replace(/\D/g, ''), 10)
+        return isNaN(n) ? max : Math.max(max, n)
+      }, 0)
+      await post(`/api/rooms/${firstRoom.room_id}/beds`, {
+        bett_nummer: String(maxNum + 1),
+        bett_typ: 'WARTEPLATZ',
       })
-      setWpOpen(false)
-      setWpAzrId('')
-      setWpGeschlecht('M')
       loadBedStatus()
-      setSnackbar({ open: true, message: `${wpAzrId.trim()} im Wartebereich eingebucht.`, severity: 'success' })
+      setSnackbar({ open: true, message: 'Neuer Warteplatz angelegt.', severity: 'success' })
     } catch (err: unknown) {
-      const msg = extractApiError(err) ?? 'Einbuchen fehlgeschlagen'
+      const msg = extractApiError(err) ?? 'Anlegen fehlgeschlagen'
       setSnackbar({ open: true, message: msg, severity: 'error' })
     } finally {
-      setWpSaving(false)
+      setWpAddingBed(false)
     }
   }
 
   async function handleDeleteWarteplatz(bedId: string) {
+    setDeleteConfirmSaving(true)
     try {
       await del(`/api/beds/${bedId}`)
       setDeleteConfirmBedId(null)
@@ -1325,6 +1304,8 @@ export default function Drilldown() {
       const msg = extractApiError(err) ?? 'Löschen fehlgeschlagen'
       setSnackbar({ open: true, message: msg, severity: 'error' })
       setDeleteConfirmBedId(null)
+    } finally {
+      setDeleteConfirmSaving(false)
     }
   }
 
@@ -1440,10 +1421,11 @@ export default function Drilldown() {
                     sx={{ bgcolor: '#fff3e0', color: '#e65100', fontWeight: 600 }} />
                   <Box sx={{ flexGrow: 1 }} />
                   {canEdit && (
-                    <Button size="small" variant="contained" startIcon={<PersonAddIcon />}
-                      sx={{ bgcolor: '#e65100', '&:hover': { bgcolor: '#bf360c' } }}
-                      onClick={() => { setWpOpen(true) }}>
-                      Person auf Warteplatz
+                    <Button size="small" variant="outlined" startIcon={<AddIcon />}
+                      disabled={wpAddingBed}
+                      sx={{ borderColor: '#e65100', color: '#e65100' }}
+                      onClick={handleAddWarteplatz}>
+                      {wpAddingBed ? <CircularProgress size={14} sx={{ color: '#e65100' }} /> : 'Warteplatz hinzufügen'}
                     </Button>
                   )}
                   {canEdit && (
@@ -1482,8 +1464,11 @@ export default function Drilldown() {
                       <Box display="flex" flexWrap="wrap" gap={1}>
                         {room.beds.map((bed) => {
                           const isBelegt = bed.status === 'BELEGT'
+                          const isFrei = bed.status === 'FREI'
                           const isSelected = selectedAnkunftBeds.has(bed.bed_id)
-                          const hasPendingTransferAnk = isBelegt && !!bed.has_pending_transfer
+                          const hasConfirmedTransferAnk = isBelegt && !!bed.has_confirmed_transfer
+                          const hasPendingTransferAnk = isBelegt && !hasConfirmedTransferAnk && !!bed.has_pending_transfer
+                          const cardColor = isSelected ? '#6a1b9a' : hasConfirmedTransferAnk ? '#1565c0' : hasPendingTransferAnk ? '#7b1fa2' : isBelegt ? '#e65100' : '#7cb342'
                           return (
                             <Tooltip key={bed.bed_id} arrow title={
                               <WarteplatzTooltipContent bed={bed} isBelegt={isBelegt} canEdit={canEdit} />
@@ -1497,8 +1482,9 @@ export default function Drilldown() {
                                   position: 'relative',
                                   width: 68, height: 68, borderRadius: 2, display: 'flex', flexDirection: 'column',
                                   alignItems: 'center', justifyContent: 'center', cursor: canEdit ? 'pointer' : 'default',
-                                  bgcolor: isSelected ? '#ede7f6' : hasPendingTransferAnk ? '#f3e5f5' : isBelegt ? '#fff3e0' : '#f1f8e9',
+                                  bgcolor: isSelected ? '#ede7f6' : hasConfirmedTransferAnk ? '#e3f2fd' : hasPendingTransferAnk ? '#f3e5f5' : isBelegt ? '#fff3e0' : '#f1f8e9',
                                   border: isSelected ? '2px solid #6a1b9a'
+                                    : hasConfirmedTransferAnk ? '2px dashed #1565c0'
                                     : hasPendingTransferAnk ? '2px dashed #9c27b0'
                                     : isBelegt ? '2px solid #ff9800'
                                     : '2px solid #aed581',
@@ -1506,20 +1492,23 @@ export default function Drilldown() {
                                   '&:hover': canEdit ? { transform: 'scale(1.05)', boxShadow: 2 } : {},
                                 }}
                               >
-                                <ChairAltIcon sx={{ fontSize: 18, color: isSelected ? '#6a1b9a' : hasPendingTransferAnk ? '#7b1fa2' : isBelegt ? '#e65100' : '#7cb342', mb: 0.2 }} />
+                                <ChairAltIcon sx={{ fontSize: 18, color: cardColor, mb: 0.2 }} />
                                 <Typography variant="caption" fontWeight={700}
-                                  sx={{ fontSize: 9, color: isSelected ? '#6a1b9a' : hasPendingTransferAnk ? '#7b1fa2' : isBelegt ? '#e65100' : '#7cb342', lineHeight: 1 }}>
+                                  sx={{ fontSize: 9, color: cardColor, lineHeight: 1 }}>
                                   {bed.bett_nummer}
                                 </Typography>
                                 {isBelegt && bed.azr_id && (
-                                  <Typography sx={{ fontSize: 7, color: hasPendingTransferAnk ? '#7b1fa2' : '#e65100', lineHeight: 1, maxWidth: 62, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', px: 0.3 }}>
+                                  <Typography sx={{ fontSize: 7, color: cardColor, lineHeight: 1, maxWidth: 62, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', px: 0.3 }}>
                                     {bed.azr_id.slice(-6)}
                                   </Typography>
+                                )}
+                                {hasConfirmedTransferAnk && (
+                                  <Box sx={{ position: 'absolute', top: 3, right: 3, width: 8, height: 8, borderRadius: '50%', bgcolor: '#1565c0', border: '1.5px solid white' }} />
                                 )}
                                 {hasPendingTransferAnk && (
                                   <Box sx={{ position: 'absolute', top: 3, right: 3, width: 8, height: 8, borderRadius: '50%', bgcolor: '#6a1b9a', border: '1.5px solid white' }} />
                                 )}
-                                {!isBelegt && canEdit && (
+                                {isFrei && canEdit && (
                                   <Tooltip title="Warteplatz löschen" arrow>
                                     <IconButton
                                       size="small"
@@ -1545,6 +1534,10 @@ export default function Drilldown() {
                     <Box display="flex" alignItems="center" gap={0.5}>
                       <Box sx={{ width: 10, height: 10, borderRadius: 0.5, border: '1.5px dashed #9c27b0', bgcolor: '#f3e5f5' }} />
                       <Typography variant="caption" color="text.secondary">Verlegungsanfrage läuft</Typography>
+                    </Box>
+                    <Box display="flex" alignItems="center" gap={0.5}>
+                      <Box sx={{ width: 10, height: 10, borderRadius: 0.5, border: '1.5px dashed #1565c0', bgcolor: '#e3f2fd' }} />
+                      <Typography variant="caption" color="text.secondary">Verlegung genehmigt</Typography>
                     </Box>
                     <Box display="flex" alignItems="center" gap={0.5}>
                       <Box sx={{ width: 10, height: 10, borderRadius: 0.5, bgcolor: '#aed581' }} />
@@ -2621,68 +2614,6 @@ export default function Drilldown() {
         </DialogActions>
       </Dialog>
 
-      {/* Schnelleinbuchen Warteplatz Dialog */}
-      <Dialog open={wpOpen} onClose={() => !wpSaving && setWpOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle fontWeight={700}>Person auf Warteplatz einbuchen</DialogTitle>
-        <DialogContent>
-          <Box display="flex" flexDirection="column" gap={2} mt={1}>
-            <TextField
-              label="AZR-ID *"
-              value={wpAzrId}
-              onChange={e => setWpAzrId(e.target.value)}
-              size="small"
-              fullWidth
-              disabled={wpSaving}
-              placeholder="z.B. AZR-2024-FFM-M-01"
-            />
-            <FormControl size="small" fullWidth>
-              <InputLabel>Geschlecht *</InputLabel>
-              <Select
-                label="Geschlecht *"
-                value={wpGeschlecht}
-                onChange={e => setWpGeschlecht(e.target.value)}
-                disabled={wpSaving}
-              >
-                <MenuItem value="M">Männlich</MenuItem>
-                <MenuItem value="F">Weiblich</MenuItem>
-                <MenuItem value="D">Divers</MenuItem>
-              </Select>
-            </FormControl>
-            <TextField
-              label="Belegung von *"
-              type="date"
-              value={wpStart}
-              onChange={e => setWpStart(e.target.value)}
-              size="small"
-              fullWidth
-              disabled={wpSaving}
-              InputLabelProps={{ shrink: true }}
-            />
-            <TextField
-              label="Belegung bis *"
-              type="date"
-              value={wpEnde}
-              onChange={e => setWpEnde(e.target.value)}
-              size="small"
-              fullWidth
-              disabled={wpSaving}
-              InputLabelProps={{ shrink: true }}
-            />
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setWpOpen(false)} disabled={wpSaving}>Abbrechen</Button>
-          <Button
-            variant="contained"
-            onClick={handleWpSave}
-            disabled={wpSaving || !wpAzrId.trim() || !wpStart || !wpEnde}
-            sx={{ bgcolor: '#e65100', '&:hover': { bgcolor: '#bf360c' } }}
-          >
-            {wpSaving ? <CircularProgress size={18} /> : 'Einbuchen'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
       {/* Delete Warteplatz Confirm Dialog */}
       <Dialog open={!!deleteConfirmBedId} onClose={() => setDeleteConfirmBedId(null)} maxWidth="xs">
         <DialogTitle fontWeight={700}>Warteplatz löschen?</DialogTitle>
@@ -2693,9 +2624,10 @@ export default function Drilldown() {
           <Button onClick={() => setDeleteConfirmBedId(null)}>Abbrechen</Button>
           <Button
             variant="contained" color="error"
+            disabled={deleteConfirmSaving}
             onClick={() => deleteConfirmBedId && handleDeleteWarteplatz(deleteConfirmBedId)}
           >
-            Löschen
+            {deleteConfirmSaving ? <CircularProgress size={18} /> : 'Löschen'}
           </Button>
         </DialogActions>
       </Dialog>

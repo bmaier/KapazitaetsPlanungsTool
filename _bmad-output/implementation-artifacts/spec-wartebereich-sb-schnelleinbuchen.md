@@ -1,5 +1,5 @@
 ---
-title: 'Wartebereich SB-Erweiterung — Schnelleinbuchen + Bett löschen'
+title: 'Wartebereich SB-Erweiterung — Warteplatz hinzufügen + Bett löschen + Verlegung-genehmigt-Anzeige'
 type: 'feature'
 created: '2026-06-06'
 status: 'done'
@@ -7,29 +7,27 @@ baseline_commit: 'e8f2d3c9565b7365cff89cc42c4bd5b1c7b3ac8e'
 context: []
 ---
 
-<frozen-after-approval reason="human-owned intent — do not modify unless human renegotiates">
+<frozen-after-approval reason="human-owned intent — renegotiated 2026-06-06: Feature A war falsch verstanden">
 
 ## Intent
 
-**Problem:** Sachbearbeiter (writer-Rolle) können im Wartebereich nur neue Personen einbuchen, wenn ein freier Warteplatz sichtbar ist (Klick-auf-freies-Bett-Flow). Sind alle Plätze belegt, gibt es keinen direkten Weg — der SB muss erst Stammdaten öffnen, ein neues Bett anlegen, dann zurückkehren. Zusätzlich können freie, unbenötigte Warteplätze nicht direkt aus dem Wartebereich gelöscht werden.
+**Problem:** (A) Sind alle Warteplätze belegt, muss der SB umständlich die Stammdaten öffnen um ein neues Bett anzulegen. Zusätzlich können freie Warteplätze nicht direkt aus dem Wartebereich gelöscht werden. (B) Wenn eine Verlegeanfrage CONFIRMED ist die Person aber noch nicht eingecheckt hat, wurde der Warteplatz-Card blau nicht angezeigt — nur orange „Belegt". Auch fehlte „Verlegung genehmigt" in der Wartebereich-Legende.
 
-**Approach:** (A) Prominenter „Person auf Warteplatz"-Button im Wartebereich-Header öffnet eine schlanke Schnell-Einbuchen-Maske (AZR-ID, Geschlecht, Belegung von/bis). Das Frontend sucht automatisch ein freies WARTEBEREICH-Bett; existiert keines, wird ein neues WARTEPLATZ-Bett im ersten WARTEBEREICH-Raum angelegt — alles in einem Schritt ohne Stammdaten-Öffnen. (B) Delete-Icon auf freien (unbelegten) Warteplatz-Cards im Wartebereich: Backend-seitig wird vor dem Soft-Delete geprüft, dass kein Occupant und keine aktive Reservierung an diesem Bett hängt.
+**Approach:** (A) „Warteplatz hinzufügen"-Button im Wartebereich-Header legt direkt ein neues leeres WARTEPLATZ-Bett an (kein Dialog, kein Person-Einbuchen — dafür gibt es den bestehenden Klick-auf-freies-Bett-Flow). Delete-Icon auf freien WARTEPLATZ-Cards (status=FREI) mit Backend-Guard. (B) Wartebereich-Cards zeigen jetzt `hasConfirmedTransfer` in Blau (analog zu BedGrid) + „Verlegung genehmigt" in der Legende.
 
 ## Boundaries & Constraints
 
 **Always:**
 - Nur `canEdit`-Rollen (writer, location-admin, system-admin) sehen Button und Delete-Icon
-- Kein neues Backend-Endpoint für Feature A — bestehende `POST /rooms/{id}/beds` + `POST /beds/{id}/occupancy` reichen
-- Backend `DELETE /beds/{bed_id}` bekommt Auth-Guard (derzeit fehlt er) + Belegungscheck + Reservierungscheck → 409 wenn blockiert
-- Reload via `loadBedStatus()` nach jedem erfolgreichem Schreibvorgang
+- Feature A: Kein Dialog, kein Person-Einbuchen — nur `POST /rooms/{id}/beds` mit `bett_typ: WARTEPLATZ`
 - Bestehender Klick-auf-freies-Bett-Flow (handleBedClick → setBelegBed) bleibt unverändert
-- Geburtsjahr und Herkunftsland sind **nicht** Teil der Schnelleinbuchen-Maske (nur Occupancy-Felder: AZR-ID, Geschlecht, Start, Ende)
-
-**Ask First:** — keine offenen Fragen.
+- Delete-Icon nur auf `status === 'FREI'`-Cards (nicht auf VORGEMERKT oder BELEGT)
+- Backend `DELETE /beds/{bed_id}` hat Auth-Guard + Belegungscheck + Reservierungscheck → 409 wenn blockiert
+- `del()` in client.ts parst JSON-Body bei Fehler um Backend-Fehlermeldungen weiterzugeben
+- Reload via `loadBedStatus()` nach jedem erfolgreichem Schreibvorgang
 
 **Never:**
-- Kein Löschen belegter Betten über diesen Flow
-- Kein Löschen von Betten, die eine PENDING/CONFIRMED-Reservierung als `suggested_bed_id` oder `confirmed_bed_id` haben
+- Kein Löschen belegter oder vorgemerkter Betten
 - Keine Änderung an der Batch-Verlegen- oder Extern-Verlegen-Logik
 
 ## I/O & Edge-Case Matrix

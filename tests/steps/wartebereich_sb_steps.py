@@ -188,55 +188,30 @@ def step_person_belegt_warteplatz(context, azr):
 
 # ─── When ───────────────────────────────────────────────────────────────────
 
-@when('SB bucht Person "{azr}" (Geschlecht {geschlecht}) direkt über API ein')
-def step_sb_einbuchen(context, azr, geschlecht):
-    loc_id = context.sb_loc_id
+@when('SB legt über die API einen neuen Warteplatz an')
+def step_sb_add_warteplatz(context):
     room_id = context.sb_room_id
-
-    # Repliziert Frontend-Logik: freies Bett suchen, sonst neues anlegen
     resp = requests.get(
-        f"{BACKEND_URL}/api/locations/{loc_id}/bed-status",
-        headers=_loc_headers(context, loc_id),
+        f"{BACKEND_URL}/api/locations/{context.sb_loc_id}/bed-status",
+        headers=_loc_headers(context, context.sb_loc_id),
     )
     assert resp.status_code == 200, f"bed-status failed: {resp.text}"
     rooms_data = resp.json()
-
     warte_rooms = [r for r in rooms_data if r["room_type"] == "WARTEBEREICH"]
     assert warte_rooms, "Kein WARTEBEREICH-Raum gefunden"
-
-    free_beds = [b for r in warte_rooms for b in r["beds"] if b["status"] == "FREI"]
-    if free_beds:
-        target_bed_id = free_beds[0]["bed_id"]
-        context.sb_used_existing_bed = True
-    else:
-        all_beds = [b for r in warte_rooms for b in r["beds"]]
-        max_num = max(
-            (int("".join(c for c in b["bett_nummer"] if c.isdigit()) or "0") for b in all_beds),
-            default=0,
-        )
-        new_bed_resp = requests.post(
-            f"{BACKEND_URL}/api/rooms/{warte_rooms[0]['room_id']}/beds",
-            json={"bett_nummer": str(max_num + 1), "bett_typ": "WARTEPLATZ"},
-            headers=_auth_headers(context),
-        )
-        assert new_bed_resp.status_code == 201, f"Bett anlegen fehlgeschlagen: {new_bed_resp.text}"
-        target_bed_id = new_bed_resp.json()["id"]
-        context.sb_used_existing_bed = False
-        context.sb_new_bed_id = target_bed_id
-
-    occ_resp = requests.post(
-        f"{BACKEND_URL}/api/beds/{target_bed_id}/occupancy",
-        json={
-            "azr_id": azr,
-            "geschlecht": geschlecht,
-            "belegung_start": _today(),
-            "belegung_ende": _in_days(30),
-        },
-        headers=_loc_headers(context, loc_id),
+    all_beds = [b for r in warte_rooms for b in r["beds"]]
+    max_num = max(
+        (int("".join(c for c in b["bett_nummer"] if c.isdigit()) or "0") for b in all_beds),
+        default=0,
     )
-    context.sb_occ_resp = occ_resp
-    context.sb_azr = azr
-    context.sb_target_bed_id = target_bed_id
+    new_resp = requests.post(
+        f"{BACKEND_URL}/api/rooms/{warte_rooms[0]['room_id']}/beds",
+        json={"bett_nummer": str(max_num + 1), "bett_typ": "WARTEPLATZ"},
+        headers=_auth_headers(context),
+    )
+    assert new_resp.status_code == 201, f"Bett anlegen fehlgeschlagen: {new_resp.text}"
+    context.sb_add_resp = new_resp
+    context.sb_beds_after_add = len(all_beds) + 1
 
 
 @when('SB löscht den freien Warteplatz über die API')
@@ -262,38 +237,20 @@ def step_sb_delete_occupied(context):
 
 # ─── Then ───────────────────────────────────────────────────────────────────
 
-@then('ist "{azr}" im Wartebereich eingebucht')
-def step_person_eingebucht(context, azr):
-    resp = context.sb_occ_resp
-    assert resp.status_code == 201, f"Occupancy-Erstellung fehlgeschlagen: {resp.text}"
+@then('existiert ein zusätzlicher Warteplatz im Wartebereich')
+def step_neues_bett_vorhanden(context):
+    new_bed_id = context.sb_add_resp.json()["id"]
     conn = _db_connect()
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT id FROM persons.occupants WHERE azr_id = %s AND belegung_ende >= CURRENT_DATE",
-            (azr,),
+            "SELECT bett_typ, is_active FROM capacity.beds WHERE id = %s",
+            (new_bed_id,),
         )
         row = cur.fetchone()
     conn.close()
-    assert row, f"Person {azr} nicht in DB gefunden"
-
-
-@then('wurde kein neues Bett angelegt')
-def step_kein_neues_bett(context):
-    assert context.sb_used_existing_bed is True, "Es wurde unerwartet ein neues Bett angelegt"
-
-
-@then('wurde ein neues Warteplatz-Bett angelegt')
-def step_neues_bett_angelegt(context):
-    assert context.sb_used_existing_bed is False, "Es wurde kein neues Bett angelegt, obwohl alle belegt waren"
-    conn = _db_connect()
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT bett_typ FROM capacity.beds WHERE id = %s",
-            (context.sb_new_bed_id,),
-        )
-        row = cur.fetchone()
-    conn.close()
-    assert row and row[0] == "WARTEPLATZ", "Neues Bett hat nicht den Typ WARTEPLATZ"
+    assert row, "Neues Bett nicht in DB gefunden"
+    assert row[0] == "WARTEPLATZ", f"Falscher bett_typ: {row[0]}"
+    assert row[1] is True, "Neues Bett ist nicht aktiv"
 
 
 @then('ist der Warteplatz nicht mehr aktiv')
