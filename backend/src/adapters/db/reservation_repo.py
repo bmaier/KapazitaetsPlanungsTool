@@ -84,9 +84,20 @@ class SqlReservationRepo(AbstractReservationRepo):
             body=f"Einrichtung hat eine Verlegungsanfrage für AZR-ID {body.azr_id} gestellt.",
         )
 
-        # Audit
-        await self._write_audit(model.id, "CREATED", body.target_location_id,
-                                azr_id=body.azr_id, user=None)
+        # Audit — vollständiger Kontext für rechtssichere Nachvollziehbarkeit
+        await self._write_audit(
+            model.id, "CREATED", body.target_location_id,
+            azr_id=body.azr_id, user=None,
+            extra_payload={
+                "requester_location_id": str(requester_location_id),
+                "target_location_id": str(body.target_location_id),
+                "belegung_start": body.belegung_start.isoformat(),
+                "belegung_ende": body.belegung_ende.isoformat(),
+                "geschlecht": body.geschlecht,
+                "geburtsjahr": body.geburtsjahr,
+                "herkunftsland": body.herkunftsland,
+            },
+        )
 
         return _to_entity(model)
 
@@ -115,6 +126,7 @@ class SqlReservationRepo(AbstractReservationRepo):
         location_id: Optional[UUID] = None,
         is_system_admin: bool = False,
         user: Optional[UserContext] = None,
+        ablehnungsgrund: Optional[str] = None,
     ) -> ReservationRequest:
         """
         SELECT FOR UPDATE verhindert gleichzeitige Doppel-Bestätigungen.
@@ -139,7 +151,8 @@ class SqlReservationRepo(AbstractReservationRepo):
         model.status = new_status
         model.updated_at = datetime.now(timezone.utc)
 
-        await self._create_task_and_audit(model, new_status, location_id, user=user)
+        extra = {"ablehnungsgrund": ablehnungsgrund} if new_status == "REJECTED" and ablehnungsgrund else None
+        await self._create_task_and_audit(model, new_status, location_id, user=user, extra_payload=extra)
         await self._session.flush()
         return _to_entity(model)
 
@@ -231,6 +244,7 @@ class SqlReservationRepo(AbstractReservationRepo):
         reservation_id: UUID,
         location_id: UUID,
         user: Optional[UserContext] = None,
+        ablehnungsgrund: Optional[str] = None,
     ) -> ReservationRequest:
         """Lehnt eine Reservierung ab — prüft ob location_id == target_location_id."""
         result = await self._session.execute(
@@ -252,7 +266,8 @@ class SqlReservationRepo(AbstractReservationRepo):
         model.status = "REJECTED"
         model.updated_at = datetime.now(timezone.utc)
 
-        await self._create_task_and_audit(model, "REJECTED", location_id, user=user)
+        extra = {"ablehnungsgrund": ablehnungsgrund} if ablehnungsgrund else None
+        await self._create_task_and_audit(model, "REJECTED", location_id, user=user, extra_payload=extra)
         await self._session.flush()
         return _to_entity(model)
 

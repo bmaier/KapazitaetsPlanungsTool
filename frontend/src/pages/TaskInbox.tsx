@@ -240,7 +240,7 @@ function TaskCard({
             {/* Aktionen */}
             <Box display="flex" gap={1} flexWrap="wrap" alignItems="center">
 
-              {/* PENDING: Bestätigen + Ablehnen + Stornieren */}
+              {/* PENDING: Bestätigen + Ablehnen (nur Zieleinrichtung) */}
               {!isDone && reservation?.status === 'PENDING' && onConfirmOpen && (
                 <>
                   {!showReject ? (
@@ -253,12 +253,6 @@ function TaskCard({
                         <Button size="small" variant="outlined" color="error" startIcon={<CancelIcon />}
                           onClick={() => setShowReject(true)}>
                           Ablehnen
-                        </Button>
-                      )}
-                      {onCancel && (
-                        <Button size="small" variant="text" color="inherit"
-                          onClick={() => onCancel(reservation.id)}>
-                          Stornieren
                         </Button>
                       )}
                     </>
@@ -278,21 +272,21 @@ function TaskCard({
                 </>
               )}
 
-              {/* CONFIRMED: Einchecken + Stornieren */}
+              {/* CONFIRMED: Einchecken (nur Zieleinrichtung) */}
               {!isDone && reservation?.status === 'CONFIRMED' && onTransfer && (
-                <>
-                  <Button size="small" variant="contained" startIcon={<CheckCircleIcon />}
-                    sx={{ bgcolor: '#1565c0', '&:hover': { bgcolor: '#0d47a1' } }}
-                    onClick={() => onTransfer(reservation.id)}>
-                    Einchecken
-                  </Button>
-                  {onCancel && (
-                    <Button size="small" variant="text" color="inherit"
-                      onClick={() => onCancel(reservation.id)}>
-                      Stornieren
-                    </Button>
-                  )}
-                </>
+                <Button size="small" variant="contained" startIcon={<CheckCircleIcon />}
+                  sx={{ bgcolor: '#1565c0', '&:hover': { bgcolor: '#0d47a1' } }}
+                  onClick={() => onTransfer(reservation.id)}>
+                  Einchecken
+                </Button>
+              )}
+
+              {/* Stornieren (nur anfragende Einrichtung) */}
+              {!isDone && ['PENDING', 'CONFIRMED'].includes(reservation?.status ?? '') && onCancel && (
+                <Button size="small" variant="text" color="error"
+                  onClick={() => onCancel(reservation!.id)}>
+                  Stornieren
+                </Button>
               )}
 
               {/* Jump-to-bed: for standalone tasks with AZR in body */}
@@ -448,9 +442,9 @@ export default function TaskInbox() {
     }
   }
 
-  async function handleReject(resId: string, _reason: string) {
+  async function handleReject(resId: string, reason: string) {
     try {
-      await post(`/api/reservations/${resId}/reject`, {})
+      await post(`/api/reservations/${resId}/reject`, reason.trim() ? { grund: reason } : {})
       setSnackbar({ open: true, message: 'Verlegungsanfrage abgelehnt.', severity: 'success' })
       load()
     } catch {
@@ -576,7 +570,6 @@ export default function TaskInbox() {
                       onConfirmOpen={canAct ? openConfirmDialog : undefined}
                       onTransfer={canAct ? handleTransfer : undefined}
                       onReject={canAct ? handleReject : undefined}
-                      onCancel={canAct ? handleCancel : undefined}
                       onDismiss={handleDismiss}
                     />
                   )
@@ -644,7 +637,7 @@ export default function TaskInbox() {
                     }}
                     reservation={res}
                     locationName={locName(res.target_location_id)}
-                    onCancel={res.status === 'PENDING' ? handleCancel : undefined}
+                    onCancel={['PENDING', 'CONFIRMED'].includes(res.status) ? handleCancel : undefined}
                     onDismiss={handleDismiss}
                   />
                 ))}

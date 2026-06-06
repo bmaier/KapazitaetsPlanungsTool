@@ -8,7 +8,7 @@ location-admin / writer: X-Location-Id Pflicht — nur eigene Einrichtung sichtb
 from typing import List, Literal, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +20,7 @@ import json
 
 from src.api.reservations.schemas import (
     CancelRequest,
+    RejectBody,
     ReservationConfirmRequest,
     ReservationCreate,
     ReservationDetailResponse,
@@ -326,11 +327,13 @@ async def transfer_reservation(
 async def reject_reservation(
     reservation_id: UUID,
     request: Request,
+    body: RejectBody = Body(default_factory=RejectBody),
     user: UserContext = Depends(get_current_user),
     session: AsyncSession = Depends(_get_session),
 ) -> ReservationResponse:
     """
     Lehnt eine Reservierung ab (→ REJECTED).
+    Optionaler Body: {"grund": "..."} — wird im Audit-Log persistiert.
     system-admin: darf immer ablehnen.
     Alle anderen: nur wenn X-Location-Id die Zieleinrichtung ist.
     """
@@ -340,10 +343,13 @@ async def reject_reservation(
     try:
         if is_system_admin and location is None:
             result = await repo.update_status(
-                reservation_id, "REJECTED", is_system_admin=True, user=user
+                reservation_id, "REJECTED", is_system_admin=True, user=user,
+                ablehnungsgrund=body.grund,
             )
         else:
-            result = await repo.reject(reservation_id, location.id, user=user)  # type: ignore[union-attr]
+            result = await repo.reject(  # type: ignore[union-attr]
+                reservation_id, location.id, user=user, ablehnungsgrund=body.grund,
+            )
     except RetractionForbiddenError as e:
         raise HTTPException(status_code=403, detail=e.message)
     except InvalidStateTransitionError as e:

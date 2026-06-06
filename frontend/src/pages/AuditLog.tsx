@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions,
-  DialogContent, DialogContentText, DialogTitle, Paper,
+  DialogContent, DialogContentText, DialogTitle, Divider, Paper,
   Table, TableBody, TableCell, TableContainer, TableHead, TablePagination,
   TableRow, TextField, Tooltip, Typography,
 } from '@mui/material'
@@ -9,6 +9,7 @@ import DownloadIcon from '@mui/icons-material/Download'
 import DeleteIcon from '@mui/icons-material/DeleteForever'
 import FilterListIcon from '@mui/icons-material/FilterList'
 import HistoryIcon from '@mui/icons-material/History'
+import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import { useKeycloak } from '../auth/KeycloakProvider'
 import { useApiClient } from '../api/client'
 
@@ -44,6 +45,24 @@ const EVENT_COLORS: Record<string, string> = {
   SUGGESTION_REJECTED: '#c62828',
 }
 
+const LABEL_MAP: Record<string, string> = {
+  ablehnungsgrund: 'Ablehnungsgrund',
+  verlegung_grund: 'Verlegungsgrund',
+  geschlecht_mismatch_grund: 'Begründung Geschlecht-Abweichung',
+  belegung_start: 'Belegung von',
+  belegung_ende: 'Belegung bis',
+  requester_location_id: 'Anfragende Einrichtung (ID)',
+  target_location_id: 'Zieleinrichtung (ID)',
+  reservation_id: 'Reservierungs-ID',
+  erstellt_von: 'Erstellt von (Keycloak-Sub)',
+  actor_username: 'Nutzername',
+  azr_id: 'AZR-ID',
+  bed_id: 'Bett-ID',
+  actor_id: 'Nutzer-ID (Keycloak)',
+  actor_role: 'Rolle',
+  location_id: 'Einrichtungs-ID',
+}
+
 function eventColor(t: string) {
   return EVENT_COLORS[t] ?? '#455a64'
 }
@@ -56,6 +75,95 @@ function defaultDateFrom() {
   const d = new Date()
   d.setDate(d.getDate() - 5)
   return d.toISOString().slice(0, 16)
+}
+
+function DetailDialog({ entry, onClose }: { entry: AuditEntry | null; onClose: () => void }) {
+  if (!entry) return null
+
+  const actorUsername = (entry.payload as Record<string, unknown> | null)?.actor_username as string | undefined
+
+  const structuredFields: Array<{ label: string; value: string }> = [
+    { label: 'Zeitpunkt', value: fmt(entry.created_at) },
+    { label: 'Event-Typ', value: entry.event_type },
+    { label: 'Nutzername', value: actorUsername ?? '–' },
+    { label: 'Nutzer-ID (Keycloak)', value: entry.actor_id ?? '–' },
+    { label: 'Rolle', value: entry.actor_role ?? '–' },
+    { label: 'Einrichtungs-ID', value: entry.location_id ?? '–' },
+    { label: 'AZR / Entity-ID', value: entry.entity_id ?? '–' },
+    { label: 'Entity-Typ', value: entry.entity_type ?? '–' },
+  ]
+
+  const payloadFields: Array<{ label: string; value: string }> = entry.payload
+    ? Object.entries(entry.payload)
+        .filter(([k]) => !['actor_username'].includes(k))
+        .map(([k, v]) => ({
+          label: LABEL_MAP[k] ?? k,
+          value: typeof v === 'string' ? v : JSON.stringify(v),
+        }))
+    : []
+
+  return (
+    <Dialog open onClose={onClose} maxWidth="md" fullWidth>
+      <DialogTitle fontWeight={700} sx={{ pb: 1 }}>
+        <Box display="flex" alignItems="center" gap={1}>
+          <Chip
+            label={entry.event_type}
+            size="small"
+            sx={{
+              bgcolor: eventColor(entry.event_type) + '15',
+              color: eventColor(entry.event_type),
+              fontWeight: 600, fontSize: 12,
+            }}
+          />
+          <Typography variant="body2" color="text.secondary" fontFamily="monospace">
+            {fmt(entry.created_at)}
+          </Typography>
+        </Box>
+      </DialogTitle>
+      <DialogContent dividers>
+        {/* Structured metadata */}
+        <Typography variant="subtitle2" fontWeight={700} color="text.secondary" gutterBottom>
+          Metadaten
+        </Typography>
+        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5, mb: 2 }}>
+          {structuredFields.map(f => (
+            <Box key={f.label}>
+              <Typography variant="caption" color="text.secondary" display="block">
+                {f.label}
+              </Typography>
+              <Typography variant="body2" fontFamily="monospace" sx={{ wordBreak: 'break-all' }}>
+                {f.value}
+              </Typography>
+            </Box>
+          ))}
+        </Box>
+
+        {payloadFields.length > 0 && (
+          <>
+            <Divider sx={{ my: 2 }} />
+            <Typography variant="subtitle2" fontWeight={700} color="text.secondary" gutterBottom>
+              Fachliche Details
+            </Typography>
+            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
+              {payloadFields.map(f => (
+                <Box key={f.label}>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    {f.label}
+                  </Typography>
+                  <Typography variant="body2" fontFamily="monospace" sx={{ wordBreak: 'break-all' }}>
+                    {f.value || '–'}
+                  </Typography>
+                </Box>
+              ))}
+            </Box>
+          </>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Schließen</Button>
+      </DialogActions>
+    </Dialog>
+  )
 }
 
 export default function AuditLog() {
@@ -77,6 +185,7 @@ export default function AuditLog() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
+  const [selectedEntry, setSelectedEntry] = useState<AuditEntry | null>(null)
   const [deleteAzrOpen, setDeleteAzrOpen] = useState(false)
   const [deleteAzrTarget, setDeleteAzrTarget] = useState('')
   const [purgeOpen, setPurgeOpen] = useState(false)
@@ -248,23 +357,26 @@ export default function AuditLog() {
                     <TableCell sx={{ fontWeight: 700 }}>Nutzer</TableCell>
                     <TableCell sx={{ fontWeight: 700 }}>Rolle</TableCell>
                     <TableCell sx={{ fontWeight: 700 }}>AZR / Entity</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>Details</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Einrichtung</TableCell>
+                    <TableCell sx={{ width: 32 }} />
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {(data?.items ?? []).length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} align="center" sx={{ py: 4, color: '#888' }}>
+                      <TableCell colSpan={7} align="center" sx={{ py: 4, color: '#888' }}>
                         Keine Einträge gefunden.
                       </TableCell>
                     </TableRow>
                   ) : (data?.items ?? []).map(row => {
                     const actorUsername = (row.payload as Record<string, unknown> | null)?.actor_username as string | undefined
-                    const cleanPayload = row.payload
-                      ? Object.fromEntries(Object.entries(row.payload).filter(([k]) => k !== 'actor_username'))
-                      : null
                     return (
-                    <TableRow key={row.id} hover>
+                    <TableRow
+                      key={row.id}
+                      hover
+                      onClick={() => setSelectedEntry(row)}
+                      sx={{ cursor: 'pointer' }}
+                    >
                       <TableCell sx={{ whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: 12 }}>
                         {fmt(row.created_at)}
                       </TableCell>
@@ -295,21 +407,14 @@ export default function AuditLog() {
                           </Typography>
                         )}
                       </TableCell>
-                      <TableCell sx={{ maxWidth: 320 }}>
-                        {cleanPayload && Object.keys(cleanPayload).length > 0 ? (
-                          <Box component="pre" sx={{
-                            fontFamily: 'monospace', fontSize: 11, color: '#444',
-                            bgcolor: '#f8f9fa', borderRadius: 1, p: 0.8,
-                            m: 0, maxHeight: 80, overflow: 'auto',
-                            whiteSpace: 'pre-wrap', wordBreak: 'break-all',
-                          }}>
-                            {JSON.stringify(cleanPayload, null, 2)}
-                          </Box>
-                        ) : '–'}
+                      <TableCell sx={{ fontFamily: 'monospace', fontSize: 12, color: '#888' }}>
+                        {row.location_id?.slice(0, 8) ?? '–'}
+                      </TableCell>
+                      <TableCell sx={{ color: '#bbb', pr: 1 }}>
+                        <ChevronRightIcon fontSize="small" />
                       </TableCell>
                     </TableRow>
                   )})}
-
                 </TableBody>
               </Table>
             </TableContainer>
@@ -325,6 +430,9 @@ export default function AuditLog() {
           </>
         )}
       </Paper>
+
+      {/* Detail Dialog */}
+      <DetailDialog entry={selectedEntry} onClose={() => setSelectedEntry(null)} />
 
       {/* DSGVO Delete Dialog */}
       <Dialog open={deleteAzrOpen} onClose={() => setDeleteAzrOpen(false)}>

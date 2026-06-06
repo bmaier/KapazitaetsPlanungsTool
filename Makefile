@@ -81,7 +81,7 @@ define PRINT_ENDPOINTS
 endef
 
 # ---------------------------------------------------------------------------
-# dev: Startet alle Services (kein Rebuild — Volume-Mounts für Hot-Reload)
+# dev: Startet alle Services mit bestehenden Images (kein Rebuild)
 # Für expliziten Image-Rebuild nach Dockerfile-/Dep-Änderungen: make build
 # ---------------------------------------------------------------------------
 dev:
@@ -94,13 +94,19 @@ dev:
 
 # ---------------------------------------------------------------------------
 # build: Erzwingt Rebuild aller Images (nach Dockerfile- oder Dep-Änderungen)
+# Das Frontend-Image hat keinen build:-Block in docker-compose.yml und muss
+# daher separat gebaut und neu gestartet werden.
 # ---------------------------------------------------------------------------
 build:
 	@echo ">>> Bereinige Python-Bytecode-Cache..."
 	@find backend/src -type d -name '__pycache__' -prune -exec rm -rf {} + 2>/dev/null; true
-	@echo ">>> Baue Docker-Images und starte Stack..."
+	@echo ">>> Baue Frontend-Image (Vite + Nginx)..."
+	$(RUNTIME) build -t bosenet/bordercapcontrol-frontend:latest frontend/
+	@echo ">>> Baue Backend-Image und starte Stack..."
 	$(COMPOSE) up -d --build
 	$(WAIT_HEALTHY)
+	@echo ">>> Starte Frontend-Container mit neuem Image..."
+	$(RUNTIME) restart $(PROJECT)_frontend_1
 	$(PRINT_ENDPOINTS)
 
 # ---------------------------------------------------------------------------

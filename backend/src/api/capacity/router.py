@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.adapters.db.audit_service import write_audit
 from src.adapters.db.capacity_repo import (
     SqlBedRepo,
     SqlLocationRepo,
@@ -1284,36 +1285,34 @@ async def create_occupancy(
     created = await occ_repo.create(occupancy, user=user, location_id=bed_location_id)
 
     if body.geschlecht_mismatch_grund:
-        await session.execute(
-            text(
-                "INSERT INTO audit.events (event_type, payload) "
-                "VALUES ('OCCUPANCY_GESCHLECHT_MISMATCH', :p)"
-            ),
+        await write_audit(
+            session,
+            "OCCUPANCY_GESCHLECHT_MISMATCH",
             {
-                "p": json.dumps({
-                    "azr_id": body.azr_id,
-                    "bed_id": str(bed_id),
-                    "geschlecht_person": body.geschlecht.value,
-                    "mismatch_grund": body.geschlecht_mismatch_grund,
-                    "erstellt_von": user.sub if user else None,
-                })
+                "azr_id": body.azr_id,
+                "bed_id": str(bed_id),
+                "geschlecht_person": body.geschlecht.value,
+                "mismatch_grund": body.geschlecht_mismatch_grund,
             },
+            user=user,
+            location_id=bed_location_id,
+            entity_type="OCCUPANCY",
+            entity_id=body.azr_id,
         )
 
     if body.verlegung_grund:
-        await session.execute(
-            text(
-                "INSERT INTO audit.events (event_type, payload) "
-                "VALUES ('OCCUPANCY_VERLEGT', :p)"
-            ),
+        await write_audit(
+            session,
+            "OCCUPANCY_VERLEGT",
             {
-                "p": json.dumps({
-                    "azr_id": body.azr_id,
-                    "bed_id": str(bed_id),
-                    "verlegung_grund": body.verlegung_grund,
-                    "erstellt_von": user.sub if user else None,
-                })
+                "azr_id": body.azr_id,
+                "bed_id": str(bed_id),
+                "verlegung_grund": body.verlegung_grund,
             },
+            user=user,
+            location_id=bed_location_id,
+            entity_type="OCCUPANCY",
+            entity_id=body.azr_id,
         )
 
     if warn_12w:

@@ -74,3 +74,7 @@ class ReservationDetailResponse(ReservationResponse):
 
 class CancelRequest(BaseModel):
     grund: str
+
+
+class RejectBody(BaseModel):
+    grund: Optional[str] = None
