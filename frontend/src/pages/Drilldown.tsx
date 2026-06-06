@@ -45,6 +45,7 @@ import ChairAltIcon from '@mui/icons-material/ChairAlt'
 import CheckBoxIcon from '@mui/icons-material/CheckBox'
 import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank'
 import DeleteIcon from '@mui/icons-material/Delete'
+import LockIcon from '@mui/icons-material/Lock'
 import { extractApiError, useApiClient } from '../api/client'
 import { useKeycloak } from '../auth/KeycloakProvider'
 import { useSseNotifications } from '../hooks/useSseNotifications'
@@ -639,6 +640,72 @@ export default function Drilldown() {
   const [reactivateRoomId, setReactivateRoomId] = useState<string | null>(null)
   const [reactivateDate, setReactivateDate] = useState('')
   const [reactivateSaving, setReactivateSaving] = useState(false)
+
+  // Label-Verwaltung (system-admin only)
+  const [labelAdminOpen, setLabelAdminOpen] = useState(false)
+  const [labelAdminTab, setLabelAdminTab] = useState(0)
+  const [labelCatalog, setLabelCatalog] = useState<import('../components/LabelChips').LabelCatalogEntry[]>([])
+  const [labelCatalogLoading, setLabelCatalogLoading] = useState(false)
+  const [newLabelName, setNewLabelName] = useState('')
+  const [newLabelCategory, setNewLabelCategory] = useState('')
+  const [newLabelColor, setNewLabelColor] = useState('#757575')
+  const [labelSaving, setLabelSaving] = useState(false)
+  const [labelDeleteConfirm, setLabelDeleteConfirm] = useState<{ entity_type: string; name: string } | null>(null)
+
+  const LABEL_ENTITY_TYPES = [
+    { key: 'LOCATION', label: 'Einrichtung' },
+    { key: 'ROOM',     label: 'Raum' },
+    { key: 'BED',      label: 'Bett' },
+    { key: 'OCCUPANCY', label: 'Belegung' },
+  ]
+
+  async function loadLabelCatalog() {
+    setLabelCatalogLoading(true)
+    try {
+      const res = await get<{ items: import('../components/LabelChips').LabelCatalogEntry[] }>('/api/labels')
+      setLabelCatalog(res.items)
+    } catch {
+      setSnackbar({ open: true, message: 'Label-Katalog konnte nicht geladen werden.', severity: 'error' })
+    } finally {
+      setLabelCatalogLoading(false)
+    }
+  }
+
+  async function handleCreateLabel(entityType: string) {
+    if (!newLabelName.trim() || !newLabelCategory.trim()) return
+    setLabelSaving(true)
+    try {
+      await post('/api/label-catalog', {
+        name: newLabelName.trim(),
+        entity_type: entityType,
+        category: newLabelCategory.trim(),
+        color: newLabelColor,
+      })
+      setNewLabelName('')
+      setNewLabelCategory('')
+      setNewLabelColor('#757575')
+      await loadLabelCatalog()
+      setSnackbar({ open: true, message: 'Label angelegt.', severity: 'success' })
+    } catch (err: unknown) {
+      const msg = (err as { detail?: string })?.detail ?? 'Fehler beim Anlegen.'
+      setSnackbar({ open: true, message: msg, severity: 'error' })
+    } finally {
+      setLabelSaving(false)
+    }
+  }
+
+  async function handleDeleteLabel(entityType: string, labelName: string) {
+    try {
+      await del(`/api/label-catalog/${encodeURIComponent(entityType)}/${encodeURIComponent(labelName)}`)
+      await loadLabelCatalog()
+      setLabelDeleteConfirm(null)
+      setSnackbar({ open: true, message: 'Label gelöscht.', severity: 'success' })
+    } catch (err: unknown) {
+      const msg = (err as { detail?: string })?.detail ?? 'Fehler beim Löschen.'
+      setSnackbar({ open: true, message: msg, severity: 'error' })
+      setLabelDeleteConfirm(null)
+    }
+  }
 
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'warning' }>({
     open: false, message: '', severity: 'success',
@@ -2048,7 +2115,7 @@ export default function Drilldown() {
                 </Typography>
                 <LabelChips
                   labels={editLocLabels}
-                  entityType="ROOM"
+                  entityType="LOCATION"
                   entityId="new"
                   onSaved={(l) => setEditLocLabels(l)}
                 />
@@ -2260,6 +2327,129 @@ export default function Drilldown() {
               )}
             </Box>
           )}
+
+          {/* Label-Verwaltung — nur system-admin */}
+          {isSysAdmin && (
+            <Box mt={3}>
+              <Divider sx={{ mb: 2 }} />
+              <Box
+                display="flex" alignItems="center" gap={1} mb={1}
+                sx={{ cursor: 'pointer' }}
+                onClick={() => {
+                  if (!labelAdminOpen) loadLabelCatalog()
+                  setLabelAdminOpen((v) => !v)
+                }}
+              >
+                <Typography variant="body2" fontWeight={700} color="text.secondary">
+                  Label-Verwaltung (system-admin)
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {labelAdminOpen ? '▲' : '▼'}
+                </Typography>
+              </Box>
+              {labelAdminOpen && (
+                <Box>
+                  <Tabs
+                    value={labelAdminTab}
+                    onChange={(_, v) => { setLabelAdminTab(v); setNewLabelName(''); setNewLabelCategory(''); setNewLabelColor('#757575'); }}
+                    sx={{ mb: 1.5, minHeight: 36 }}
+                    variant="scrollable"
+                    scrollButtons="auto"
+                  >
+                    {LABEL_ENTITY_TYPES.map((et) => (
+                      <Tab key={et.key} label={et.label} sx={{ minHeight: 36, py: 0.5, fontSize: 12 }} />
+                    ))}
+                  </Tabs>
+
+                  {LABEL_ENTITY_TYPES.map((et, idx) => (
+                    <Box key={et.key} hidden={labelAdminTab !== idx}>
+                      {labelCatalogLoading ? (
+                        <Box display="flex" justifyContent="center" py={2}><CircularProgress size={20} /></Box>
+                      ) : (
+                        <>
+                          <Box display="flex" flexWrap="wrap" gap={0.8} mb={2}>
+                            {labelCatalog
+                              .filter((e) => e.entity_types.includes(et.key))
+                              .map((entry) => (
+                                <Box key={entry.name} display="flex" alignItems="center" gap={0.3}>
+                                  <Chip
+                                    label={entry.name}
+                                    size="small"
+                                    icon={entry.is_system
+                                      ? <LockIcon sx={{ fontSize: '11px !important' }} />
+                                      : undefined}
+                                    sx={{
+                                      bgcolor: entry.color + '18',
+                                      color: entry.color,
+                                      fontWeight: 600,
+                                      fontSize: 11,
+                                      height: 24,
+                                      opacity: entry.is_system ? 0.75 : 1,
+                                    }}
+                                  />
+                                  {!entry.is_system && (
+                                    <Tooltip title="Label löschen">
+                                      <IconButton
+                                        size="small"
+                                        color="error"
+                                        sx={{ p: 0.2 }}
+                                        onClick={() => setLabelDeleteConfirm({ entity_type: et.key, name: entry.name })}
+                                      >
+                                        <DeleteIcon sx={{ fontSize: 14 }} />
+                                      </IconButton>
+                                    </Tooltip>
+                                  )}
+                                </Box>
+                              ))}
+                            {labelCatalog.filter((e) => e.entity_types.includes(et.key)).length === 0 && (
+                              <Typography variant="caption" color="text.secondary" fontStyle="italic">
+                                Keine Labels vorhanden.
+                              </Typography>
+                            )}
+                          </Box>
+
+                          <Box display="flex" gap={1} flexWrap="wrap" alignItems="flex-end">
+                            <TextField
+                              label="Name *"
+                              size="small"
+                              value={newLabelName}
+                              onChange={(e) => setNewLabelName(e.target.value)}
+                              sx={{ width: 150 }}
+                            />
+                            <TextField
+                              label="Kategorie *"
+                              size="small"
+                              value={newLabelCategory}
+                              onChange={(e) => setNewLabelCategory(e.target.value)}
+                              sx={{ width: 130 }}
+                            />
+                            <Box display="flex" alignItems="center" gap={0.5}>
+                              <Typography variant="caption" color="text.secondary">Farbe:</Typography>
+                              <input
+                                type="color"
+                                value={newLabelColor}
+                                onChange={(e) => setNewLabelColor(e.target.value)}
+                                style={{ width: 32, height: 28, border: 'none', cursor: 'pointer', padding: 0 }}
+                              />
+                            </Box>
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              startIcon={<AddIcon />}
+                              disabled={!newLabelName.trim() || !newLabelCategory.trim() || labelSaving}
+                              onClick={() => handleCreateLabel(et.key)}
+                            >
+                              {labelSaving ? <CircularProgress size={14} /> : 'Hinzufügen'}
+                            </Button>
+                          </Box>
+                        </>
+                      )}
+                    </Box>
+                  ))}
+                </Box>
+              )}
+            </Box>
+          )}
         </DialogContent>
 
         <DialogActions sx={{ px: 3, pb: 2 }}>
@@ -2271,6 +2461,31 @@ export default function Drilldown() {
           )}
         </DialogActions>
       </Dialog>
+
+      {/* Label-Löschen-Bestätigung */}
+      {labelDeleteConfirm && (
+        <Dialog open onClose={() => setLabelDeleteConfirm(null)} maxWidth="xs" fullWidth>
+          <DialogTitle fontWeight={700}>Label löschen</DialogTitle>
+          <DialogContent sx={{ pt: 2 }}>
+            <Typography>
+              Label <strong>{labelDeleteConfirm.name}</strong> ({LABEL_ENTITY_TYPES.find((e) => e.key === labelDeleteConfirm.entity_type)?.label}) wirklich löschen?
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+              In Verwendung befindliche Labels können nicht gelöscht werden.
+            </Typography>
+          </DialogContent>
+          <DialogActions sx={{ px: 3, pb: 2 }}>
+            <Button onClick={() => setLabelDeleteConfirm(null)}>Abbrechen</Button>
+            <Button
+              variant="contained"
+              color="error"
+              onClick={() => handleDeleteLabel(labelDeleteConfirm.entity_type, labelDeleteConfirm.name)}
+            >
+              Löschen
+            </Button>
+          </DialogActions>
+        </Dialog>
+      )}
 
       {/* ── Bett-Deaktivierung planen Dialog ── */}
       <Dialog open={!!deaktBedId} onClose={() => setDeaktBedId(null)} maxWidth="xs" fullWidth>

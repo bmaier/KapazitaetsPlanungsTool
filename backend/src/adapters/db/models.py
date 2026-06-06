@@ -6,7 +6,7 @@ import uuid
 from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import ARRAY, Boolean, Date, DateTime, ForeignKey, Integer, SmallInteger, String, Text
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, SmallInteger, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -28,7 +28,6 @@ class LocationModel(Base):
     kontingent: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     notbett_kapazitaet: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    labels: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
     lat: Mapped[Optional[float]] = mapped_column(nullable=True)
     lon: Mapped[Optional[float]] = mapped_column(nullable=True)
     valid_from: Mapped[Optional[date]] = mapped_column(nullable=True)
@@ -57,7 +56,6 @@ class RoomModel(Base):
     geschlechts_designation: Mapped[str] = mapped_column(String(10), nullable=False)
     room_type: Mapped[str] = mapped_column(String(20), nullable=False, default="STANDARD")  # STANDARD | WARTEBEREICH
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    labels: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
     valid_from: Mapped[Optional[date]] = mapped_column(nullable=True)
     valid_until: Mapped[Optional[date]] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -85,7 +83,6 @@ class BedModel(Base):
         String(20), nullable=False
     )  # KONTINGENT | NOTBETT | WARTEPLATZ
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    labels: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
     deaktiviert_ab: Mapped[Optional[date]] = mapped_column(nullable=True)
     valid_from: Mapped[Optional[date]] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -116,7 +113,6 @@ class OccupantModel(Base):
     family_group_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         PG_UUID(as_uuid=True), nullable=True
     )
-    labels: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
     extended_once: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False

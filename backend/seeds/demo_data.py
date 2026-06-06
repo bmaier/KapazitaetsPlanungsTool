@@ -1,10 +1,11 @@
 """
 Demo-Seed für BorderCapControl.
 Setzt 5 Demo-Einrichtungen mit realistischen Räumen, Betten und Belegungen.
-Enthält auch Reservierungsanfragen, Tasks und Audit-Events.
+Initialer Zustand: nur reguläre Belegungen (BELEGT), keine Verlegungsanfragen,
+kein Postkorb, leeres Protokoll — sauber für initiales Testen.
 
-ACHTUNG: Löscht und erneuert alle Demo-Daten (Belegungen, Aufgaben, Reservierungen).
-         Standorte, Räume und Betten werden per UPSERT idempotent angelegt.
+ACHTUNG: Löscht und erneuert alle Demo-Daten vollständig.
+         Standorte werden per UPSERT idempotent angelegt.
 """
 import os
 import uuid
@@ -15,6 +16,11 @@ import psycopg2
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
     "postgresql://bordercap_app:bordercap_app_dev@localhost:5432/bordercap?gssencmode=disable",
+)
+# Superuser wird nur für DELETE FROM audit.events benötigt (app_role hat kein DELETE).
+SUPERUSER_DATABASE_URL = os.environ.get(
+    "SUPERUSER_DATABASE_URL",
+    "postgresql://bordercap:bordercap_dev@localhost:5432/bordercap?gssencmode=disable",
 )
 
 today = date.today()
@@ -330,10 +336,10 @@ def seed_historical_occupants(cur) -> int:
                 cur.execute("""
                     INSERT INTO persons.occupants
                         (id, bed_id, azr_id, alias_id, geschlecht,
-                         belegung_start, belegung_ende, labels, created_at)
-                    VALUES (%s, %s, %s, NULL, %s, %s, %s, %s, %s)
+                         belegung_start, belegung_ende, created_at)
+                    VALUES (%s, %s, %s, NULL, %s, %s, %s, %s)
                     ON CONFLICT (id) DO NOTHING
-                """, (occ_id, bed_id, azr, g, period_start, period_end, [], period_start))
+                """, (occ_id, bed_id, azr, g, period_start, period_end, period_start))
                 n_hist += 1
 
     return n_hist
@@ -360,7 +366,7 @@ def main() -> None:
     start_new  = today - timedelta(days=5)
 
     try:
-        print("Lösche Demo-Belegungen, Tasks, Reservierungen und Kontingent-History...")
+        print("Lösche Demo-Belegungen, Tasks, Reservierungen, Protokoll und Kontingent-History...")
         loc_ids_sql = [str(x) for x in DEMO_LOC_IDS]
 
         cur.execute("""
@@ -373,17 +379,20 @@ def main() -> None:
             "DELETE FROM capacity.kontingent_history WHERE location_id = ANY(%s::uuid[])",
             (loc_ids_sql,)
         )
-
-        cur.execute(
-            "DELETE FROM tasks.inbox WHERE location_id = ANY(%s::uuid[])",
-            (loc_ids_sql,)
-        )
+        cur.execute("DELETE FROM tasks.inbox")
         cur.execute(
             """DELETE FROM reservations.requests
                WHERE requester_location_id = ANY(%s::uuid[])
                   OR target_location_id    = ANY(%s::uuid[])""",
             (loc_ids_sql, loc_ids_sql)
         )
+        # audit.events: app_role hat kein DELETE → Superuser-Verbindung
+        su_conn = psycopg2.connect(SUPERUSER_DATABASE_URL)
+        su_conn.autocommit = True
+        su_cur = su_conn.cursor()
+        su_cur.execute("DELETE FROM audit.events")
+        su_cur.close()
+        su_conn.close()
         cur.execute("""
             DELETE FROM capacity.beds b
             USING capacity.rooms r
@@ -402,14 +411,13 @@ def main() -> None:
             cur.execute("""
                 INSERT INTO capacity.locations
                     (id, name, adresse, kontingent, notbett_kapazitaet,
-                     labels, lat, lon, valid_from, valid_until, is_active,
+                     lat, lon, valid_from, valid_until, is_active,
                      created_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE, NOW(), NOW())
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE, NOW(), NOW())
                 ON CONFLICT (id) DO UPDATE
                   SET kontingent         = EXCLUDED.kontingent,
                       notbett_kapazitaet = EXCLUDED.notbett_kapazitaet,
                       adresse            = EXCLUDED.adresse,
-                      labels             = EXCLUDED.labels,
                       lat                = EXCLUDED.lat,
                       lon                = EXCLUDED.lon,
                       valid_from         = EXCLUDED.valid_from,
@@ -418,9 +426,20 @@ def main() -> None:
             """, (
                 loc["id"], loc["name"], loc["adresse"],
                 loc["kontingent"], loc["notbett_kapazitaet"],
-                loc.get("labels", []), loc.get("lat"), loc.get("lon"),
+                loc.get("lat"), loc.get("lon"),
                 loc.get("valid_from"), loc.get("valid_until"),
             ))
+            # Location-Labels über junction table (nur Labels die im Katalog sind)
+            for lbl in loc.get("labels", []):
+                cur.execute("""
+                    INSERT INTO capacity.location_labels (location_id, label_name, label_entity_type)
+                    SELECT %s, %s, 'LOCATION'
+                    WHERE EXISTS (
+                        SELECT 1 FROM capacity.label_catalog
+                        WHERE entity_type = 'LOCATION' AND name = %s
+                    )
+                    ON CONFLICT DO NOTHING
+                """, (loc["id"], lbl, lbl))
 
             rooms_cfg = ROOMS_CONFIG[loc["id"]]
             occ_cfg   = OCCUPANCY_CONFIG.get(loc["id"], {})
@@ -431,11 +450,22 @@ def main() -> None:
                 cur.execute("""
                     INSERT INTO capacity.rooms
                         (id, location_id, name, geschlechts_designation,
-                         labels, room_type, is_active, created_at, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, TRUE, NOW(), NOW())
+                         room_type, is_active, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, TRUE, NOW(), NOW())
                 """, (room_id, loc["id"], room_def["name"],
-                      room_def["designation"], room_def.get("labels", []), room_type))
+                      room_def["designation"], room_type))
                 n_rooms += 1
+                # Room-Labels über junction table (nur Labels die im Katalog sind)
+                for lbl in room_def.get("labels", []):
+                    cur.execute("""
+                        INSERT INTO capacity.room_labels (room_id, label_name, label_entity_type)
+                        SELECT %s, %s, 'ROOM'
+                        WHERE EXISTS (
+                            SELECT 1 FROM capacity.label_catalog
+                            WHERE entity_type = 'ROOM' AND name = %s
+                        )
+                        ON CONFLICT DO NOTHING
+                    """, (room_id, lbl, lbl))
 
                 bett_typ = room_def.get("bett_typ", "KONTINGENT")
                 for bett_nr in range(1, room_def["beds"] + 1):
@@ -454,10 +484,21 @@ def main() -> None:
                     cur.execute("""
                         INSERT INTO capacity.beds
                             (id, room_id, bett_nummer, bett_typ,
-                             labels, is_active, created_at, updated_at)
-                        VALUES (%s, %s, %s, %s, %s, TRUE, NOW(), NOW())
-                    """, (bed_id, room_id, str(bett_nr), bett_typ, bed_labels))
+                             is_active, created_at, updated_at)
+                        VALUES (%s, %s, %s, %s, TRUE, NOW(), NOW())
+                    """, (bed_id, room_id, str(bett_nr), bett_typ))
                     n_beds += 1
+                    # Bed-Labels über junction table (nur Labels die im Katalog sind)
+                    for lbl in bed_labels:
+                        cur.execute("""
+                            INSERT INTO capacity.bed_labels (bed_id, label_name, label_entity_type)
+                            SELECT %s, %s, 'BED'
+                            WHERE EXISTS (
+                                SELECT 1 FROM capacity.label_catalog
+                                WHERE entity_type = 'BED' AND name = %s
+                            )
+                            ON CONFLICT DO NOTHING
+                        """, (bed_id, lbl, lbl))
 
                 # Warteplätze bekommen keine regulären Belegungen hier
                 if room_type == "WARTEBEREICH":
@@ -495,10 +536,20 @@ def main() -> None:
                     cur.execute("""
                         INSERT INTO persons.occupants
                             (id, bed_id, azr_id, alias_id, geschlecht,
-                             belegung_start, belegung_ende, labels, created_at)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
-                    """, (occ_id, bed_id_occ, azr, alias, actual_g,
-                          start, ende, occ_labels))
+                             belegung_start, belegung_ende, created_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+                    """, (occ_id, bed_id_occ, azr, alias, actual_g, start, ende))
+                    # Occupant-Labels über junction table
+                    for lbl in occ_labels:
+                        cur.execute("""
+                            INSERT INTO persons.occupant_labels (occupant_id, label_name, label_entity_type)
+                            SELECT %s, %s, 'OCCUPANCY'
+                            WHERE EXISTS (
+                                SELECT 1 FROM capacity.label_catalog
+                                WHERE entity_type = 'OCCUPANCY' AND name = %s
+                            )
+                            ON CONFLICT DO NOTHING
+                        """, (occ_id, lbl, lbl))
                     n_occ += 1
                     occ_global_idx += 1
 
@@ -527,10 +578,21 @@ def main() -> None:
                 cur.execute("""
                     INSERT INTO persons.occupants
                         (id, bed_id, azr_id, alias_id, geschlecht,
-                         belegung_start, belegung_ende, labels, created_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                         belegung_start, belegung_ende, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
                 """, (occ_id, bed_id_ankunft, azr, alias, ap["geschlecht"],
-                      today, today + timedelta(days=30), occ_labels))
+                      today, today + timedelta(days=30)))
+                # Occupant-Labels über junction table
+                for lbl in occ_labels:
+                    cur.execute("""
+                        INSERT INTO persons.occupant_labels (occupant_id, label_name, label_entity_type)
+                        SELECT %s, %s, 'OCCUPANCY'
+                        WHERE EXISTS (
+                            SELECT 1 FROM capacity.label_catalog
+                            WHERE entity_type = 'OCCUPANCY' AND name = %s
+                        )
+                        ON CONFLICT DO NOTHING
+                    """, (occ_id, lbl, lbl))
                 n_occ += 1
 
         # Historische Belegungen (12 Monate zurück)
@@ -549,161 +611,7 @@ def main() -> None:
               SET eu_gesamtquote = EXCLUDED.eu_gesamtquote, updated_at = NOW()
         """, (EU_GESAMTQUOTE,))
 
-        # ─── Reservierungsanfragen ────────────────────────────────────────────
-        loc_ffm = "a1b2c3d4-0001-0001-0001-000000000001"
-        loc_muc = "a1b2c3d4-0002-0002-0002-000000000002"
-        loc_pas = "a1b2c3d4-0003-0003-0003-000000000003"
-        loc_ham = "a1b2c3d4-0004-0004-0004-000000000004"
-        loc_kif = "a1b2c3d4-0005-0005-0005-000000000005"
-
-        def _res_id(key: str) -> str:
-            return str(uuid.uuid5(uuid.NAMESPACE_URL, f"demo-res-v2::{key}"))
-
-        # CONFIRMED-Reservierung: Person sitzt in Frankfurt Raum A Bett 9 (frei, da nur 8/10 belegt)
-        # und soll nach Passau Raum A Bett 4 verlegt werden (frei, da nur 3/5 belegt).
-        ffm_room_a_id = _room_id(loc_ffm, "Raum A")
-        pas_room_a_id = _room_id(loc_pas, "Raum A")
-        confirmed_source_bed = _bed_id(ffm_room_a_id, 9)   # Frankfurt Raum A Bett 9
-        confirmed_target_bed = _bed_id(pas_room_a_id, 4)   # Passau Raum A Bett 4
-
-        # Occupant für die CONFIRMED-Person am Quellbett anlegen (Frankfurt)
-        conf_occ_id = str(uuid.uuid5(uuid.NAMESPACE_URL, "occ2::confirmed-transfer-ffm-res08"))
-        cur.execute("""
-            INSERT INTO persons.occupants
-                (id, bed_id, azr_id, alias_id, geschlecht,
-                 belegung_start, belegung_ende, labels, created_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
-        """, (conf_occ_id, confirmed_source_bed, "AZR-2024-FFM-M-RES08", "AL-RES08-FFM",
-              "M", today - timedelta(days=30), today + timedelta(days=40), ["Farsi/Dari"]))
-        n_occ += 1
-
-        # Tupel-Format: (id, req_loc, tgt_loc, azr, g, gj, land, start, ende, status, confirmed_bed_id)
-        reservations = [
-            # München (97 %) → Frankfurt: 3 PENDING
-            (_res_id("muc-ffm-1"), loc_muc, loc_ffm, "AZR-2024-MUC-M-RES01",
-             "M", 1991, "SYR", today + timedelta(days=3), today + timedelta(days=65), "PENDING", None),
-            (_res_id("muc-ffm-2"), loc_muc, loc_ffm, "AZR-2024-MUC-W-RES02",
-             "W", 1994, "AFG", today + timedelta(days=3), today + timedelta(days=65), "PENDING", None),
-            (_res_id("muc-ffm-3"), loc_muc, loc_ffm, "AZR-2024-MUC-M-RES03",
-             "M", 1987, "IRQ", today + timedelta(days=4), today + timedelta(days=70), "PENDING", None),
-            # Passau → Frankfurt: 1 PENDING
-            (_res_id("pas-ffm-1"), loc_pas, loc_ffm, "AZR-2024-PAS-M-RES04",
-             "M", 1982, "ERI", today + timedelta(days=6), today + timedelta(days=60), "PENDING", None),
-            # Hamburg → München: 1 PENDING
-            (_res_id("ham-muc-1"), loc_ham, loc_muc, "AZR-2024-HAM-W-RES05",
-             "W", 1999, "SOM", today + timedelta(days=7), today + timedelta(days=50), "PENDING", None),
-            # Kiefersfelden → Frankfurt: 2 PENDING
-            (_res_id("kif-ffm-1"), loc_kif, loc_ffm, "AZR-2024-KIF-M-RES06",
-             "M", 1978, "IRN", today + timedelta(days=5), today + timedelta(days=55), "PENDING", None),
-            (_res_id("kif-ffm-2"), loc_kif, loc_ffm, "AZR-2024-KIF-W-RES07",
-             "W", 2001, "TUR", today + timedelta(days=5), today + timedelta(days=55), "PENDING", None),
-            # Frankfurt → Passau: 1 CONFIRMED — Person noch in FFM (Bett 9), Zielbett in Passau (Bett 4)
-            (_res_id("ffm-pas-1"), loc_ffm, loc_pas, "AZR-2024-FFM-M-RES08",
-             "M", 1990, "PAK", today - timedelta(days=3), today + timedelta(days=40),
-             "CONFIRMED", confirmed_target_bed),
-            # München → Hamburg: 1 REJECTED
-            (_res_id("muc-ham-1"), loc_muc, loc_ham, "AZR-2024-MUC-W-RES09",
-             "W", 1985, "ETH", today - timedelta(days=5), today + timedelta(days=30), "REJECTED", None),
-            # Wartebereich-Personen: PENDING Verlegungsanfragen (lila Dot im Wartebereich)
-            (_res_id("ffm-ank-1"), loc_ffm, loc_pas, "AZR-2024-FFM-ANKM01",
-             "M", 1995, "SYR", today, today + timedelta(days=30), "PENDING", None),
-            (_res_id("muc-ank-1"), loc_muc, loc_ham, "AZR-2024-MUC-ANKM01",
-             "M", 1988, "ERI", today, today + timedelta(days=30), "PENDING", None),
-        ]
-
-        for (rid, req_loc, tgt_loc, azr, g, gj, land, start, ende, status, conf_bed) in reservations:
-            cur.execute("""
-                INSERT INTO reservations.requests
-                    (id, requester_location_id, target_location_id, azr_id,
-                     geschlecht, geburtsjahr, herkunftsland,
-                     belegung_start, belegung_ende, status, confirmed_bed_id,
-                     confirmed_at, created_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                        CASE WHEN %s = 'CONFIRMED' THEN NOW() - INTERVAL '1 day' ELSE NULL END,
-                        NOW() - INTERVAL '3 days', NOW())
-            """, (rid, req_loc, tgt_loc, azr, g, gj, land, start, ende, status, conf_bed, status))
-
-        n_reservations = len(reservations)
-
-        # ─── Postkorb-Aufgaben ────────────────────────────────────────────────
-        def _task_id(key: str) -> str:
-            return str(uuid.uuid5(uuid.NAMESPACE_URL, f"demo-task-v2::{key}"))
-
-        tasks: list[tuple] = [
-            # Frankfurt empfängt 4 eingehende Anfragen
-            (_task_id("ffm-inc-1"), loc_ffm, _res_id("muc-ffm-1"), "RESERVATION_RECEIVED", "HIGH",
-             "Eingehende Anfrage: AZR-2024-MUC-M-RES01",
-             f"München (97 % ausgelastet) bittet um Aufnahme von AZR-2024-MUC-M-RES01 "
-             f"(männlich, Syrien, *1991). Zeitraum: {today+timedelta(3)} – {today+timedelta(65)}."),
-            (_task_id("ffm-inc-2"), loc_ffm, _res_id("muc-ffm-2"), "RESERVATION_RECEIVED", "HIGH",
-             "Eingehende Anfrage: AZR-2024-MUC-W-RES02",
-             f"München bittet um Aufnahme von AZR-2024-MUC-W-RES02 "
-             f"(weiblich, Afghanistan, *1994). Zeitraum: {today+timedelta(3)} – {today+timedelta(65)}."),
-            (_task_id("ffm-inc-3"), loc_ffm, _res_id("muc-ffm-3"), "RESERVATION_RECEIVED", "HIGH",
-             "Eingehende Anfrage: AZR-2024-MUC-M-RES03",
-             f"München bittet um Aufnahme von AZR-2024-MUC-M-RES03 "
-             f"(männlich, Irak, *1987). Zeitraum: {today+timedelta(4)} – {today+timedelta(70)}."),
-            (_task_id("ffm-inc-4"), loc_ffm, _res_id("pas-ffm-1"), "RESERVATION_RECEIVED", "HIGH",
-             "Eingehende Anfrage: AZR-2024-PAS-M-RES04",
-             f"Passau bittet um Aufnahme von AZR-2024-PAS-M-RES04 "
-             f"(männlich, Eritrea, *1982). Zeitraum: {today+timedelta(6)} – {today+timedelta(60)}."),
-            (_task_id("ffm-inc-5"), loc_ffm, _res_id("kif-ffm-1"), "RESERVATION_RECEIVED", "MEDIUM",
-             "Eingehende Anfrage: AZR-2024-KIF-M-RES06",
-             f"Kiefersfelden bittet um Aufnahme von AZR-2024-KIF-M-RES06 "
-             f"(männlich, Iran, *1978). Zeitraum: {today+timedelta(5)} – {today+timedelta(55)}."),
-            (_task_id("ffm-inc-6"), loc_ffm, _res_id("kif-ffm-2"), "RESERVATION_RECEIVED", "MEDIUM",
-             "Eingehende Anfrage: AZR-2024-KIF-W-RES07",
-             f"Kiefersfelden bittet um Aufnahme von AZR-2024-KIF-W-RES07 "
-             f"(weiblich, Türkei, *2001). Zeitraum: {today+timedelta(5)} – {today+timedelta(55)}."),
-            # Frankfurt: 12-Wochen-Warnungen
-            (_task_id("ffm-12w-1"), loc_ffm, None, "RESERVATION_CONFIRMED", "MEDIUM",
-             "12-Wochen-Warnung: 5 Belegungen laufen bald ab",
-             "AZR-2024-FFM-AAM01, -AIM02, -ABM03 (Raum A) und AZR-2024-FFM-BAW01, -BAW02 (Raum B) "
-             "erreichen in < 12 Wochen ihr Belegungsende. Bitte prüfen und Übergabe planen."),
-            # Frankfurt: Kapazitätsmeldung
-            (_task_id("ffm-cap-1"), loc_ffm, None, "RESERVATION_CONFIRMED", "LOW",
-             "Kapazität: Frankfurt bei 75 % (30/40 Plätze)",
-             f"Noch 10 freie Kontingentplätze. "
-             f"6 offene eingehende Verlegungsanfragen noch nicht bearbeitet."),
-            # München: kritisch
-            (_task_id("muc-cap-1"), loc_muc, None, "RESERVATION_CONFIRMED", "HIGH",
-             "Kapazität kritisch: München bei 97 % (29/30 Plätze)",
-             "Nur noch 1 freier Platz (Raum D 2). "
-             "3 Anfragen an Frankfurt, 1 an Hamburg gesendet. Abwarten auf Bestätigung."),
-            (_task_id("muc-inc-1"), loc_muc, _res_id("ham-muc-1"), "RESERVATION_RECEIVED", "MEDIUM",
-             "Eingehende Anfrage: AZR-2024-HAM-W-RES05",
-             f"Hamburg bittet um Aufnahme von AZR-2024-HAM-W-RES05 "
-             f"(weiblich, Somalia, *1999). Zeitraum: {today+timedelta(7)} – {today+timedelta(50)}."),
-            # Passau: ausgehende Anfrage bestätigt
-            (_task_id("pas-out-1"), loc_pas, _res_id("ffm-pas-1"), "RESERVATION_CONFIRMED", "LOW",
-             "Verlegungsanfrage bestätigt: AZR-2024-FFM-M-RES08 → Passau",
-             f"Frankfurt hat die Übernahme von AZR-2024-FFM-M-RES08 (männlich, Pakistan, *1990) "
-             f"zum {today-timedelta(3)} bestätigt. Bett bitte freigeben."),
-            # Hamburg: abgelehnte ausgehende Anfrage
-            (_task_id("ham-rej-1"), loc_muc, _res_id("muc-ham-1"), "RESERVATION_CONFIRMED", "LOW",
-             "Verlegungsanfrage abgelehnt: AZR-2024-MUC-W-RES09",
-             f"Hamburg hat die Anfrage für AZR-2024-MUC-W-RES09 (weiblich, Äthiopien, *1985) "
-             f"abgelehnt. Bitte alternative Einrichtung suchen."),
-            # Kiefersfelden: Kapazitätsmeldung
-            (_task_id("kif-cap-1"), loc_kif, None, "RESERVATION_CONFIRMED", "MEDIUM",
-             "Kapazität: Kiefersfelden bei 53 % (8/15 Plätze)",
-             f"Einrichtung ist in Betrieb bis {today+timedelta(180)}. "
-             f"2 offene Anfragen an Frankfurt. Gültigkeitszeitraum: bis {today+timedelta(180)}."),
-        ]
-
-        for (tid, loc_id, rel_res_id, task_type, priority, title, body_text) in tasks:
-            cur.execute("""
-                INSERT INTO tasks.inbox
-                    (id, location_id, related_reservation_id, task_type,
-                     priority, status, title, body, created_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, 'OPEN', %s, %s, NOW(), NOW())
-            """, (tid, loc_id, rel_res_id, task_type, priority, title, body_text))
-
         conn.commit()
-
-        n_pending   = sum(1 for r in reservations if r[9] == "PENDING")
-        n_confirmed = sum(1 for r in reservations if r[9] == "CONFIRMED")
-        n_rejected  = sum(1 for r in reservations if r[9] == "REJECTED")
 
         n_warte = sum(len(v) for v in ANKUNFT_OCCUPANCY.values())
         print(
@@ -713,9 +621,9 @@ def main() -> None:
             f"  {n_occ} aktuelle Belegungen (inkl. {n_warte} Personen im Wartebereich)\n"
             f"  {n_hist} historische Belegungen (12 Monate, saisonal)\n"
             f"  {n_kh} Kontingent-History-Einträge\n"
-            f"  {n_reservations} Verlegungsanfragen "
-            f"({n_pending} PENDING · {n_confirmed} CONFIRMED · {n_rejected} REJECTED)\n"
-            f"  {len(tasks)} Postkorb-Aufgaben\n"
+            f"  0 Verlegungsanfragen — sauber für initiales Testen\n"
+            f"  0 Postkorb-Aufgaben — Postkorb leer\n"
+            f"  Protokoll geleert\n"
             f"  EU-Gesamtquote = {EU_GESAMTQUOTE}\n"
             f"\nBelegungsgrade (Kontingent):\n"
             f"  Frankfurt:      30/40 = 75 %  (Gelb)\n"

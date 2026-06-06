@@ -59,7 +59,7 @@ def _to_room(m: RoomModel) -> Room:
         geschlechts_designation=GenderDesignation(m.geschlechts_designation),
         is_active=m.is_active,
         room_type=m.room_type,
-        labels=list(m.labels or []),
+        labels=[],  # Labels werden via junction table separat geladen
         valid_from=m.valid_from,
         valid_until=m.valid_until,
     )
@@ -73,7 +73,7 @@ def _to_bed(m: BedModel) -> Bed:
         bett_typ=BedType(m.bett_typ),
         is_active=m.is_active,
         deaktiviert_ab=m.deaktiviert_ab,
-        labels=list(m.labels or []),
+        labels=[],  # Labels werden via junction table separat geladen
         valid_from=m.valid_from,
     )
 

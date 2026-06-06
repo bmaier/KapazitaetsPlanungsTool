@@ -22,11 +22,12 @@ export interface LabelCatalogEntry {
   category: string
   entity_types: string[]
   color: string
+  is_system?: boolean
 }
 
 interface Props {
   labels: string[]
-  entityType: 'ROOM' | 'BED' | 'OCCUPANCY'
+  entityType: 'ROOM' | 'BED' | 'OCCUPANCY' | 'LOCATION'
   entityId: string
   readOnly?: boolean
   compact?: boolean
@@ -114,6 +115,7 @@ export default function LabelChips({ labels, entityType, entityId, readOnly = fa
         ROOM: `/api/rooms/${entityId}/labels`,
         BED: `/api/beds/${entityId}/labels`,
         OCCUPANCY: `/api/occupancy/${entityId}/labels`,
+        LOCATION: `/api/locations/${entityId}/labels`,
       }
       await patch(pathMap[entityType], { labels: current })
       onSaved?.(current)
@@ -188,7 +190,12 @@ export default function LabelChips({ labels, entityType, entityId, readOnly = fa
       <Box display="flex" flexWrap="wrap" gap={0.5} mb={current.length > 0 ? 1.5 : 0}>
         {current.map((label) => {
           const color = getLabelColor(label, catalog)
-          const isLocked = lockedLabels.includes(label)
+          const catalogEntry = catalog.find((e) => e.name === label)
+          const isSystemLabel = catalogEntry?.is_system === true
+          const isLocked = lockedLabels.includes(label) || isSystemLabel
+          const lockTitle = isSystemLabel
+            ? 'Pflicht-Label — kann nicht entfernt werden'
+            : (lockedTooltip ?? 'Label kann nicht entfernt werden')
           const chip = (
             <Chip
               key={label}
@@ -200,7 +207,7 @@ export default function LabelChips({ labels, entityType, entityId, readOnly = fa
             />
           )
           return isLocked ? (
-            <Tooltip key={label} title={lockedTooltip ?? 'Label kann nicht entfernt werden'} arrow>
+            <Tooltip key={label} title={lockTitle} arrow>
               <span>{chip}</span>
             </Tooltip>
           ) : chip

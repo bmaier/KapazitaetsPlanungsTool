@@ -285,12 +285,21 @@ class RoomBedStatus(BaseModel):
 class LabelCatalogEntry(BaseModel):
     name: str
     category: str
-    entity_types: list[str]  # ROOM, BED, OCCUPANCY
+    entity_types: list[str]  # ROOM, BED, OCCUPANCY, LOCATION — immer genau ein Element nach Migration
     color: str
+    is_system: bool = False
 
 
 class LabelCatalogResponse(BaseModel):
     items: list[LabelCatalogEntry]
+
+
+class LabelCatalogCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    entity_type: str = Field(..., pattern=r'^(ROOM|BED|OCCUPANCY|LOCATION)$')
+    category: str = Field(..., min_length=1, max_length=100)
+    color: str = Field(default='#757575', pattern=r'^#[0-9a-fA-F]{6}$')
+    sort_order: int = Field(default=0, ge=0)
 
 
 class LabelsUpdateRequest(BaseModel):

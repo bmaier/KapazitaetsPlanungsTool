@@ -35,6 +35,7 @@ from src.api.capacity.schemas import (
     EuQuotaUpdate,
     KontingentReportLocation,
     KontingentReportResponse,
+    LabelCatalogCreateRequest,
     LabelCatalogEntry,
     LabelCatalogResponse,
     LabelsUpdateRequest,
@@ -66,47 +67,6 @@ from src.domain.reservations.rules import (
 )
 
 router = APIRouter(tags=["capacity"])
-
-
-
-
-# ---------------------------------------------------------------------------
-# Label Catalog (hardcoded — kein DB-Model nötig)
-# ---------------------------------------------------------------------------
-
-LABEL_CATALOG = [
-    # ROOM
-    {"name": "Rollstuhlgerecht", "category": "Ausstattung", "entity_types": ["ROOM"], "color": "#1565c0"},
-    {"name": "Erdgeschoss", "category": "Ausstattung", "entity_types": ["ROOM"], "color": "#1565c0"},
-    {"name": "Barrierefreiheit", "category": "Ausstattung", "entity_types": ["ROOM", "BED"], "color": "#1565c0"},
-    {"name": "Ruhig", "category": "Ausstattung", "entity_types": ["ROOM"], "color": "#2e7d32"},
-    {"name": "Klimaanlage", "category": "Ausstattung", "entity_types": ["ROOM"], "color": "#2e7d32"},
-    {"name": "Familienraum", "category": "Eignung", "entity_types": ["ROOM"], "color": "#6a1b9a"},
-    {"name": "Männer", "category": "Geschlecht", "entity_types": ["ROOM"], "color": "#1565c0"},
-    {"name": "Frauen", "category": "Geschlecht", "entity_types": ["ROOM"], "color": "#880e4f"},
-    {"name": "Gemischt", "category": "Geschlecht", "entity_types": ["ROOM"], "color": "#4a148c"},
-    # BED
-    {"name": "Unteres Bett", "category": "Position", "entity_types": ["BED"], "color": "#e65100"},
-    {"name": "Oberes Bett", "category": "Position", "entity_types": ["BED"], "color": "#e65100"},
-    {"name": "Bodeneben", "category": "Position", "entity_types": ["BED"], "color": "#e65100"},
-    {"name": "Breites Bett", "category": "Typ", "entity_types": ["BED"], "color": "#00695c"},
-    {"name": "Kinderbett", "category": "Typ", "entity_types": ["BED"], "color": "#6a1b9a"},
-    # OCCUPANCY
-    {"name": "Kind", "category": "Schutz", "entity_types": ["OCCUPANCY"], "color": "#6a1b9a"},
-    {"name": "Unbegleitete Minderjährige", "category": "Schutz", "entity_types": ["OCCUPANCY"], "color": "#b71c1c"},
-    {"name": "Pflegebedarf", "category": "Schutz", "entity_types": ["OCCUPANCY"], "color": "#b71c1c"},
-    {"name": "Mobilitätseinschränkung", "category": "Schutz", "entity_types": ["OCCUPANCY", "BED", "ROOM"], "color": "#e65100"},
-    {"name": "Arabisch", "category": "Sprache", "entity_types": ["OCCUPANCY"], "color": "#00796b"},
-    {"name": "Farsi/Dari", "category": "Sprache", "entity_types": ["OCCUPANCY"], "color": "#00796b"},
-    {"name": "Türkisch", "category": "Sprache", "entity_types": ["OCCUPANCY"], "color": "#00796b"},
-    {"name": "Englisch", "category": "Sprache", "entity_types": ["OCCUPANCY"], "color": "#00796b"},
-    {"name": "Französisch", "category": "Sprache", "entity_types": ["OCCUPANCY"], "color": "#00796b"},
-    {"name": "Russisch", "category": "Sprache", "entity_types": ["OCCUPANCY"], "color": "#00796b"},
-    {"name": "Halal", "category": "Hinweis", "entity_types": ["OCCUPANCY"], "color": "#558b2f"},
-    {"name": "Vegetarisch", "category": "Hinweis", "entity_types": ["OCCUPANCY"], "color": "#558b2f"},
-    {"name": "Familienmitglied", "category": "Gruppe", "entity_types": ["OCCUPANCY"], "color": "#6a1b9a"},
-    {"name": "Alleinstehend", "category": "Gruppe", "entity_types": ["OCCUPANCY"], "color": "#455a64"},
-]
 
 
 # ---------------------------------------------------------------------------
@@ -262,14 +222,18 @@ async def list_locations(
     session: AsyncSession = Depends(get_session),
 ):
     """Listet alle aktiven Einrichtungen. Mit ?include_inactive=true auch inaktive."""
-    where_clause = "" if include_inactive else "WHERE is_active = true"
+    where_clause = "" if include_inactive else "WHERE l.is_active = true"
     result = await session.execute(
         text(f"""
-            SELECT id, name, adresse, kontingent, notbett_kapazitaet, is_active,
-                   labels, lat, lon, valid_from, valid_until, show_on_map
-            FROM capacity.locations
+            SELECT l.id, l.name, l.adresse, l.kontingent, l.notbett_kapazitaet, l.is_active,
+                   l.lat, l.lon, l.valid_from, l.valid_until, l.show_on_map,
+                   COALESCE(array_agg(ll.label_name) FILTER (WHERE ll.label_name IS NOT NULL), ARRAY[]::TEXT[]) AS labels
+            FROM capacity.locations l
+            LEFT JOIN capacity.location_labels ll ON ll.location_id = l.id
             {where_clause}
-            ORDER BY name
+            GROUP BY l.id, l.name, l.adresse, l.kontingent, l.notbett_kapazitaet, l.is_active,
+                     l.lat, l.lon, l.valid_from, l.valid_until, l.show_on_map
+            ORDER BY l.name
         """)
     )
     rows = result.mappings().all()
@@ -363,10 +327,14 @@ async def get_location(
     """Gibt eine einzelne Einrichtung zurück."""
     result = await session.execute(
         text("""
-            SELECT id, name, adresse, kontingent, notbett_kapazitaet, is_active,
-                   labels, lat, lon, valid_from, valid_until, show_on_map
-            FROM capacity.locations
-            WHERE id = :id
+            SELECT l.id, l.name, l.adresse, l.kontingent, l.notbett_kapazitaet, l.is_active,
+                   l.lat, l.lon, l.valid_from, l.valid_until, l.show_on_map,
+                   COALESCE(array_agg(ll.label_name) FILTER (WHERE ll.label_name IS NOT NULL), ARRAY[]::TEXT[]) AS labels
+            FROM capacity.locations l
+            LEFT JOIN capacity.location_labels ll ON ll.location_id = l.id
+            WHERE l.id = :id
+            GROUP BY l.id, l.name, l.adresse, l.kontingent, l.notbett_kapazitaet, l.is_active,
+                     l.lat, l.lon, l.valid_from, l.valid_until, l.show_on_map
         """),
         {"id": str(location_id)},
     )
@@ -398,6 +366,7 @@ async def update_location(
 ):
     """Aktualisiert Felder einer Einrichtung inkl. Labels, Koordinaten und Gültigkeitsdaten."""
     updates: dict = {}
+    new_labels: list[str] | None = None
     if body.name is not None:
         updates["name"] = body.name
     if body.adresse is not None:
@@ -409,7 +378,7 @@ async def update_location(
     if body.notbett_kapazitaet is not None:
         updates["notbett_kapazitaet"] = body.notbett_kapazitaet
     if body.labels is not None:
-        updates["labels"] = body.labels
+        new_labels = body.labels  # junction table — separat behandeln
     if body.lat is not None:
         updates["lat"] = body.lat
     if body.lon is not None:
@@ -423,7 +392,7 @@ async def update_location(
     if body.show_on_map is not None:
         updates["show_on_map"] = body.show_on_map
 
-    if not updates:
+    if not updates and new_labels is None:
         raise HTTPException(status_code=422, detail="Keine Felder zum Aktualisieren")
 
     # Kontingent-Schutz: nicht unter aktuelle Belegung
@@ -448,27 +417,57 @@ async def update_location(
                 detail=f"Aktuelle Belegung ({belegt} Plätze) übersteigt das neue Kontingent ({body.kontingent}). Erst ausbuchen oder verlegen."
             )
 
-    updates["id"] = str(location_id)
-    set_parts = []
-    for k in (k for k in updates if k != "id"):
-        if k == "labels":
-            set_parts.append("labels = CAST(:labels AS TEXT[])")
-        else:
-            set_parts.append(f"{k} = :{k}")
-    set_clause = ", ".join(set_parts)
-    result = await session.execute(
-        text(
-            f"UPDATE capacity.locations SET {set_clause}, updated_at = NOW() "
-            f"WHERE id = :id RETURNING id, name, adresse, kontingent, notbett_kapazitaet, "
-            f"is_active, labels, lat, lon, valid_from, valid_until, show_on_map"
-        ),
-        updates,
-    )
-    row = result.mappings().one_or_none()
-    if not row:
-        raise HTTPException(status_code=404, detail="Einrichtung nicht gefunden")
+    kontingent_value: int | None = None
+    if updates:
+        updates["id"] = str(location_id)
+        set_parts = [f"{k} = :{k}" for k in updates if k != "id"]
+        set_clause = ", ".join(set_parts)
+        result = await session.execute(
+            text(
+                f"UPDATE capacity.locations SET {set_clause}, updated_at = NOW() "
+                f"WHERE id = :id RETURNING id, kontingent"
+            ),
+            updates,
+        )
+        upd_row = result.fetchone()
+        if not upd_row:
+            raise HTTPException(status_code=404, detail="Einrichtung nicht gefunden")
+        kontingent_value = upd_row.kontingent
+    else:
+        # Only labels changed — verify existence
+        exists = (await session.execute(
+            text("SELECT kontingent FROM capacity.locations WHERE id = :id"),
+            {"id": str(location_id)},
+        )).fetchone()
+        if not exists:
+            raise HTTPException(status_code=404, detail="Einrichtung nicht gefunden")
+        kontingent_value = exists.kontingent
 
-    if body.kontingent is not None:
+    # Labels über junction table setzen
+    if new_labels is not None:
+        if new_labels:
+            known = (await session.execute(
+                text("SELECT name FROM capacity.label_catalog WHERE entity_type = 'LOCATION' AND name = ANY(CAST(:names AS TEXT[]))"),
+                {"names": new_labels},
+            )).scalars().all()
+            missing = [n for n in new_labels if n not in known]
+            if missing:
+                raise HTTPException(status_code=422, detail=f"Labels nicht im Katalog: {missing}")
+        await session.execute(
+            text("DELETE FROM capacity.location_labels WHERE location_id = :id"),
+            {"id": str(location_id)},
+        )
+        if new_labels:
+            await session.execute(
+                text("""
+                    INSERT INTO capacity.location_labels (location_id, label_name, label_entity_type)
+                    SELECT :id, name, 'LOCATION'
+                    FROM unnest(CAST(:names AS TEXT[])) AS name
+                """),
+                {"id": str(location_id), "names": new_labels},
+            )
+
+    if body.kontingent is not None and kontingent_value is not None:
         await session.execute(
             text("""
                 INSERT INTO capacity.kontingent_history (id, location_id, kontingent_value, valid_from, actor_id)
@@ -476,24 +475,41 @@ async def update_location(
             """),
             {
                 "location_id": str(location_id),
-                "kontingent_value": row["kontingent"],
+                "kontingent_value": kontingent_value,
                 "actor_id": user.sub,
             },
         )
 
+    # Aktuellen Stand holen (inkl. labels via junction)
+    final = (await session.execute(
+        text("""
+            SELECT l.id, l.name, l.adresse, l.kontingent, l.notbett_kapazitaet, l.is_active,
+                   l.lat, l.lon, l.valid_from, l.valid_until, l.show_on_map,
+                   COALESCE(array_agg(ll.label_name) FILTER (WHERE ll.label_name IS NOT NULL), ARRAY[]::TEXT[]) AS labels
+            FROM capacity.locations l
+            LEFT JOIN capacity.location_labels ll ON ll.location_id = l.id
+            WHERE l.id = :id
+            GROUP BY l.id, l.name, l.adresse, l.kontingent, l.notbett_kapazitaet, l.is_active,
+                     l.lat, l.lon, l.valid_from, l.valid_until, l.show_on_map
+        """),
+        {"id": str(location_id)},
+    )).mappings().one_or_none()
+    if not final:
+        raise HTTPException(status_code=404, detail="Einrichtung nicht gefunden")
+
     return LocationResponse(
-        id=row["id"],
-        name=row["name"],
-        adresse=row["adresse"],
-        kontingent=row["kontingent"],
-        notbett_kapazitaet=row["notbett_kapazitaet"],
-        is_active=row["is_active"],
-        labels=list(row["labels"] or []),
-        lat=row["lat"],
-        lon=row["lon"],
-        valid_from=row["valid_from"],
-        valid_until=row["valid_until"],
-        show_on_map=row["show_on_map"],
+        id=final["id"],
+        name=final["name"],
+        adresse=final["adresse"],
+        kontingent=final["kontingent"],
+        notbett_kapazitaet=final["notbett_kapazitaet"],
+        is_active=final["is_active"],
+        labels=list(final["labels"] or []),
+        lat=final["lat"],
+        lon=final["lon"],
+        valid_from=final["valid_from"],
+        valid_until=final["valid_until"],
+        show_on_map=final["show_on_map"],
     )
 
 
@@ -519,13 +535,13 @@ async def get_bed_status(
               r.name      AS room_name,
               r.geschlechts_designation,
               r.room_type,
-              r.labels    AS room_labels,
+              COALESCE((SELECT array_agg(rl.label_name) FROM capacity.room_labels rl WHERE rl.room_id = r.id), ARRAY[]::TEXT[]) AS room_labels,
               r.valid_from AS room_valid_from,
               r.valid_until AS room_valid_until,
               b.id        AS bed_id,
               b.bett_nummer,
               b.bett_typ,
-              b.labels    AS bed_labels,
+              COALESCE((SELECT array_agg(bl.label_name) FROM capacity.bed_labels bl WHERE bl.bed_id = b.id), ARRAY[]::TEXT[]) AS bed_labels,
               b.deaktiviert_ab,
               b.valid_from AS bed_valid_from,
               CASE
@@ -539,7 +555,7 @@ async def get_bed_status(
               o.geschlecht AS occ_geschlecht,
               o.belegung_start,
               o.belegung_ende,
-              o.labels    AS occ_labels,
+              COALESCE((SELECT array_agg(ol.label_name) FROM persons.occupant_labels ol WHERE ol.occupant_id = o.id), ARRAY[]::TEXT[]) AS occ_labels,
               o.extended_once,
               rr.id       AS reservation_id,
               rr.azr_id   AS reservation_azr_id,
@@ -725,10 +741,14 @@ async def search_occupants(
         where_clauses.append("(o.azr_id ILIKE :term OR o.alias_id ILIKE :term)")
 
     if label_list:
-        # All requested labels must appear in o.labels (AND logic)
-        # Use PostgreSQL array literal to avoid asyncpg type-encoding issues
-        params["label_filter"] = label_list
-        where_clauses.append("o.labels @> CAST(:label_filter AS TEXT[])")
+        # All requested labels must appear in occupant_labels (AND logic via junction table)
+        for idx, lbl in enumerate(label_list):
+            param_key = f"lbl_{idx}"
+            params[param_key] = lbl
+            where_clauses.append(
+                f"EXISTS (SELECT 1 FROM persons.occupant_labels ol{idx} "
+                f"WHERE ol{idx}.occupant_id = o.id AND ol{idx}.label_name = :{param_key})"
+            )
 
     where_sql = " AND ".join(where_clauses)
 
@@ -741,16 +761,16 @@ async def search_occupants(
               o.geschlecht,
               o.belegung_start,
               o.belegung_ende,
-              o.labels      AS occ_labels,
+              COALESCE((SELECT array_agg(ol.label_name) FROM persons.occupant_labels ol WHERE ol.occupant_id = o.id), ARRAY[]::TEXT[]) AS occ_labels,
               b.id          AS bed_id,
               b.bett_nummer,
               b.bett_typ,
-              b.labels      AS bed_labels,
+              COALESCE((SELECT array_agg(bl.label_name) FROM capacity.bed_labels bl WHERE bl.bed_id = b.id), ARRAY[]::TEXT[]) AS bed_labels,
               r.id          AS room_id,
               r.name        AS room_name,
               r.room_type,
               r.geschlechts_designation,
-              r.labels      AS room_labels,
+              COALESCE((SELECT array_agg(rl.label_name) FROM capacity.room_labels rl WHERE rl.room_id = r.id), ARRAY[]::TEXT[]) AS room_labels,
               l.id          AS location_id,
               l.name        AS location_name
             FROM persons.occupants o
@@ -772,13 +792,37 @@ async def set_location_labels(
     session: AsyncSession = Depends(get_session),
     _: UserContext = Depends(get_current_user),
 ):
-    """Setzt die Labels einer Einrichtung (vollständiges Ersetzen)."""
-    result = await session.execute(
-        text("UPDATE capacity.locations SET labels = CAST(:labels AS TEXT[]), updated_at = NOW() WHERE id = :id RETURNING id"),
-        {"labels": body.labels, "id": str(location_id)},
-    )
-    if result.rowcount == 0:
+    """Setzt die Labels einer Einrichtung (vollständiges Ersetzen, junction table)."""
+    # Prüfen ob Location existiert
+    exists = (await session.execute(
+        text("SELECT 1 FROM capacity.locations WHERE id = :id"),
+        {"id": str(location_id)},
+    )).fetchone()
+    if not exists:
         raise HTTPException(status_code=404, detail="Einrichtung nicht gefunden")
+    # Validierung gegen Katalog
+    if body.labels:
+        valid = (await session.execute(
+            text("SELECT name FROM capacity.label_catalog WHERE entity_type = 'LOCATION' AND name = ANY(:names)"),
+            {"names": body.labels},
+        )).scalars().all()
+        invalid = set(body.labels) - set(valid)
+        if invalid:
+            raise HTTPException(status_code=422, detail=f"Labels nicht im Katalog: {sorted(invalid)}")
+    # Replace: DELETE + INSERT
+    await session.execute(
+        text("DELETE FROM capacity.location_labels WHERE location_id = :id"),
+        {"id": str(location_id)},
+    )
+    if body.labels:
+        await session.execute(
+            text("""
+                INSERT INTO capacity.location_labels (location_id, label_name, label_entity_type)
+                SELECT :id, name, 'LOCATION'
+                FROM unnest(CAST(:names AS TEXT[])) AS name
+            """),
+            {"id": str(location_id), "names": body.labels},
+        )
     return {"labels": body.labels}
 
 
@@ -878,24 +922,35 @@ async def list_rooms(
     session: AsyncSession = Depends(get_session),
 ):
     """Listet alle aktiven Räume einer Einrichtung. Mit ?include_inactive=true auch inaktive."""
-    repo = SqlRoomRepo(session)
-    if include_inactive:
-        rooms = await repo.list_all_for_location(location_id)
-    else:
-        rooms = await repo.list_active_for_location(location_id)
+    active_filter = "" if include_inactive else "AND r.is_active = true"
+    result = await session.execute(
+        text(f"""
+            SELECT r.id, r.location_id, r.name, r.geschlechts_designation, r.room_type,
+                   r.is_active, r.valid_from, r.valid_until,
+                   COALESCE(array_agg(rl.label_name) FILTER (WHERE rl.label_name IS NOT NULL), ARRAY[]::TEXT[]) AS labels
+            FROM capacity.rooms r
+            LEFT JOIN capacity.room_labels rl ON rl.room_id = r.id
+            WHERE r.location_id = :location_id {active_filter}
+            GROUP BY r.id, r.location_id, r.name, r.geschlechts_designation, r.room_type,
+                     r.is_active, r.valid_from, r.valid_until
+            ORDER BY r.name
+        """),
+        {"location_id": str(location_id)},
+    )
+    rows = result.mappings().all()
     return [
         RoomResponse(
-            id=r.id,
-            location_id=r.location_id,
-            name=r.name,
-            geschlechts_designation=r.geschlechts_designation,
-            room_type=r.room_type,
-            is_active=r.is_active,
-            labels=list(r.labels or []),
-            valid_from=r.valid_from,
-            valid_until=r.valid_until,
+            id=row["id"],
+            location_id=row["location_id"],
+            name=row["name"],
+            geschlechts_designation=row["geschlechts_designation"],
+            room_type=row["room_type"],
+            is_active=row["is_active"],
+            labels=list(row["labels"] or []),
+            valid_from=row["valid_from"],
+            valid_until=row["valid_until"],
         )
-        for r in rooms
+        for row in rows
     ]
 
 
@@ -1468,41 +1523,113 @@ async def end_occupancy(
 @router.get("/labels", response_model=LabelCatalogResponse)
 async def get_labels(session: AsyncSession = Depends(get_session)):
     """
-    Gibt den vordefinierten Label-Katalog zurück, ergänzt um alle aktuell
-    in der DB verwendeten Labels (rooms, beds, occupants).
+    Gibt den Label-Katalog aus der DB zurück.
+    entity_types enthält genau ein Element pro Zeile (Composite PK: entity_type + name).
     """
-    result_rooms = await session.execute(
-        text("SELECT DISTINCT unnest(labels) AS label FROM capacity.rooms")
+    result = await session.execute(
+        text("""
+            SELECT name, entity_type, category, color, is_system
+            FROM capacity.label_catalog
+            ORDER BY sort_order, name
+        """)
     )
-    result_beds = await session.execute(
-        text("SELECT DISTINCT unnest(labels) AS label FROM capacity.beds")
+    rows = result.mappings().all()
+    return LabelCatalogResponse(
+        items=[
+            LabelCatalogEntry(
+                name=row["name"],
+                category=row["category"],
+                entity_types=[row["entity_type"]],
+                color=row["color"],
+                is_system=row["is_system"],
+            )
+            for row in rows
+        ]
     )
-    result_occ = await session.execute(
-        text("SELECT DISTINCT unnest(labels) AS label FROM persons.occupants")
+
+
+@router.post("/label-catalog", status_code=201)
+async def create_label_catalog_entry(
+    body: LabelCatalogCreateRequest,
+    session: AsyncSession = Depends(get_session),
+    user: UserContext = Depends(get_current_user),
+):
+    """Legt einen neuen Eintrag im Label-Katalog an. Nur system-admin."""
+    if "system-admin" not in user.roles:
+        raise HTTPException(status_code=403, detail="Nur system-admin kann den Label-Katalog verwalten")
+    try:
+        await session.execute(
+            text("""
+                INSERT INTO capacity.label_catalog
+                    (name, entity_type, is_system, category, color, sort_order)
+                VALUES (:name, :entity_type, FALSE, :category, :color, :sort_order)
+            """),
+            {
+                "name": body.name,
+                "entity_type": body.entity_type,
+                "category": body.category,
+                "color": body.color,
+                "sort_order": body.sort_order,
+            },
+        )
+    except Exception as exc:
+        exc_str = str(exc).lower()
+        if "unique" in exc_str or "duplicate" in exc_str or "primary key" in exc_str:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Label '{body.name}' für Typ '{body.entity_type}' existiert bereits",
+            )
+        raise
+    return {
+        "name": body.name,
+        "entity_type": body.entity_type,
+        "category": body.category,
+        "color": body.color,
+        "sort_order": body.sort_order,
+    }
+
+
+@router.delete("/label-catalog/{entity_type}/{label_name}", status_code=200)
+async def delete_label_catalog_entry(
+    entity_type: str,
+    label_name: str,
+    session: AsyncSession = Depends(get_session),
+    user: UserContext = Depends(get_current_user),
+):
+    """Löscht einen Label-Katalog-Eintrag. Nur system-admin. Schlägt fehl bei is_system oder Verwendung."""
+    if "system-admin" not in user.roles:
+        raise HTTPException(status_code=403, detail="Nur system-admin kann den Label-Katalog verwalten")
+
+    # Prüfen ob Label existiert und ob is_system
+    row = (await session.execute(
+        text("SELECT is_system FROM capacity.label_catalog WHERE entity_type = :et AND name = :name"),
+        {"et": entity_type, "name": label_name},
+    )).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Label nicht gefunden")
+    if row.is_system:
+        raise HTTPException(status_code=409, detail="Pflicht-Label kann nicht gelöscht werden")
+
+    # Prüfen ob Label in Verwendung (junction tables)
+    usage_checks = [
+        ("capacity.location_labels", "label_entity_type", "LOCATION"),
+        ("capacity.room_labels",     "label_entity_type", "ROOM"),
+        ("capacity.bed_labels",      "label_entity_type", "BED"),
+        ("persons.occupant_labels",  "label_entity_type", "OCCUPANCY"),
+    ]
+    for table, et_col, _ in usage_checks:
+        used = (await session.execute(
+            text(f"SELECT 1 FROM {table} WHERE label_name = :name AND {et_col} = :et LIMIT 1"),
+            {"name": label_name, "et": entity_type},
+        )).fetchone()
+        if used:
+            raise HTTPException(status_code=409, detail="Label ist in Verwendung und kann nicht gelöscht werden")
+
+    await session.execute(
+        text("DELETE FROM capacity.label_catalog WHERE entity_type = :et AND name = :name"),
+        {"et": entity_type, "name": label_name},
     )
-
-    in_use = set()
-    for row in result_rooms.mappings().all():
-        in_use.add(row["label"])
-    for row in result_beds.mappings().all():
-        in_use.add(row["label"])
-    for row in result_occ.mappings().all():
-        in_use.add(row["label"])
-
-    catalog_names = {entry["name"] for entry in LABEL_CATALOG}
-    catalog_entries = [LabelCatalogEntry(**entry) for entry in LABEL_CATALOG]
-
-    # Add any in-use labels not yet in the predefined catalog as generic entries
-    for label in sorted(in_use):
-        if label not in catalog_names:
-            catalog_entries.append(LabelCatalogEntry(
-                name=label,
-                category="Sonstige",
-                entity_types=["ROOM", "BED", "OCCUPANCY"],
-                color="#757575",
-            ))
-
-    return LabelCatalogResponse(items=catalog_entries)
+    return {"deleted": True}
 
 
 @router.patch("/rooms/{room_id}/labels", status_code=200)
@@ -1511,13 +1638,34 @@ async def set_room_labels(
     body: LabelsUpdateRequest,
     session: AsyncSession = Depends(get_session),
 ):
-    """Setzt die Labels eines Raums (vollständiges Ersetzen)."""
-    result = await session.execute(
-        text("UPDATE capacity.rooms SET labels = CAST(:labels AS TEXT[]) WHERE id = :id RETURNING id"),
-        {"labels": body.labels, "id": str(room_id)},
-    )
-    if result.rowcount == 0:
+    """Setzt die Labels eines Raums (vollständiges Ersetzen, junction table)."""
+    exists = (await session.execute(
+        text("SELECT 1 FROM capacity.rooms WHERE id = :id"),
+        {"id": str(room_id)},
+    )).fetchone()
+    if not exists:
         raise HTTPException(status_code=404, detail="Raum nicht gefunden")
+    if body.labels:
+        valid = (await session.execute(
+            text("SELECT name FROM capacity.label_catalog WHERE entity_type = 'ROOM' AND name = ANY(:names)"),
+            {"names": body.labels},
+        )).scalars().all()
+        invalid = set(body.labels) - set(valid)
+        if invalid:
+            raise HTTPException(status_code=422, detail=f"Labels nicht im Katalog: {sorted(invalid)}")
+    await session.execute(
+        text("DELETE FROM capacity.room_labels WHERE room_id = :id"),
+        {"id": str(room_id)},
+    )
+    if body.labels:
+        await session.execute(
+            text("""
+                INSERT INTO capacity.room_labels (room_id, label_name, label_entity_type)
+                SELECT :id, name, 'ROOM'
+                FROM unnest(CAST(:names AS TEXT[])) AS name
+            """),
+            {"id": str(room_id), "names": body.labels},
+        )
     return {"labels": body.labels}
 
 
@@ -1527,13 +1675,34 @@ async def set_bed_labels(
     body: LabelsUpdateRequest,
     session: AsyncSession = Depends(get_session),
 ):
-    """Setzt die Labels eines Betts (vollständiges Ersetzen)."""
-    result = await session.execute(
-        text("UPDATE capacity.beds SET labels = CAST(:labels AS TEXT[]) WHERE id = :id RETURNING id"),
-        {"labels": body.labels, "id": str(bed_id)},
-    )
-    if result.rowcount == 0:
+    """Setzt die Labels eines Betts (vollständiges Ersetzen, junction table)."""
+    exists = (await session.execute(
+        text("SELECT 1 FROM capacity.beds WHERE id = :id"),
+        {"id": str(bed_id)},
+    )).fetchone()
+    if not exists:
         raise HTTPException(status_code=404, detail="Bett nicht gefunden")
+    if body.labels:
+        valid = (await session.execute(
+            text("SELECT name FROM capacity.label_catalog WHERE entity_type = 'BED' AND name = ANY(:names)"),
+            {"names": body.labels},
+        )).scalars().all()
+        invalid = set(body.labels) - set(valid)
+        if invalid:
+            raise HTTPException(status_code=422, detail=f"Labels nicht im Katalog: {sorted(invalid)}")
+    await session.execute(
+        text("DELETE FROM capacity.bed_labels WHERE bed_id = :id"),
+        {"id": str(bed_id)},
+    )
+    if body.labels:
+        await session.execute(
+            text("""
+                INSERT INTO capacity.bed_labels (bed_id, label_name, label_entity_type)
+                SELECT :id, name, 'BED'
+                FROM unnest(CAST(:names AS TEXT[])) AS name
+            """),
+            {"id": str(bed_id), "names": body.labels},
+        )
     return {"labels": body.labels}
 
 
@@ -1543,13 +1712,34 @@ async def set_occupancy_labels(
     body: LabelsUpdateRequest,
     session: AsyncSession = Depends(get_session),
 ):
-    """Setzt die Labels einer Belegung (vollständiges Ersetzen)."""
-    result = await session.execute(
-        text("UPDATE persons.occupants SET labels = CAST(:labels AS TEXT[]) WHERE id = :id RETURNING id"),
-        {"labels": body.labels, "id": str(occupancy_id)},
-    )
-    if result.rowcount == 0:
+    """Setzt die Labels einer Belegung (vollständiges Ersetzen, junction table)."""
+    exists = (await session.execute(
+        text("SELECT 1 FROM persons.occupants WHERE id = :id"),
+        {"id": str(occupancy_id)},
+    )).fetchone()
+    if not exists:
         raise HTTPException(status_code=404, detail="Belegung nicht gefunden")
+    if body.labels:
+        valid = (await session.execute(
+            text("SELECT name FROM capacity.label_catalog WHERE entity_type = 'OCCUPANCY' AND name = ANY(:names)"),
+            {"names": body.labels},
+        )).scalars().all()
+        invalid = set(body.labels) - set(valid)
+        if invalid:
+            raise HTTPException(status_code=422, detail=f"Labels nicht im Katalog: {sorted(invalid)}")
+    await session.execute(
+        text("DELETE FROM persons.occupant_labels WHERE occupant_id = :id"),
+        {"id": str(occupancy_id)},
+    )
+    if body.labels:
+        await session.execute(
+            text("""
+                INSERT INTO persons.occupant_labels (occupant_id, label_name, label_entity_type)
+                SELECT :id, name, 'OCCUPANCY'
+                FROM unnest(CAST(:names AS TEXT[])) AS name
+            """),
+            {"id": str(occupancy_id), "names": body.labels},
+        )
     return {"labels": body.labels}
 
 

@@ -340,6 +340,20 @@ Neues Feld `show_on_map: bool` (default `true`) in `capacity.locations`. Admin-T
 
 ---
 
+## Review-Findings (spec-label-verwaltung-db-junction-tables.md) — Zurückgestellt 2026-06-06
+
+Gefunden beim Review von Story Label-Verwaltung. Kein Handlungsbedarf für Demo-Betrieb.
+
+- **`capacity_repo.py` `_to_room`/`_to_bed` stubs returnen `labels=[]`**: Alle ORM-gestützten Repo-Pfade (`get_by_id` etc.) liefern leere Labels. Die Main-Endpoints (list_locations, list_rooms, bed-status) wurden auf Inline-SQL migriert. Für Produktions-Hardening: auch Repo-Methoden auf Inline-SQL+LEFT JOIN migrieren oder separaten `load_labels()`-Schritt einführen.
+- **`demo_data.py` DELETE FROM tasks.inbox ohne WHERE-Scope**: Löscht alle Inbox-Tasks weltweit, nicht nur Demo-Tasks. Für Staging: WHERE location_id = ANY(%s::uuid[]) wieder einführen. Gleiche Problematik bei `DELETE FROM audit.events`.
+- **`su_conn` in demo_data.py ohne try/finally**: Superuser-Connection wird nicht geschlossen wenn `DELETE FROM audit.events` fehlschlägt. Kurzfristig harmlos (Prozess-Exit räumt auf), aber Connection-Leak bei Skript-Integrations-Tests.
+- **LabelChips: Katalog-Load-Retry nach Netzwerkfehler fehlt**: Wenn `loadCatalog()` beim ersten Aufruf fehlschlägt, bleibt `catalogLoaded.current = false` und System-Labels sind visuell entsperrt für die Session. Kein automatischer Retry. Fix: Retry im `startEdit()`-Handler wenn `catalogLoaded.current = false`.
+- **Concurrent PATCH labels Race**: DELETE+INSERT in `set_*_labels` ist nicht atomisch gegen parallele Requests. Zweiter Request kann erste INSERTs überschreiben. Fix: `SELECT ... FOR UPDATE` auf Entity-Row vor DELETE.
+- **LOCATION-Katalog leer nach Migration**: Migration 0018 fügt keine LOCATION-Typ Labels ein (der alte LABEL_CATALOG hatte keine). System-Admins müssen LOCATION-Labels selbst anlegen. Kein Fehler — Design by intent — aber als Ersteinrichtungs-Hinweis in Betriebsdokumentation aufnehmen.
+- **Color-Inkonsistenz bei gleichen Label-Namen**: Wenn ROOM und BED ein gleichnamiges Label mit unterschiedlicher Farbe haben, rendert `getLabelColor` immer die Farbe des zuerst gefundenen Eintrags (alphabetisch nach entity_type). Betrifft "Barrierefreiheit", "Mobilitätseinschränkung". Kosmetisch.
+
+---
+
 ## Ziel 3 — Kontingent-Redesign (national + Reporting) — Zurückgestellt 2026-06-04
 
 **Konzept:** `eu_gesamtquote` (bereits in `SystemSettingsModel`) ist das nationale Gesamt-Kontingent (EU/Bund). Es wird vom system-admin auf Locations verteilt — das bestehende `kontingent`-Feld per Location bleibt erhalten, wird aber nur noch durch system-admin editierbar (nicht durch Location-Writer). Reguläre Betten = `bett_typ NOT IN ('NOTBETT','WARTEPLATZ')` + `is_active=true`. Reporting: Abweichung pro Location = `kontingent` − reguläre Betten; Summe aller Abweichungen gegen `eu_gesamtquote`. Neuer Endpunkt `GET /api/system/kontingent-report` liefert die Kennzahlen. UI: neues Reporting-Panel im Dashboard (nur system-admin sichtbar).
