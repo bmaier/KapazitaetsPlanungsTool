@@ -1053,12 +1053,32 @@ async def list_beds(
 async def deactivate_bed(
     bed_id: UUID,
     session: AsyncSession = Depends(get_session),
+    _: UserContext = Depends(get_current_user),
 ):
-    """Soft-Delete eines Betts."""
+    """Soft-Delete eines Betts. Blockiert wenn Occupant oder aktive Reservierung vorhanden."""
     repo = SqlBedRepo(session)
     bed = await repo.get_by_id(bed_id)
     if not bed:
         raise HTTPException(status_code=404, detail="Bett nicht gefunden")
+
+    occ_row = await session.execute(
+        text("SELECT id FROM persons.occupants WHERE bed_id = :bid AND belegung_ende >= CURRENT_DATE LIMIT 1"),
+        {"bid": str(bed_id)},
+    )
+    if occ_row.fetchone():
+        raise HTTPException(status_code=409, detail="Bett ist aktuell belegt")
+
+    res_row = await session.execute(
+        text(
+            "SELECT id FROM reservations.requests "
+            "WHERE (suggested_bed_id = :bid OR confirmed_bed_id = :bid) "
+            "AND status IN ('PENDING','CONFIRMED') LIMIT 1"
+        ),
+        {"bid": str(bed_id)},
+    )
+    if res_row.fetchone():
+        raise HTTPException(status_code=409, detail="Bett hat eine aktive Reservierung")
+
     await repo.deactivate(bed_id)
     return {"deactivated": True}
 

@@ -44,6 +44,8 @@ import BlockIcon from '@mui/icons-material/Block'
 import ChairAltIcon from '@mui/icons-material/ChairAlt'
 import CheckBoxIcon from '@mui/icons-material/CheckBox'
 import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank'
+import PersonAddIcon from '@mui/icons-material/PersonAdd'
+import DeleteIcon from '@mui/icons-material/Delete'
 import { extractApiError, useApiClient } from '../api/client'
 import { useKeycloak } from '../auth/KeycloakProvider'
 import { useSseNotifications } from '../hooks/useSseNotifications'
@@ -582,7 +584,6 @@ export default function Drilldown() {
   const [verlegenOpen, setVerlegenOpen] = useState(false)
   const [verlegenTargetBed, setVerlegenTargetBed] = useState('')
   const [verlegenSaving, setVerlegenSaving] = useState(false)
-  const [verlegenMismatch, setVerlegenMismatch] = useState(false)
   const [verlegenMismatchGrund, setVerlegenMismatchGrund] = useState('')
   const [verlegenGrund, setVerlegenGrund] = useState('')
 
@@ -611,6 +612,17 @@ export default function Drilldown() {
   }>>([])
 
   const [selectedAnkunftBeds, setSelectedAnkunftBeds] = useState<Set<string>>(new Set())
+
+  // Schnelleinbuchen Warteplatz
+  const [wpOpen, setWpOpen] = useState(false)
+  const [wpAzrId, setWpAzrId] = useState('')
+  const [wpGeschlecht, setWpGeschlecht] = useState('M')
+  const [wpStart, setWpStart] = useState(today)
+  const [wpEnde, setWpEnde] = useState(new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10))
+  const [wpSaving, setWpSaving] = useState(false)
+
+  // Delete Warteplatz-Bett Confirm
+  const [deleteConfirmBedId, setDeleteConfirmBedId] = useState<string | null>(null)
 
   // Edit dialog extra fields
   const [editLat, setEditLat] = useState('')
@@ -685,6 +697,12 @@ export default function Drilldown() {
   const freiBeds = rooms.flatMap((r) =>
     r.beds.filter((b) => b.status === 'FREI').map((b) => ({ ...b, room_name: r.room_name, room_id: r.room_id, geschlecht: r.geschlechts_designation }))
   )
+  const verlegenTargetBedInfo = freiBeds.find((b) => b.bed_id === verlegenTargetBed)
+  const verlegenInlineMismatch = verlegenTargetBedInfo != null
+    && verlegenTargetBedInfo.bett_typ !== 'WARTEPLATZ'
+    && !verlegenTargetBedInfo.is_notbett
+    && verlegenTargetBedInfo.geschlecht !== 'D'
+    && verlegenTargetBedInfo.geschlecht !== (manageBed?.bed.occ_geschlecht ?? 'D')
 
   // Room management
   const loadMgmtRooms = useCallback(async () => {
@@ -1087,22 +1105,12 @@ export default function Drilldown() {
     if (!manageBed?.bed.occupancy_id || !verlegenTargetBed) return
     setVerlegenSaving(true)
     const src = manageBed.bed
-    const targetBedInfo = freiBeds.find((b) => b.bed_id === verlegenTargetBed)
     let verlBelegStart = src.belegung_start ?? today
     let verlBelegEnde = src.belegung_ende ?? in14
-    if (targetBedInfo?.is_notbett) {
+    if (verlegenTargetBedInfo?.is_notbett) {
       verlBelegStart = today
       const d = new Date(Date.now() + 86400000)
       verlBelegEnde = d.toISOString().slice(0, 10)
-    }
-    // Geschlecht-Mismatch: Ziel-Raum hat andere Designation als Person → erst bestätigen lassen
-    const personGeschlecht = src.occ_geschlecht ?? 'D'
-    const raumGeschlecht = targetBedInfo?.geschlecht ?? 'D'
-    if (!verlegenMismatch && raumGeschlecht !== 'D' && raumGeschlecht !== personGeschlecht
-        && !targetBedInfo?.is_notbett && targetBedInfo?.bett_typ !== 'WARTEPLATZ') {
-      setVerlegenMismatch(true)
-      setVerlegenSaving(false)
-      return
     }
     try {
       const newOcc = await post<{ id: string }>(`/api/beds/${verlegenTargetBed}/occupancy`, {
@@ -1111,9 +1119,7 @@ export default function Drilldown() {
         geschlecht: src.occ_geschlecht || 'M',
         belegung_start: verlBelegStart,
         belegung_ende: verlBelegEnde,
-        ...(verlegenMismatch && verlegenMismatchGrund.trim()
-          ? { geschlecht_mismatch_grund: verlegenMismatchGrund.trim() }
-          : {}),
+        ...(verlegenMismatchGrund.trim() ? { geschlecht_mismatch_grund: verlegenMismatchGrund.trim() } : {}),
         ...(verlegenGrund.trim() ? { verlegung_grund: verlegenGrund.trim() } : {}),
       })
       try {
@@ -1125,7 +1131,6 @@ export default function Drilldown() {
       }
       setVerlegenOpen(false)
       setManageBed(null)
-      setVerlegenMismatch(false)
       setVerlegenMismatchGrund('')
       setVerlegenGrund('')
       loadBedStatus()
@@ -1264,6 +1269,65 @@ export default function Drilldown() {
     }
   }
 
+  async function handleWpSave() {
+    if (!wpAzrId.trim() || !id) return
+    setWpSaving(true)
+    try {
+      const warteRooms = rooms.filter(r => r.room_type === 'WARTEBEREICH')
+      if (warteRooms.length === 0) {
+        setSnackbar({ open: true, message: 'Kein Wartebereich vorhanden — bitte Administrator kontaktieren.', severity: 'error' })
+        return
+      }
+      const freeBed = warteRooms.flatMap(r => r.beds.filter(b => b.status === 'FREI'))
+        .sort((a, b) => a.bett_nummer.localeCompare(b.bett_nummer, undefined, { numeric: true }))[0]
+      let targetBedId: string
+      if (freeBed) {
+        targetBedId = freeBed.bed_id
+      } else {
+        const firstRoom = warteRooms[0]
+        const allBeds = warteRooms.flatMap(r => r.beds)
+        const maxNum = allBeds.reduce((max, b) => {
+          const n = parseInt(b.bett_nummer.replace(/\D/g, ''), 10)
+          return isNaN(n) ? max : Math.max(max, n)
+        }, 0)
+        const newBed = await post<{ id: string }>(`/api/rooms/${firstRoom.room_id}/beds`, {
+          bett_nummer: String(maxNum + 1),
+          bett_typ: 'WARTEPLATZ',
+        })
+        targetBedId = newBed.id
+      }
+      await post(`/api/beds/${targetBedId}/occupancy`, {
+        azr_id: wpAzrId.trim(),
+        geschlecht: wpGeschlecht,
+        belegung_start: wpStart,
+        belegung_ende: wpEnde,
+      })
+      setWpOpen(false)
+      setWpAzrId('')
+      setWpGeschlecht('M')
+      loadBedStatus()
+      setSnackbar({ open: true, message: `${wpAzrId.trim()} im Wartebereich eingebucht.`, severity: 'success' })
+    } catch (err: unknown) {
+      const msg = extractApiError(err) ?? 'Einbuchen fehlgeschlagen'
+      setSnackbar({ open: true, message: msg, severity: 'error' })
+    } finally {
+      setWpSaving(false)
+    }
+  }
+
+  async function handleDeleteWarteplatz(bedId: string) {
+    try {
+      await del(`/api/beds/${bedId}`)
+      setDeleteConfirmBedId(null)
+      loadBedStatus()
+      setSnackbar({ open: true, message: 'Warteplatz gelöscht.', severity: 'success' })
+    } catch (err: unknown) {
+      const msg = extractApiError(err) ?? 'Löschen fehlgeschlagen'
+      setSnackbar({ open: true, message: msg, severity: 'error' })
+      setDeleteConfirmBedId(null)
+    }
+  }
+
   return (
     <Box sx={{ p: 3, maxWidth: 1200, mx: 'auto' }}>
       <Breadcrumbs sx={{ mb: 2 }}>
@@ -1376,6 +1440,13 @@ export default function Drilldown() {
                     sx={{ bgcolor: '#fff3e0', color: '#e65100', fontWeight: 600 }} />
                   <Box sx={{ flexGrow: 1 }} />
                   {canEdit && (
+                    <Button size="small" variant="contained" startIcon={<PersonAddIcon />}
+                      sx={{ bgcolor: '#e65100', '&:hover': { bgcolor: '#bf360c' } }}
+                      onClick={() => { setWpOpen(true) }}>
+                      Person auf Warteplatz
+                    </Button>
+                  )}
+                  {canEdit && (
                     <Button size="small" variant={multiSelect ? 'contained' : 'outlined'}
                       startIcon={multiSelect ? <CheckBoxIcon /> : <CheckBoxOutlineBlankIcon />}
                       sx={multiSelect
@@ -1447,6 +1518,17 @@ export default function Drilldown() {
                                 )}
                                 {hasPendingTransferAnk && (
                                   <Box sx={{ position: 'absolute', top: 3, right: 3, width: 8, height: 8, borderRadius: '50%', bgcolor: '#6a1b9a', border: '1.5px solid white' }} />
+                                )}
+                                {!isBelegt && canEdit && (
+                                  <Tooltip title="Warteplatz löschen" arrow>
+                                    <IconButton
+                                      size="small"
+                                      onClick={(e) => { e.stopPropagation(); setDeleteConfirmBedId(bed.bed_id) }}
+                                      sx={{ position: 'absolute', top: 1, right: 1, p: 0.2, color: '#b71c1c', opacity: 0.7, '&:hover': { opacity: 1, bgcolor: '#ffebee' } }}
+                                    >
+                                      <DeleteIcon sx={{ fontSize: 12 }} />
+                                    </IconButton>
+                                  </Tooltip>
                                 )}
                               </Box>
                             </Tooltip>
@@ -1777,71 +1859,103 @@ export default function Drilldown() {
       </Dialog>
 
       {/* ── Intern verlegen Dialog ── */}
-      <Dialog open={verlegenOpen} onClose={() => { setVerlegenOpen(false); setVerlegenMismatch(false); setVerlegenMismatchGrund(''); setVerlegenGrund('') }} maxWidth="sm" fullWidth>
+      <Dialog open={verlegenOpen} onClose={() => { setVerlegenOpen(false); setVerlegenMismatchGrund(''); setVerlegenGrund('') }} maxWidth="sm" fullWidth>
         <DialogTitle fontWeight={700}>Intern verlegen — Zielbett wählen</DialogTitle>
         <DialogContent sx={{ pt: 2 }}>
-          {verlegenMismatch ? (
-            <Box display="flex" flexDirection="column" gap={2}>
-              <Alert severity="warning" icon={<WarningAmberIcon />}>
-                <strong>Geschlecht-Warnung:</strong> Die Person ({manageBed?.bed.occ_geschlecht ?? '?'}) wird in einen Raum verlegt, der für{' '}
-                {genderLabel(freiBeds.find((b) => b.bed_id === verlegenTargetBed)?.geschlecht ?? 'D')} vorgesehen ist. Bitte Begründung angeben.
-              </Alert>
-              <TextField
-                label="Begründung *"
-                multiline
-                minRows={2}
-                fullWidth
-                value={verlegenMismatchGrund}
-                onChange={(e) => setVerlegenMismatchGrund(e.target.value)}
-                placeholder="z.B. Notsituation, keine anderen Betten verfügbar..."
-                autoFocus
-              />
+          {/* Person info */}
+          {manageBed && (
+            <Box sx={{ mb: 2, p: 2, border: '1px solid #e0e0e0', borderRadius: 2 }}>
+              <Box display="flex" alignItems="center" gap={1} mb={(manageBed.bed.occ_labels?.length ?? 0) > 0 ? 0.5 : 0} flexWrap="wrap">
+                {genderIcon(manageBed.bed.occ_geschlecht ?? 'D')}
+                <Typography fontWeight={600} sx={{ fontFamily: 'monospace' }}>{manageBed.bed.azr_id}</Typography>
+                {manageBed.bed.alias_id && (
+                  <Typography variant="caption" color="text.secondary">({manageBed.bed.alias_id})</Typography>
+                )}
+                <Typography variant="caption" color="text.secondary">
+                  {manageBed.bed.belegung_start} – {manageBed.bed.belegung_ende}
+                </Typography>
+              </Box>
+              {(manageBed.bed.occ_labels?.length ?? 0) > 0 && (
+                <Box display="flex" gap={0.5} flexWrap="wrap" ml={3.5}>
+                  {manageBed.bed.occ_labels!.map((l) => (
+                    <Chip key={l} label={l} size="small"
+                      sx={{ bgcolor: '#f3e5f5', color: '#6a1b9a', height: 20, fontSize: '0.7rem' }} />
+                  ))}
+                </Box>
+              )}
             </Box>
-          ) : freiBeds.filter((b) => b.bed_id !== manageBed?.bed.bed_id).length === 0 ? (
+          )}
+          {/* Bed list */}
+          {freiBeds.filter((b) => b.bed_id !== manageBed?.bed.bed_id).length === 0 ? (
             <Alert severity="warning">Keine freien Betten in dieser Einrichtung verfügbar.</Alert>
           ) : (
             <Box display="flex" flexDirection="column" gap={0}>
-              {verlegenTargetBed && freiBeds.find((b) => b.bed_id === verlegenTargetBed)?.is_notbett && (
-                <Alert severity="info" sx={{ mb: 1.5 }}>
-                  Notbett: Belegung wird auf heute + 1 Nacht angepasst (max. 1 Tag).
-                </Alert>
-              )}
-              {verlegenTargetBed && freiBeds.find((b) => b.bed_id === verlegenTargetBed)?.bett_typ === 'WARTEPLATZ' && (
-                <Alert severity="info" sx={{ mb: 1.5 }}>
-                  Warteplatz: Person wird in den Wartebereich verlegt.
-                </Alert>
-              )}
-              <Typography variant="body2" color="text.secondary" mb={1}>
-                Freie Plätze und Betten in dieser Einrichtung:
-              </Typography>
-              <Box sx={{ overflowY: 'auto', maxHeight: '40vh', display: 'flex', flexDirection: 'column', gap: 1, mb: 2 }}>
+              <Box sx={{ overflowY: 'auto', maxHeight: 220, display: 'flex', flexDirection: 'column', gap: 1, mb: 1.5 }}>
                 {freiBeds.filter((b) => b.bed_id !== manageBed?.bed.bed_id).map((b) => (
                   <Paper
                     key={b.bed_id}
                     elevation={verlegenTargetBed === b.bed_id ? 4 : 1}
-                    onClick={() => { setVerlegenTargetBed(b.bed_id); setVerlegenMismatch(false); setVerlegenMismatchGrund('') }}
+                    onClick={() => { setVerlegenTargetBed(b.bed_id); setVerlegenMismatchGrund('') }}
                     sx={{
                       p: 1.5, borderRadius: 2, cursor: 'pointer',
                       border: verlegenTargetBed === b.bed_id
                         ? `2px solid ${b.is_notbett ? '#ff9800' : b.bett_typ === 'WARTEPLATZ' ? '#e65100' : '#003366'}`
                         : '2px solid transparent',
                       bgcolor: verlegenTargetBed === b.bed_id
-                        ? b.is_notbett ? '#fff3e0' : b.bett_typ === 'WARTEPLATZ' ? '#fff8f0' : '#e3f2fd'
+                        ? (b.is_notbett ? '#fff3e0' : b.bett_typ === 'WARTEPLATZ' ? '#fff8f0' : '#e3f2fd')
                         : 'white',
                       transition: 'all 0.15s',
                     }}
                   >
-                    <Box display="flex" alignItems="center" gap={1}>
-                      <BedIcon sx={{ color: b.is_notbett ? '#ff9800' : b.bett_typ === 'WARTEPLATZ' ? '#e65100' : '#43a047' }} />
-                      <Typography fontWeight={600}>{b.room_name} — {b.bett_typ === 'WARTEPLATZ' ? 'Platz' : 'Bett'} {b.bett_nummer}</Typography>
+                    <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                      <BedIcon sx={{ color: b.is_notbett ? '#ff9800' : b.bett_typ === 'WARTEPLATZ' ? '#e65100' : '#43a047', fontSize: 20 }} />
+                      <Typography fontWeight={600} variant="body2">
+                        {b.room_name} — {b.bett_typ === 'WARTEPLATZ' ? 'Platz' : 'Bett'} {b.bett_nummer}
+                      </Typography>
                       {b.is_notbett && <Chip label="Notbett" size="small" sx={{ bgcolor: '#fff3e0', color: '#e65100', fontWeight: 600, height: 20 }} />}
                       {b.bett_typ === 'WARTEPLATZ' && <Chip label="Warteplatz" size="small" sx={{ bgcolor: '#fff3e0', color: '#e65100', fontWeight: 600, height: 20 }} />}
                       {b.bett_typ !== 'WARTEPLATZ' && <Chip label={genderLabel(b.geschlecht)} size="small"
-                        sx={{ bgcolor: genderColor(b.geschlecht) + '15', color: genderColor(b.geschlecht) }} />}
+                        sx={{ bgcolor: genderColor(b.geschlecht) + '15', color: genderColor(b.geschlecht), height: 20 }} />}
                     </Box>
+                    {((b.room_labels ?? []).length > 0 || (b.bed_labels ?? []).length > 0) && (
+                      <Box display="flex" gap={0.5} flexWrap="wrap" mt={0.5} ml={3.5}>
+                        {(b.room_labels ?? []).map((l) => (
+                          <Chip key={l} label={l} size="small"
+                            sx={{ bgcolor: '#e0f2f1', color: '#00695c', height: 18, fontSize: '0.7rem' }} />
+                        ))}
+                        {(b.bed_labels ?? []).map((l) => (
+                          <Chip key={l} label={l} size="small"
+                            sx={{ bgcolor: '#fff8e1', color: '#f57f17', height: 18, fontSize: '0.7rem' }} />
+                        ))}
+                      </Box>
+                    )}
                   </Paper>
                 ))}
               </Box>
+              {verlegenTargetBed && verlegenTargetBedInfo?.is_notbett && (
+                <Alert severity="info" sx={{ mb: 1.5 }}>
+                  Notbett: Belegung wird auf heute + 1 Nacht angepasst (max. 1 Tag).
+                </Alert>
+              )}
+              {verlegenTargetBed && verlegenTargetBedInfo?.bett_typ === 'WARTEPLATZ' && (
+                <Alert severity="info" sx={{ mb: 1.5 }}>
+                  Warteplatz: Person wird in den Wartebereich verlegt.
+                </Alert>
+              )}
+              {verlegenInlineMismatch && (
+                <>
+                  <Alert severity="warning" icon={<WarningAmberIcon />} sx={{ mb: 1 }}>
+                    Geschlechtsdiskrepanz: Person ({genderLabel(manageBed?.bed.occ_geschlecht ?? 'D')}) → Raum ({genderLabel(verlegenTargetBedInfo?.geschlecht ?? 'D')}). Bitte Begründung angeben.
+                  </Alert>
+                  <TextField
+                    label="Begründung Geschlechtsdiskrepanz *"
+                    value={verlegenMismatchGrund}
+                    onChange={(e) => setVerlegenMismatchGrund(e.target.value)}
+                    fullWidth size="small" multiline rows={2} sx={{ mb: 1.5 }}
+                    placeholder="z.B. Notlage, kein gleichgeschlechtliches Bett verfügbar, …"
+                  />
+                </>
+              )}
               <TextField
                 label="Begründung *"
                 fullWidth
@@ -1855,24 +1969,19 @@ export default function Drilldown() {
           )}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
-          {verlegenMismatch ? (
-            <>
-              <Button onClick={() => { setVerlegenMismatch(false); setVerlegenMismatchGrund('') }}>Zurück</Button>
-              <Button variant="contained" color="warning"
-                disabled={!verlegenMismatchGrund.trim() || verlegenSaving}
-                onClick={handleVerlegen}>
-                {verlegenSaving ? <CircularProgress size={18} /> : 'Override bestätigen'}
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button onClick={() => { setVerlegenOpen(false); setVerlegenGrund('') }}>Abbrechen</Button>
-              <Button variant="contained" disabled={!verlegenTargetBed || !verlegenGrund.trim() || verlegenSaving}
-                onClick={handleVerlegen}>
-                {verlegenSaving ? <CircularProgress size={18} /> : 'Verlegen bestätigen'}
-              </Button>
-            </>
-          )}
+          <Button onClick={() => { setVerlegenOpen(false); setVerlegenMismatchGrund(''); setVerlegenGrund('') }}>Abbrechen</Button>
+          <Button
+            variant="contained"
+            disabled={
+              !verlegenTargetBed ||
+              !verlegenGrund.trim() ||
+              verlegenSaving ||
+              (verlegenInlineMismatch && !verlegenMismatchGrund.trim())
+            }
+            onClick={handleVerlegen}
+          >
+            {verlegenSaving ? <CircularProgress size={18} /> : 'Verlegen bestätigen'}
+          </Button>
         </DialogActions>
       </Dialog>
 
@@ -2508,6 +2617,85 @@ export default function Drilldown() {
             onClick={handleBatchIntern}
           >
             {batchSaving ? <CircularProgress size={18} /> : 'Verlegen'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Schnelleinbuchen Warteplatz Dialog */}
+      <Dialog open={wpOpen} onClose={() => !wpSaving && setWpOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle fontWeight={700}>Person auf Warteplatz einbuchen</DialogTitle>
+        <DialogContent>
+          <Box display="flex" flexDirection="column" gap={2} mt={1}>
+            <TextField
+              label="AZR-ID *"
+              value={wpAzrId}
+              onChange={e => setWpAzrId(e.target.value)}
+              size="small"
+              fullWidth
+              disabled={wpSaving}
+              placeholder="z.B. AZR-2024-FFM-M-01"
+            />
+            <FormControl size="small" fullWidth>
+              <InputLabel>Geschlecht *</InputLabel>
+              <Select
+                label="Geschlecht *"
+                value={wpGeschlecht}
+                onChange={e => setWpGeschlecht(e.target.value)}
+                disabled={wpSaving}
+              >
+                <MenuItem value="M">Männlich</MenuItem>
+                <MenuItem value="F">Weiblich</MenuItem>
+                <MenuItem value="D">Divers</MenuItem>
+              </Select>
+            </FormControl>
+            <TextField
+              label="Belegung von *"
+              type="date"
+              value={wpStart}
+              onChange={e => setWpStart(e.target.value)}
+              size="small"
+              fullWidth
+              disabled={wpSaving}
+              InputLabelProps={{ shrink: true }}
+            />
+            <TextField
+              label="Belegung bis *"
+              type="date"
+              value={wpEnde}
+              onChange={e => setWpEnde(e.target.value)}
+              size="small"
+              fullWidth
+              disabled={wpSaving}
+              InputLabelProps={{ shrink: true }}
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setWpOpen(false)} disabled={wpSaving}>Abbrechen</Button>
+          <Button
+            variant="contained"
+            onClick={handleWpSave}
+            disabled={wpSaving || !wpAzrId.trim() || !wpStart || !wpEnde}
+            sx={{ bgcolor: '#e65100', '&:hover': { bgcolor: '#bf360c' } }}
+          >
+            {wpSaving ? <CircularProgress size={18} /> : 'Einbuchen'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Delete Warteplatz Confirm Dialog */}
+      <Dialog open={!!deleteConfirmBedId} onClose={() => setDeleteConfirmBedId(null)} maxWidth="xs">
+        <DialogTitle fontWeight={700}>Warteplatz löschen?</DialogTitle>
+        <DialogContent>
+          <Typography>Dieser freie Warteplatz wird unwiderruflich entfernt. Fortfahren?</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteConfirmBedId(null)}>Abbrechen</Button>
+          <Button
+            variant="contained" color="error"
+            onClick={() => deleteConfirmBedId && handleDeleteWarteplatz(deleteConfirmBedId)}
+          >
+            Löschen
           </Button>
         </DialogActions>
       </Dialog>
