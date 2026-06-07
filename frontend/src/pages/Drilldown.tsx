@@ -1353,8 +1353,11 @@ export default function Drilldown() {
         return
       }
       const firstRoom = warteRooms[0]
-      const allBeds = warteRooms.flatMap(r => r.beds)
-      const maxNum = allBeds.reduce((max, b) => {
+      // Fetch all beds including soft-deleted ones to avoid bett_nummer collisions
+      const allBedsIncInactive = await get<{ id: string; bett_nummer: string }[]>(
+        `/api/rooms/${firstRoom.room_id}/beds?include_inactive=true`
+      )
+      const maxNum = allBedsIncInactive.reduce((max, b) => {
         const n = parseInt(b.bett_nummer.replace(/\D/g, ''), 10)
         return isNaN(n) ? max : Math.max(max, n)
       }, 0)

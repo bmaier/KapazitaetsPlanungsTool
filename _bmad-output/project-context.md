@@ -34,7 +34,7 @@ _Kritische Regeln und Patterns für AI-Agents. Fokus auf nicht-offensichtliche D
 ### Infra
 - Docker Compose (Podman-kompatibel) · Nginx 1.27-alpine (Frontend-Container)
 - Images: `bosenet/bordercapcontrol-{backend,frontend,skos}:latest`
-- Alembic-Migrationen: aktuell `0014_audit_extended`
+- Alembic-Migrationen: aktuell `0019_beds_bett_nummer_partial_unique`
 
 ### Kritische Versions-Constraints
 
@@ -163,6 +163,28 @@ CONFIRMED → CANCELLED
 ```
 Ungültige Übergänge → HTTP 409. `SELECT ... FOR UPDATE` auf Reservation-Zeile bei confirm/reject/cancel.
 
+### Transfer-Historisierung (Ein-Platz-Regel)
+
+Beim `CONFIRMED → TRANSFERRED`-Übergang (`POST /api/reservations/{id}/transfer`):
+- Die **Quell-Belegung** (`persons.occupants`) wird **niemals gelöscht** — sie wird mit `belegung_ende = date.today()` abgeschlossen.
+- Eine **neue Belegung** wird am `confirmed_bed_id` mit dem Reservierungs-`belegung_start`/`belegung_ende` angelegt.
+- Jede Person ist damit zu jedem Zeitpunkt einem Platz zuordenbar (DSGVO-Nachweispflicht).
+- Implementiert in: `reservation_repo.py:transfer()` — `spec-transfer-historisierung.md`
+
+### Vollperioden-Validierungskaskade
+
+Alle Belegungen und Reservierungen werden gegen den **gesamten** Zeitraum `[belegung_start, belegung_ende)` auf 3 Ebenen validiert:
+
+| Ebene | Felder | Prüfung |
+|-------|--------|---------|
+| Einrichtung | `is_active`, `valid_from`, `valid_until` | start ≥ valid_from, ende ≤ valid_until, is_active = true |
+| Raum | `valid_from`, `valid_until` | start ≥ valid_from, ende ≤ valid_until |
+| Bett | `valid_from`, `deaktiviert_ab` | start ≥ valid_from, ende ≤ deaktiviert_ab |
+
+- **Bettsuche**: SQL filtert Betten deren Gültigkeitsfenster kürzer als der angefragte Zeitraum ist.
+- **`period_available`**: `BedStatusItem` enthält dieses Computed-Flag (server-seitig berechnet) — Frontend filtert Betten mit `period_available === false` aus Auswahllisten.
+- Implementiert in: `capacity/router.py`, `suggestions/router.py`, `reservations/router.py` — `spec-vollperioden-validierung.md`
+
 ### Verlegungsanfragen — Rollenregeln (harte Invarianten)
 
 **Wer darf stornieren (POST /cancel, DELETE /reservations/{id}):**
@@ -210,6 +232,17 @@ Diese Features existieren im Code, haben aber keine Spec-Datei in `_bmad-output/
 | Belegungszeitraum editierbar | `frontend/src/pages/Drilldown.tsx` |
 | Protokoll für alle Rollen sichtbar | `frontend/src/components/NavBar.tsx` |
 
+## Durch Specs nachträglich dokumentierte Features (post-hoc)
+
+Wurden implementiert und danach spezifiziert:
+
+| Feature | Spec |
+|---------|------|
+| Vollperioden-Validierung (alle 3 Ebenen, period_available Flag) | `spec-vollperioden-validierung.md` |
+| Transfer-Historisierung (Quell-Belegung schließen statt löschen) | `spec-transfer-historisierung.md` |
+| Bettsuche Zeitraum-Vorbelegung aus Verlegungskontext | `spec-bettsuche-zeitraum-prefill.md` |
+| Warteplatz Soft-Delete-Kollision Fix | `spec-warteplatz-soft-delete-fix.md` |
+
 ---
 
 ## Keycloak-Konfiguration (Sync-Pflicht)
@@ -245,4 +278,4 @@ Realm: `bordercapcontrol` · Client-ID: `bordercapcontrol-frontend` · Flow: Sta
 - Regeln entfernen sobald sie offensichtlich werden
 - Quartalsweise auf Aktualität prüfen
 
-_Zuletzt aktualisiert: 2026-06-04_
+_Zuletzt aktualisiert: 2026-06-07 — Beta v1.0.0 Tag gesetzt_

@@ -5,6 +5,12 @@ Diese Ziele werden nach Abschluss von Ziel 1 sequenziell angegangen.
 
 ---
 
+## Hinweis zur Spec spec-ziel9c-validity-enforcement.md — 2026-06-07
+
+`spec-ziel9c-validity-enforcement.md` wurde durch `spec-vollperioden-validierung.md` vollständig ersetzt. Die Implementierung übertrifft den ursprünglichen Spec-Scope erheblich (vollständige Periodenkaskade auf 3 Ebenen statt nur `belegung_start` auf Einrichtungsebene). `spec-ziel9c` bleibt als historischer Kontext erhalten, darf aber nicht als Referenz für Implementierungsentscheidungen verwendet werden.
+
+---
+
 ## Review-Findings (spec-anfragen-workflow-bett-status-fixes.md) — Zurückgestellt 2026-06-03
 
 Gefunden beim Review. Kein Handlungsbedarf für Demo-Betrieb.
