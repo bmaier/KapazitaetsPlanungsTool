@@ -19,6 +19,8 @@ const ROUTE_HELP: Record<string, string> = {
   '/reservations': '/help/reservations.md',
   '/tasks':        '/help/tasks.md',
   '/suggestions':  '/help/suggestions.md',
+  '/statistik':    '/help/statistik.md',
+  '/audit':        '/help/audit.md',
 }
 
 function routeToFile(pathname: string): string {

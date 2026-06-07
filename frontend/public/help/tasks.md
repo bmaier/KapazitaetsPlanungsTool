@@ -13,11 +13,11 @@ Das rote Badge-Symbol in der Navigationsleiste zeigt die Anzahl offener Aufgaben
 
 ## Tabs im Postkorb
 
-**Zu beantworten** — eingehende Anfragen (PENDING oder CONFIRMED) und offene Systemaufgaben Ihrer Einrichtung. System-Admins sehen hier alle offenen Anfragen aller Einrichtungen.
+**Zu beantworten** — eingehende Anfragen (Ausstehend oder Bestätigt) und offene Systemaufgaben Ihrer Einrichtung. Für System-Admins lautet der Tab **„Alle Anfragen"** und zeigt alle offenen Anfragen des gesamten Systems.
 
-**Meine Anfragen** — alle Verlegungsanfragen, die Sie gestellt haben, mit aktuellem Status.
+**Meine Anfragen** — alle Verlegungsanfragen, die Sie gestellt haben, mit aktuellem Status. Ein orangener Zähler zeigt die Anzahl noch ausstehender eigener Anfragen.
 
-**Erledigt / Archiv** — bereits abgeschlossene oder archivierte Aufgaben.
+**Erledigt / Archiv** — bereits abgeschlossene, abgelehnte, stornierte oder als erledigt markierte Aufgaben.
 
 ## Eingehende Anfrage bestätigen
 
@@ -29,15 +29,15 @@ Klick auf **„Aufnahme bestätigen"** öffnet einen Dialog zur Bettauswahl:
 
 ## Person einchecken
 
-Sobald die Person physisch eingetroffen ist, erscheint der Button **„Einchecken"** bei bestätigten Anfragen (Status: Bestätigt). Ein Klick übernimmt die Belegung aktiv — das vorgemerkte Bett wird zur regulären Belegung.
+Sobald die Person physisch eingetroffen ist, erscheint der Button **„Einchecken"** bei bestätigten Anfragen (Status: Bestätigt). Ein Klick überträgt die Belegung aktiv auf das vorgemerkte Bett.
 
 ## Anfrage ablehnen
 
-Klick auf **„Ablehnen"** → Ablehnungsgrund eingeben → Bestätigen. Die anfragende Einrichtung erhält eine Benachrichtigung.
+Klick auf **„Ablehnen"** → Ablehnungsgrund direkt in der Karte eingeben → **„Ablehnen"** bestätigen oder **„Abbrechen"** wählen. Die anfragende Einrichtung erhält eine Benachrichtigung.
 
 ## Anfrage stornieren
 
-**„Stornieren"** hebt eine ausstehende Anfrage beidseitig auf.
+**„Stornieren"** hebt eine ausstehende oder bestätigte Anfrage auf — sichtbar für die anfragende Einrichtung.
 
 ## Systemaufgaben
 
@@ -47,7 +47,7 @@ Klick auf **„Ablehnen"** → Ablehnungsgrund eingeben → Bestätigen. Die anf
 
 ## Aufgaben als erledigt markieren
 
-Für allgemeine Systemaufgaben erscheint der Button **„Als erledigt markieren"**. Nach dem Klick verschwindet die Aufgabe aus dem aktiven Tab und wird ins Archiv verschoben.
+Für eigenständige Systemaufgaben erscheint der Button **„Als erledigt markieren"**. Nach dem Klick verschwindet die Aufgabe aus dem aktiven Tab und wird ins Archiv verschoben.
 
 Reservierungsbezogene Aufgaben werden automatisch archiviert, wenn die Reservierung abgeschlossen, abgelehnt oder storniert wird.
 

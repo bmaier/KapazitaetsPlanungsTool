@@ -20,13 +20,17 @@ Eine Verlegungsanfrage ist eine Anfrage einer Einrichtung an eine andere, eine P
 
 **Alle** — alle Verlegungsanfragen, an denen Ihre Einrichtung als anfragende oder empfangende Seite beteiligt ist.
 
-**Aktionen erforderlich** — eingehende Anfragen, auf die Ihre Einrichtung noch reagieren muss. Zeigt einen roten Zähler, wenn Anfragen vorliegen.
+**Aktionen erforderlich** — eingehende Anfragen (Status „Ausstehend" oder „Bestätigt"), auf die Ihre Einrichtung noch reagieren muss. Zeigt einen roten Zähler.
 
-**Meine Verlegungsanfragen** — nur Anfragen, die Sie selbst gestellt haben, mit aktuellem Status.
+**Meine Verlegungsanfragen** — nur Anfragen, die Sie selbst gestellt haben, mit aktuellem Status. System-Admins sehen hier alle Anfragen des Systems.
 
 ## Filterleiste
 
-Über der Tabelle können Sie nach **Erstellungsdatum** (von/bis) und **Status** filtern. Status-Chips lassen sich per Klick aktivieren/deaktivieren. „Zurücksetzen" setzt alle Filter auf den Standardwert zurück (letzte 5 Tage, alle Status).
+Über der Tabelle können Sie nach **Erstellungsdatum** (von/bis) und **Status** filtern. Status-Chips lassen sich per Klick aktivieren/deaktivieren. „Zurücksetzen" setzt alle Filter zurück (letzte 5 Tage, alle Status).
+
+## Reservierungs-ID kopieren
+
+Die ID in der ersten Spalte wird als Kurzform (z. B. `#A1B2C3D4`) angezeigt. Ein Klick auf die ID kopiert die vollständige UUID in die Zwischenablage.
 
 ## Neue Verlegungsanfrage stellen
 
@@ -46,18 +50,20 @@ Klick auf **„Bestätigen"** öffnet einen Dialog zur Bettauswahl:
 - Ein vom Assistenten vorgeschlagenes Bett ist lila umrandet und vorausgewählt
 - Wählen Sie ein Bett aus und klicken Sie „Bestätigen & Bett vormerken"
 
+> ⚠ **Geschlecht-Abweichung:** Wenn das Geschlecht der Person nicht zur Raumdesignation des gewählten Betts passt, erscheint eine Warnung. Eine Begründung ist in diesem Fall verpflichtend — sie wird im Audit-Log gespeichert.
+
 Das gewählte Bett erscheint danach in der Einrichtungsdetail-Ansicht als **lila (vorgemerkt)**.
 
 ## Anfrage ablehnen
 
-Klick auf **„Ablehnen"** — die anfragende Einrichtung wird per Postkorb informiert.
+Klick auf **„Ablehnen"** — Ablehnungsgrund im Textfeld eingeben — Bestätigen. Die anfragende Einrichtung wird per Postkorb informiert.
 
 ## Person einchecken (Transfer)
 
 Wenn die Person physisch angekommen ist:
 1. Tab „Aktionen erforderlich" → Zeile mit Status „Bestätigt"
 2. Button **„Einchecken"** klicken
-3. Status wechselt zu „Verlegt" — die Belegung ist nun in der Zieleinrichtung aktiv, das vorgemerkte Bett wird zur aktiven Belegung
+3. Status wechselt zu „Verlegt" — die Belegung ist nun in der Zieleinrichtung aktiv
 
 ## Anfrage stornieren
 
