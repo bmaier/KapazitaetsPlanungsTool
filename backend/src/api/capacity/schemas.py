@@ -263,6 +263,7 @@ class BedStatusItem(BaseModel):
     transfer_target_room_name: Optional[str] = None   # BELEGT: Ziel-Raum (nur wenn Bett bereits bestätigt)
     transfer_target_bed_nummer: Optional[str] = None  # BELEGT: Ziel-Bett-Nr (nur wenn Bett bereits bestätigt)
     pending_azr_id: Optional[str] = None  # FREI: AZR-ID der anfragenden Person
+    period_available: Optional[bool] = None  # None when no period queried; False when bed/room/location invalid for full period
 
 
 class RoomBedStatus(BaseModel):

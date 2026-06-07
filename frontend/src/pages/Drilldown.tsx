@@ -120,6 +120,7 @@ interface BedStatus {
   transfer_target_room_name?: string | null
   transfer_target_bed_nummer?: string | null
   pending_azr_id?: string | null
+  period_available?: boolean | null
 }
 
 interface RoomStatus {
@@ -192,9 +193,11 @@ function roomDateStatus(room: RoomStatus, refDate: string): 'geplant' | 'abgelau
   return 'aktiv'
 }
 
-function bedIsActive(bed: BedStatus, refDate: string): boolean {
+function bedIsActive(bed: BedStatus, refDate: string, refDateTo?: string): boolean {
   if (bed.bed_valid_from && refDate < bed.bed_valid_from) return false
   if (bed.deaktiviert_ab && refDate >= bed.deaktiviert_ab) return false
+  // When a period is given, also check the full-period validity flag from the server
+  if (refDateTo !== undefined && bed.period_available === false) return false
   return true
 }
 
@@ -380,9 +383,10 @@ interface BedGridProps {
   canEdit: boolean
   onBedClick: (bed: BedStatus, room: RoomStatus) => void
   refDate: string
+  refDateTo?: string
 }
 
-function BedGrid({ room, canEdit, onBedClick, refDate }: BedGridProps) {
+function BedGrid({ room, canEdit, onBedClick, refDate, refDateTo }: BedGridProps) {
   const frei = room.beds.filter((b) => b.status === 'FREI').length
   const belegt = room.beds.filter((b) => b.status === 'BELEGT').length
   const vorgemerkt = room.beds.filter((b) => b.status === 'VORGEMERKT').length
@@ -425,7 +429,7 @@ function BedGrid({ room, canEdit, onBedClick, refDate }: BedGridProps) {
         {room.beds.map((bed) => {
           const isBelegt = bed.status === 'BELEGT'
           const isVorgemerkt = bed.status === 'VORGEMERKT'
-          const bedActive = bedIsActive(bed, refDate)
+          const bedActive = bedIsActive(bed, refDate, refDateTo)
           const hasConfirmedTransfer = isBelegt && !!bed.has_confirmed_transfer
           const hasPendingTransfer = isBelegt && !hasConfirmedTransfer && !!bed.has_pending_transfer
           const hasPendingRequest = !isBelegt && !isVorgemerkt && !!bed.pending_reservation_id
@@ -1229,7 +1233,9 @@ export default function Drilldown() {
 
   function openVerlegung(bed?: BedStatus) {
     if (bed?.azr_id) {
-      navigate(`/suggestions?azrId=${encodeURIComponent(bed.azr_id)}&geschlecht=${bed.occ_geschlecht ?? 'M'}&cross=1`)
+      const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10)
+      const endParam = bed.belegung_ende && bed.belegung_ende > tomorrow ? `&ende=${bed.belegung_ende}` : ''
+      navigate(`/suggestions?azrId=${encodeURIComponent(bed.azr_id)}&geschlecht=${bed.occ_geschlecht ?? 'M'}&cross=1${endParam}`)
     } else {
       navigate('/suggestions?cross=1')
     }
@@ -1247,15 +1253,21 @@ export default function Drilldown() {
 
   function openGruppenVerlegung(ankunftRooms: RoomStatus[]) {
     const persons: string[] = []
+    let minEnde = ''
     for (const room of ankunftRooms) {
       for (const bed of room.beds) {
         if (selectedAnkunftBeds.has(bed.bed_id) && bed.azr_id) {
           persons.push(`${bed.azr_id}:${bed.occ_geschlecht ?? 'M'}`)
+          if (bed.belegung_ende && (!minEnde || bed.belegung_ende < minEnde)) {
+            minEnde = bed.belegung_ende
+          }
         }
       }
     }
     if (persons.length === 0) return
-    navigate(`/suggestions?group=${encodeURIComponent(persons.join(','))}&cross=1`)
+    const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10)
+    const endParam = minEnde && minEnde > tomorrow ? `&ende=${minEnde}` : ''
+    navigate(`/suggestions?group=${encodeURIComponent(persons.join(','))}&cross=1${endParam}`)
   }
 
   function openBatchIntern(ankunftRooms: RoomStatus[]) {
@@ -1618,7 +1630,7 @@ export default function Drilldown() {
             <Grid container spacing={3}>
               {kontingentRooms.map((room) => (
                 <Grid item xs={12} md={6} key={room.room_id}>
-                  <BedGrid room={room} canEdit={canEdit} onBedClick={handleBedClick} refDate={dateFrom} />
+                  <BedGrid room={room} canEdit={canEdit} onBedClick={handleBedClick} refDate={dateFrom} refDateTo={dateTo} />
                 </Grid>
               ))}
             </Grid>

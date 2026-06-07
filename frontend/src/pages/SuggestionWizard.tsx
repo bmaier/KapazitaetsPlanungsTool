@@ -161,6 +161,7 @@ export default function SuggestionWizard() {
   const preGeschlecht = searchParams.get('geschlecht') ?? 'M'
   const preGroupRaw = searchParams.get('group') ?? ''
   const preCross = searchParams.get('cross') === '1'
+  const preEnde = searchParams.get('ende') ?? ''
 
   const preGroup = parseGroup(preGroupRaw)
   const hasPerson = !!preAzrId || preGroup.length > 0
@@ -176,7 +177,12 @@ export default function SuggestionWizard() {
     : preAzrId ? { azr_id: preAzrId, geschlecht: preGeschlecht } : null
 
   const today = new Date().toISOString().slice(0, 10)
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10)
   const in30 = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10)
+
+  // Transfer context: start = tomorrow; end = existing belegung_ende (preEnde) or in30
+  const initStart = hasPerson ? tomorrow : today
+  const initEnde = preEnde && preEnde > initStart ? preEnde : in30
 
   const [modus, setModus] = useState<Modus>('einzeln')
   const [geschlecht, setGeschlecht] = useState((currentPerson?.geschlecht ?? preGeschlecht) || 'M')
@@ -194,8 +200,8 @@ export default function SuggestionWizard() {
   const [erwFrauen, setErwFrauen] = useState(1)
   const [kinder, setKinder] = useState(1)
 
-  const [start, setStart] = useState(today)
-  const [ende, setEnde] = useState(in30)
+  const [start, setStart] = useState(initStart)
+  const [ende, setEnde] = useState(initEnde)
   const [crossLocation, setCrossLocation] = useState(preCross || hasPerson)
   const [ignoreGender, setIgnoreGender] = useState(false)
   const [labelFilter, setLabelFilter] = useState<string[]>([])
@@ -271,9 +277,10 @@ export default function SuggestionWizard() {
 
   function handleStartChange(val: string) {
     setStart(val)
-    if (val) {
+    if (val && ende <= val) {
+      // End date became invalid — advance to start + 1 day
       const d = new Date(val)
-      d.setDate(d.getDate() + 30)
+      d.setDate(d.getDate() + 1)
       setEnde(d.toISOString().slice(0, 10))
     }
   }
@@ -864,7 +871,8 @@ export default function SuggestionWizard() {
           <Box display="flex" gap={2}>
             <TextField label="Belegung von" type="date" value={start}
               onChange={(e) => handleStartChange(e.target.value)}
-              InputLabelProps={{ shrink: true }} required sx={{ flex: 1 }} inputProps={{ min: today }} />
+              InputLabelProps={{ shrink: true }} required sx={{ flex: 1 }}
+              inputProps={{ min: hasPerson ? tomorrow : today }} />
             <TextField label="Belegung bis" type="date" value={ende}
               onChange={(e) => setEnde(e.target.value)}
               InputLabelProps={{ shrink: true }} required sx={{ flex: 1 }} inputProps={{ min: start }}

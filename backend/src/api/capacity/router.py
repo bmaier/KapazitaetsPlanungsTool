@@ -639,8 +639,18 @@ async def get_bed_status(
                   AND pen_in.belegung_ende > :date_from
                 ORDER BY pen_in.created_at
                 LIMIT 1
-              ) AS pending_azr_id
+              ) AS pending_azr_id,
+              (
+                l.is_active = true
+                AND (l.valid_from IS NULL OR l.valid_from <= :date_from)
+                AND (l.valid_until IS NULL OR l.valid_until >= :date_to)
+                AND (r.valid_from IS NULL OR r.valid_from <= :date_from)
+                AND (r.valid_until IS NULL OR r.valid_until >= :date_to)
+                AND (b.valid_from IS NULL OR b.valid_from <= :date_from)
+                AND (b.deaktiviert_ab IS NULL OR b.deaktiviert_ab >= :date_to)
+              ) AS period_available
             FROM capacity.rooms r
+            JOIN capacity.locations l ON l.id = r.location_id
             JOIN capacity.beds b ON b.room_id = r.id AND b.is_active = true AND b.bett_typ != 'DOPPEL'
             LEFT JOIN persons.occupants o
               ON o.bed_id = b.id
@@ -706,6 +716,7 @@ async def get_bed_status(
             transfer_target_room_name=row.get("transfer_target_room_name"),
             transfer_target_bed_nummer=row.get("transfer_target_bed_nummer"),
             pending_azr_id=row.get("pending_azr_id"),
+            period_available=bool(row.get("period_available")) if row.get("period_available") is not None else None,
         ))
     return [RoomBedStatus(**rooms_map[rid]) for rid in rooms_order]
 
@@ -1251,7 +1262,9 @@ async def create_occupancy(
 
     loc_validity = await session.execute(
         text("""
-            SELECT l.id, l.valid_from, l.valid_until
+            SELECT l.id, l.is_active AS loc_is_active,
+                   l.valid_from AS loc_valid_from, l.valid_until AS loc_valid_until,
+                   r.valid_from AS room_valid_from, r.valid_until AS room_valid_until
             FROM capacity.rooms r
             JOIN capacity.locations l ON l.id = r.location_id
             WHERE r.id = :room_id
@@ -1261,10 +1274,20 @@ async def create_occupancy(
     loc_row = loc_validity.fetchone()
     bed_location_id: Optional[UUID] = UUID(str(loc_row.id)) if loc_row else None
     if loc_row:
-        if loc_row.valid_from and body.belegung_start < loc_row.valid_from:
-            raise HTTPException(status_code=409, detail=f"Einrichtung ist erst ab {loc_row.valid_from} aktiv")
-        if loc_row.valid_until and body.belegung_start >= loc_row.valid_until:
-            raise HTTPException(status_code=409, detail=f"Einrichtung ist ab {loc_row.valid_until} inaktiv")
+        if not loc_row.loc_is_active:
+            raise HTTPException(status_code=409, detail="Einrichtung ist deaktiviert")
+        if loc_row.loc_valid_from and body.belegung_start < loc_row.loc_valid_from:
+            raise HTTPException(status_code=409, detail=f"Einrichtung ist erst ab {loc_row.loc_valid_from} aktiv")
+        if loc_row.loc_valid_until and body.belegung_ende > loc_row.loc_valid_until:
+            raise HTTPException(status_code=409, detail=f"Belegungsende überschreitet die Verfügbarkeit der Einrichtung (bis {loc_row.loc_valid_until})")
+        if loc_row.room_valid_from and body.belegung_start < loc_row.room_valid_from:
+            raise HTTPException(status_code=409, detail=f"Raum ist erst ab {loc_row.room_valid_from} verfügbar")
+        if loc_row.room_valid_until and body.belegung_ende > loc_row.room_valid_until:
+            raise HTTPException(status_code=409, detail=f"Belegungsende überschreitet die Verfügbarkeit des Raums (bis {loc_row.room_valid_until})")
+    if bed.valid_from and body.belegung_start < bed.valid_from:
+        raise HTTPException(status_code=409, detail=f"Bett ist erst ab {bed.valid_from} verfügbar")
+    if bed.deaktiviert_ab and body.belegung_ende > bed.deaktiviert_ab:
+        raise HTTPException(status_code=409, detail=f"Belegungsende überschreitet die Verfügbarkeit des Betts (bis {bed.deaktiviert_ab})")
 
     # Ein-Platz-Regel: Person darf nicht gleichzeitig in anderer Einrichtung aktiv sein
     ein_platz_row = await session.execute(

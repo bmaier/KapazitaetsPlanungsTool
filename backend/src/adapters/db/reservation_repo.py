@@ -3,7 +3,7 @@ SQLAlchemy-Implementierung des Reservierungs-Repositories.
 Kritisch: update_status() nutzt SELECT FOR UPDATE für concurrent-safe Statusübergänge.
 Jede Statusänderung erzeugt atomisch Task + Audit-Eintrag in derselben Session.
 """
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import List, Optional
 from uuid import UUID, uuid4
 
@@ -327,7 +327,9 @@ class SqlReservationRepo(AbstractReservationRepo):
         )
         source_occupant = existing.scalar_one_or_none()
         if source_occupant is not None:
-            await self._session.delete(source_occupant)
+            # Close the old occupancy at today rather than deleting — preserves audit history
+            # and ensures the person always had a valid place up to the moment of check-in.
+            source_occupant.belegung_ende = date.today()
 
         now = datetime.now(timezone.utc)
         occupant = OccupantModel(

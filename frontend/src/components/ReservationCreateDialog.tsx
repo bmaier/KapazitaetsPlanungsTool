@@ -48,6 +48,7 @@ interface BedItem {
   bed_id: string
   bett_nummer: string
   status: string
+  period_available?: boolean | null
 }
 
 interface RoomStatus {
@@ -110,6 +111,7 @@ export default function ReservationCreateDialog({ open, onClose, onCreated, loca
     }
   }, [open])
 
+  const today = new Date().toISOString().slice(0, 10)
   const currentYear = new Date().getFullYear()
   const geburtsjahrNum = parseInt(form.geburtsjahr, 10)
   const errors = {
@@ -182,7 +184,7 @@ export default function ReservationCreateDialog({ open, onClose, onCreated, loca
   const targetLocations = locations.filter((l) => l.id !== locationId)
   const freeBedRooms = rooms.map((r) => ({
     ...r,
-    beds: r.beds.filter((b) => b.status === 'FREI'),
+    beds: r.beds.filter((b) => b.status === 'FREI' && b.period_available !== false),
   })).filter((r) => r.beds.length > 0)
 
   const GENDER_LABEL: Record<string, string> = { M: 'Männer', W: 'Frauen', D: 'Gemischt/Familie' }
@@ -267,6 +269,7 @@ export default function ReservationCreateDialog({ open, onClose, onCreated, loca
               value={form.belegung_start}
               onChange={set('belegung_start')}
               InputLabelProps={{ shrink: true }}
+              inputProps={{ min: today }}
               required
             />
 
@@ -276,6 +279,7 @@ export default function ReservationCreateDialog({ open, onClose, onCreated, loca
               value={form.belegung_ende}
               onChange={set('belegung_ende')}
               InputLabelProps={{ shrink: true }}
+              inputProps={{ min: form.belegung_start || today }}
               required
               error={form.belegung_ende !== '' && errors.belegung_ende}
               helperText={errors.belegung_ende && form.belegung_ende ? '"Bis" muss nach "Von" liegen' : ''}

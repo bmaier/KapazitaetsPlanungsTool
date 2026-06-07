@@ -84,15 +84,18 @@ async def create_reservation(
     if body.target_location_id == location.id:
         raise HTTPException(status_code=422, detail="Requester und Target dürfen nicht gleich sein")
     target_loc_row = await session.execute(
-        text("SELECT valid_from, valid_until FROM capacity.locations WHERE id = :id"),
+        text("SELECT is_active, valid_from, valid_until FROM capacity.locations WHERE id = :id"),
         {"id": str(body.target_location_id)},
     )
     target_row = target_loc_row.fetchone()
-    if target_row:
-        if target_row.valid_from and body.belegung_start < target_row.valid_from:
-            raise HTTPException(status_code=409, detail=f"Einrichtung ist erst ab {target_row.valid_from} aktiv")
-        if target_row.valid_until and body.belegung_start >= target_row.valid_until:
-            raise HTTPException(status_code=409, detail=f"Einrichtung ist ab {target_row.valid_until} inaktiv")
+    if not target_row:
+        raise HTTPException(status_code=404, detail="Ziel-Einrichtung nicht gefunden")
+    if not target_row.is_active:
+        raise HTTPException(status_code=409, detail="Ziel-Einrichtung ist deaktiviert")
+    if target_row.valid_from and body.belegung_start < target_row.valid_from:
+        raise HTTPException(status_code=409, detail=f"Einrichtung ist erst ab {target_row.valid_from} aktiv")
+    if target_row.valid_until and body.belegung_ende > target_row.valid_until:
+        raise HTTPException(status_code=409, detail=f"Belegungsende überschreitet die Verfügbarkeit der Ziel-Einrichtung (bis {target_row.valid_until})")
     repo = SqlReservationRepo(session)
     req = await repo.create(body, requester_location_id=location.id)
     return ReservationResponse.model_validate(req)

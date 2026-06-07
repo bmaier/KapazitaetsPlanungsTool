@@ -203,14 +203,14 @@ export default function Reservations() {
         } catch { /* labels optional */ }
       })(),
       (async () => {
-        type BedItem = { bed_id: string; bett_nummer: string; status: string; bed_labels: string[]; is_notbett?: boolean }
+        type BedItem = { bed_id: string; bett_nummer: string; status: string; bed_labels: string[]; is_notbett?: boolean; period_available?: boolean | null }
         type RoomBedStatus = { room_id: string; room_name: string; geschlechts_designation: string; labels: string[]; beds: BedItem[] }
         const rooms = await get<RoomBedStatus[]>(
           `/api/locations/${res.target_location_id}/bed-status?date_from=${res.belegung_start}&date_to=${res.belegung_ende}&exclude_ankunft=true`
         )
         const result: FreeBed[] = rooms.flatMap((room) =>
           room.beds
-            .filter((b) => b.status === 'FREI' || b.bed_id === res.confirmed_bed_id || b.bed_id === res.suggested_bed_id)
+            .filter((b) => (b.status === 'FREI' || b.bed_id === res.confirmed_bed_id || b.bed_id === res.suggested_bed_id) && b.period_available !== false)
             .map((b) => ({
               bed_id: b.bed_id,
               bett_nummer: b.bett_nummer,

@@ -34,12 +34,16 @@ _BED_SELECT = """
     JOIN capacity.locations l ON l.id = r.location_id
     WHERE r.is_active = true
       AND b.is_active = true
+      AND l.is_active = true
       AND b.bett_typ != 'NOTBETT'
       AND b.bett_typ != 'DOPPEL'
       AND r.room_type != 'WARTEBEREICH'
-      AND (b.deaktiviert_ab IS NULL OR b.deaktiviert_ab > :period_start)
+      AND (b.valid_from IS NULL OR b.valid_from <= :period_start)
+      AND (b.deaktiviert_ab IS NULL OR b.deaktiviert_ab >= :period_end)
+      AND (r.valid_from IS NULL OR r.valid_from <= :period_start)
+      AND (r.valid_until IS NULL OR r.valid_until >= :period_end)
       AND (l.valid_from IS NULL OR l.valid_from <= :period_start)
-      AND (l.valid_until IS NULL OR l.valid_until > :period_start)
+      AND (l.valid_until IS NULL OR l.valid_until >= :period_end)
       AND NOT EXISTS (
         SELECT 1 FROM persons.occupants o
         WHERE o.bed_id = b.id
@@ -87,7 +91,6 @@ SQL_SCOPED = _BED_SELECT + """
 """
 
 SQL_CROSS = _BED_SELECT + """
-      AND l.is_active = true
     ORDER BY l.name, r.name, b.bett_nummer
 """
 
@@ -101,12 +104,16 @@ _BED_SELECT_NO_GENDER = """
     JOIN capacity.locations l ON l.id = r.location_id
     WHERE r.is_active = true
       AND b.is_active = true
+      AND l.is_active = true
       AND b.bett_typ != 'NOTBETT'
       AND b.bett_typ != 'DOPPEL'
       AND r.room_type != 'WARTEBEREICH'
-      AND (b.deaktiviert_ab IS NULL OR b.deaktiviert_ab > :period_start)
+      AND (b.valid_from IS NULL OR b.valid_from <= :period_start)
+      AND (b.deaktiviert_ab IS NULL OR b.deaktiviert_ab >= :period_end)
+      AND (r.valid_from IS NULL OR r.valid_from <= :period_start)
+      AND (r.valid_until IS NULL OR r.valid_until >= :period_end)
       AND (l.valid_from IS NULL OR l.valid_from <= :period_start)
-      AND (l.valid_until IS NULL OR l.valid_until > :period_start)
+      AND (l.valid_until IS NULL OR l.valid_until >= :period_end)
       AND NOT EXISTS (
         SELECT 1 FROM persons.occupants o
         WHERE o.bed_id = b.id
@@ -121,7 +128,6 @@ SQL_SCOPED_NO_GENDER = _BED_SELECT_NO_GENDER + """
 """
 
 SQL_CROSS_NO_GENDER = _BED_SELECT_NO_GENDER + """
-      AND l.is_active = true
     ORDER BY l.name, r.name, b.bett_nummer
 """
 
