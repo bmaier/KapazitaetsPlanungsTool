@@ -13,6 +13,7 @@ class AuditEntryOut(BaseModel):
     actor_id: Optional[str] = None
     actor_role: Optional[str] = None
     location_id: Optional[UUID] = None
+    location_name: Optional[str] = None
     entity_type: Optional[str] = None
     entity_id: Optional[str] = None
 

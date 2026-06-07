@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
-  Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions,
+  Alert, Autocomplete, Box, Button, Chip, CircularProgress, Dialog, DialogActions,
   DialogContent, DialogContentText, DialogTitle, Divider, Paper,
   Table, TableBody, TableCell, TableContainer, TableHead, TablePagination,
   TableRow, TextField, Tooltip, Typography,
@@ -21,6 +21,7 @@ interface AuditEntry {
   actor_id: string | null
   actor_role: string | null
   location_id: string | null
+  location_name: string | null
   entity_type: string | null
   entity_id: string | null
 }
@@ -32,18 +33,28 @@ interface AuditListResponse {
   page_size: number
 }
 
+// ─── Farben ──────────────────────────────────────────────────────────────────
+
 const EVENT_COLORS: Record<string, string> = {
   OCCUPANCY_CREATED: '#2e7d32',
   OCCUPANCY_DELETED: '#c62828',
+  OCCUPANCY_EXTENDED: '#1b5e20',
   RESERVATION_CREATED: '#1565c0',
   RESERVATION_CONFIRMED: '#0277bd',
   RESERVATION_CANCELLED: '#e65100',
   RESERVATION_REJECTED: '#b71c1c',
   RESERVATION_TRANSFERRED: '#4a148c',
+  RESERVATION_CANCELLED_WITH_GRUND: '#bf360c',
   SUGGESTION_CREATED: '#00695c',
   SUGGESTION_ACCEPTED: '#2e7d32',
   SUGGESTION_REJECTED: '#c62828',
 }
+
+function eventColor(t: string) {
+  return EVENT_COLORS[t] ?? '#455a64'
+}
+
+// ─── Label-Mapping für Detail-Dialog ─────────────────────────────────────────
 
 const LABEL_MAP: Record<string, string> = {
   ablehnungsgrund: 'Ablehnungsgrund',
@@ -52,35 +63,82 @@ const LABEL_MAP: Record<string, string> = {
   belegung_start: 'Belegung von',
   belegung_ende: 'Belegung bis',
   requester_location_id: 'Anfragende Einrichtung (ID)',
+  requester_location_name: 'Anfragende Einrichtung',
   target_location_id: 'Zieleinrichtung (ID)',
+  target_location_name: 'Zieleinrichtung',
   reservation_id: 'Reservierungs-ID',
-  erstellt_von: 'Erstellt von (Keycloak-Sub)',
   actor_username: 'Nutzername',
   azr_id: 'AZR-ID',
   bed_id: 'Bett-ID',
+  bed_info: 'Bett',
+  confirmed_bed_id: 'Bestätigtes Bett (ID)',
+  confirmed_bed_info: 'Bestätigtes Bett',
   actor_id: 'Nutzer-ID (Keycloak)',
   actor_role: 'Rolle',
   location_id: 'Einrichtungs-ID',
+  geschlecht: 'Geschlecht',
+  geburtsjahr: 'Geburtsjahr',
+  herkunftsland: 'Herkunftsland',
+  grund: 'Begründung',
+  action: 'Aktion',
 }
 
-function eventColor(t: string) {
-  return EVENT_COLORS[t] ?? '#455a64'
+// ─── Fachliche Zusammenfassung je Event-Typ ───────────────────────────────────
+
+function summarize(entry: AuditEntry): string {
+  const p = entry.payload ?? {}
+  const azr = entry.entity_id ?? (p.azr_id as string) ?? ''
+  const azrLabel = azr ? `AZR ${azr}` : ''
+
+  switch (entry.event_type) {
+    case 'OCCUPANCY_CREATED': {
+      const von = p.belegung_start as string | undefined
+      const bis = p.belegung_ende as string | undefined
+      const period = von && bis ? ` · ${von} – ${bis}` : ''
+      return `Eingebucht: ${azrLabel}${period}`
+    }
+    case 'OCCUPANCY_DELETED': {
+      const grund = p.grund as string | undefined
+      return `Ausgebucht: ${azrLabel}${grund ? ` · ${grund}` : ''}`
+    }
+    case 'OCCUPANCY_EXTENDED':
+      return `Notbett verlängert: ${azrLabel}`
+    case 'RESERVATION_CREATED': {
+      const target = (p.target_location_name as string) ?? (p.target_location_id as string) ?? ''
+      const von = p.belegung_start as string | undefined
+      const bis = p.belegung_ende as string | undefined
+      const period = von && bis ? ` · ${von} – ${bis}` : ''
+      return `Verlegung gestellt: ${azrLabel} → ${target}${period}`
+    }
+    case 'RESERVATION_CONFIRMED': {
+      const bett = (p.confirmed_bed_info as string) ?? (p.confirmed_bed_id as string) ?? ''
+      return `Verlegung bestätigt: ${azrLabel}${bett ? ` · ${bett}` : ''}`
+    }
+    case 'RESERVATION_CANCELLED':
+    case 'RESERVATION_CANCELLED_WITH_GRUND': {
+      const grund = (p.grund as string) ?? ''
+      return `Storniert: ${azrLabel}${grund ? ` · ${grund}` : ''}`
+    }
+    case 'RESERVATION_REJECTED': {
+      const grund = (p.ablehnungsgrund as string) ?? ''
+      return `Abgelehnt: ${azrLabel}${grund ? ` · ${grund}` : ''}`
+    }
+    case 'RESERVATION_TRANSFERRED': {
+      const target = (p.target_location_name as string) ?? ''
+      return `Eingecheckt: ${azrLabel}${target ? ` → ${target}` : ''}`
+    }
+    default:
+      return azrLabel
+  }
 }
 
-function fmt(dt: string) {
-  return new Date(dt).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'medium' })
-}
-
-function defaultDateFrom() {
-  const d = new Date()
-  d.setDate(d.getDate() - 5)
-  return d.toISOString().slice(0, 16)
-}
+// ─── Detail-Dialog ────────────────────────────────────────────────────────────
 
 function DetailDialog({ entry, onClose }: { entry: AuditEntry | null; onClose: () => void }) {
   if (!entry) return null
 
-  const actorUsername = (entry.payload as Record<string, unknown> | null)?.actor_username as string | undefined
+  const p = entry.payload as Record<string, unknown> | null
+  const actorUsername = p?.actor_username as string | undefined
 
   const structuredFields: Array<{ label: string; value: string }> = [
     { label: 'Zeitpunkt', value: fmt(entry.created_at) },
@@ -88,19 +146,49 @@ function DetailDialog({ entry, onClose }: { entry: AuditEntry | null; onClose: (
     { label: 'Nutzername', value: actorUsername ?? '–' },
     { label: 'Nutzer-ID (Keycloak)', value: entry.actor_id ?? '–' },
     { label: 'Rolle', value: entry.actor_role ?? '–' },
-    { label: 'Einrichtungs-ID', value: entry.location_id ?? '–' },
+    { label: 'Einrichtung', value: entry.location_name ?? entry.location_id ?? '–' },
     { label: 'AZR / Entity-ID', value: entry.entity_id ?? '–' },
     { label: 'Entity-Typ', value: entry.entity_type ?? '–' },
   ]
 
-  const payloadFields: Array<{ label: string; value: string }> = entry.payload
-    ? Object.entries(entry.payload)
-        .filter(([k]) => !['actor_username'].includes(k))
-        .map(([k, v]) => ({
-          label: LABEL_MAP[k] ?? k,
-          value: typeof v === 'string' ? v : JSON.stringify(v),
-        }))
-    : []
+  // Wichtige fachliche Felder zuerst, dann Rest
+  const PRIORITY_KEYS = [
+    'requester_location_name', 'target_location_name',
+    'belegung_start', 'belegung_ende',
+    'geschlecht', 'geburtsjahr', 'herkunftsland',
+    'confirmed_bed_info', 'bed_info',
+    'ablehnungsgrund', 'verlegung_grund', 'geschlecht_mismatch_grund', 'grund',
+  ]
+  const SKIP_KEYS = new Set(['actor_username'])
+
+  const payloadFields: Array<{ label: string; value: string }> = []
+  if (p) {
+    // Erst Prioritäts-Felder
+    for (const key of PRIORITY_KEYS) {
+      if (key in p && !SKIP_KEYS.has(key)) {
+        const v = p[key]
+        if (v !== undefined && v !== null && v !== '') {
+          payloadFields.push({
+            label: LABEL_MAP[key] ?? key,
+            value: typeof v === 'string' ? v : JSON.stringify(v),
+          })
+        }
+      }
+    }
+    // Dann alle übrigen (exkl. *_id-Doppelungen wenn *_name vorhanden und SKIP_KEYS)
+    const hasName = new Set(PRIORITY_KEYS.filter(k => k.endsWith('_name')).map(k => k.replace('_name', '_id')))
+    for (const [key, v] of Object.entries(p)) {
+      if (SKIP_KEYS.has(key)) continue
+      if (PRIORITY_KEYS.includes(key)) continue
+      // Wenn für diese ID ein Name-Feld vorhanden ist, ID ausblenden
+      if (hasName.has(key) && (`${key.replace('_id', '_name')}` in p)) continue
+      if (v === undefined || v === null || v === '') continue
+      payloadFields.push({
+        label: LABEL_MAP[key] ?? key,
+        value: typeof v === 'string' ? v : JSON.stringify(v),
+      })
+    }
+  }
 
   return (
     <Dialog open onClose={onClose} maxWidth="md" fullWidth>
@@ -119,9 +207,12 @@ function DetailDialog({ entry, onClose }: { entry: AuditEntry | null; onClose: (
             {fmt(entry.created_at)}
           </Typography>
         </Box>
+        {/* Fachliche Zusammenfassung */}
+        <Typography variant="body2" sx={{ mt: 0.5, color: 'text.secondary' }}>
+          {summarize(entry)}
+        </Typography>
       </DialogTitle>
       <DialogContent dividers>
-        {/* Structured metadata */}
         <Typography variant="subtitle2" fontWeight={700} color="text.secondary" gutterBottom>
           Metadaten
         </Typography>
@@ -131,7 +222,7 @@ function DetailDialog({ entry, onClose }: { entry: AuditEntry | null; onClose: (
               <Typography variant="caption" color="text.secondary" display="block">
                 {f.label}
               </Typography>
-              <Typography variant="body2" fontFamily="monospace" sx={{ wordBreak: 'break-all' }}>
+              <Typography variant="body2" sx={{ wordBreak: 'break-all' }}>
                 {f.value}
               </Typography>
             </Box>
@@ -150,7 +241,7 @@ function DetailDialog({ entry, onClose }: { entry: AuditEntry | null; onClose: (
                   <Typography variant="caption" color="text.secondary" display="block">
                     {f.label}
                   </Typography>
-                  <Typography variant="body2" fontFamily="monospace" sx={{ wordBreak: 'break-all' }}>
+                  <Typography variant="body2" sx={{ wordBreak: 'break-all' }}>
                     {f.value || '–'}
                   </Typography>
                 </Box>
@@ -165,6 +256,36 @@ function DetailDialog({ entry, onClose }: { entry: AuditEntry | null; onClose: (
     </Dialog>
   )
 }
+
+// ─── Hilfsfunktionen ─────────────────────────────────────────────────────────
+
+function fmt(dt: string) {
+  return new Date(dt).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'medium' })
+}
+
+function defaultDateFrom() {
+  const d = new Date()
+  d.setDate(d.getDate() - 5)
+  return d.toISOString().slice(0, 16)
+}
+
+// Bekannte Event-Typen als Fallback-Liste (ergänzt durch Daten aus Backend)
+const KNOWN_EVENT_TYPES = [
+  'OCCUPANCY_CREATED',
+  'OCCUPANCY_DELETED',
+  'OCCUPANCY_EXTENDED',
+  'RESERVATION_CREATED',
+  'RESERVATION_CONFIRMED',
+  'RESERVATION_CANCELLED',
+  'RESERVATION_CANCELLED_WITH_GRUND',
+  'RESERVATION_REJECTED',
+  'RESERVATION_TRANSFERRED',
+  'SUGGESTION_CREATED',
+  'SUGGESTION_ACCEPTED',
+  'SUGGESTION_REJECTED',
+]
+
+// ─── Hauptkomponente ──────────────────────────────────────────────────────────
 
 export default function AuditLog() {
   const { keycloak } = useKeycloak()
@@ -184,12 +305,23 @@ export default function AuditLog() {
   const [data, setData] = useState<AuditListResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [eventTypes, setEventTypes] = useState<string[]>(KNOWN_EVENT_TYPES)
 
   const [selectedEntry, setSelectedEntry] = useState<AuditEntry | null>(null)
   const [deleteAzrOpen, setDeleteAzrOpen] = useState(false)
   const [deleteAzrTarget, setDeleteAzrTarget] = useState('')
   const [purgeOpen, setPurgeOpen] = useState(false)
   const [deleteMsg, setDeleteMsg] = useState('')
+
+  // Lade verfügbare Event-Typen aus der DB (merge mit Fallback-Liste)
+  useEffect(() => {
+    get<string[]>('/api/audit/event-types')
+      .then(types => {
+        const merged = Array.from(new Set([...types, ...KNOWN_EVENT_TYPES])).sort()
+        setEventTypes(merged)
+      })
+      .catch(() => { /* Fallback-Liste bleibt */ })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function load(p = page) {
     setLoading(true)
@@ -293,11 +425,36 @@ export default function AuditLog() {
             placeholder="AZR-2024-FFM-M-01"
             sx={{ width: 200 }}
           />
-          <TextField
-            label="Event-Typ" size="small" value={evtType}
-            onChange={e => setEvtType(e.target.value)}
-            placeholder="OCCUPANCY_CREATED"
-            sx={{ width: 200 }}
+          {/* Event-Typ: Autocomplete mit Liste + Wildcard-Freitext */}
+          <Autocomplete
+            freeSolo
+            options={eventTypes}
+            inputValue={evtType}
+            onInputChange={(_, val) => setEvtType(val ?? '')}
+            size="small"
+            sx={{ width: 260 }}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Event-Typ"
+                placeholder="OCCUPANCY* oder auswählen"
+                helperText="* als Wildcard, Groß-/Kleinschreibung egal"
+                FormHelperTextProps={{ sx: { fontSize: 10, mt: 0.25 } }}
+              />
+            )}
+            renderOption={(props, option) => (
+              <li {...props} key={option}>
+                <Chip
+                  label={option}
+                  size="small"
+                  sx={{
+                    bgcolor: eventColor(option) + '15',
+                    color: eventColor(option),
+                    fontWeight: 600, fontSize: 11,
+                  }}
+                />
+              </li>
+            )}
           />
           <Button variant="contained" onClick={() => { setPage(0); load(0) }}>
             Suchen
@@ -342,7 +499,7 @@ export default function AuditLog() {
         </Alert>
       )}
 
-      {/* Table */}
+      {/* Tabelle */}
       <Paper elevation={1} sx={{ borderRadius: 2 }}>
         {loading ? (
           <Box display="flex" justifyContent="center" py={6}><CircularProgress /></Box>
@@ -352,12 +509,12 @@ export default function AuditLog() {
               <Table size="small">
                 <TableHead>
                   <TableRow sx={{ bgcolor: '#f5f7fa' }}>
-                    <TableCell sx={{ fontWeight: 700 }}>Zeitpunkt</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>Event-Typ</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>Nutzer</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>Rolle</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>AZR / Entity</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>Einrichtung</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 140 }}>Zeitpunkt</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 200 }}>Event-Typ</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Zusammenfassung</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 130 }}>Nutzer</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 110 }}>Rolle</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 160 }}>Einrichtung</TableCell>
                     <TableCell sx={{ width: 32 }} />
                   </TableRow>
                 </TableHead>
@@ -371,50 +528,47 @@ export default function AuditLog() {
                   ) : (data?.items ?? []).map(row => {
                     const actorUsername = (row.payload as Record<string, unknown> | null)?.actor_username as string | undefined
                     return (
-                    <TableRow
-                      key={row.id}
-                      hover
-                      onClick={() => setSelectedEntry(row)}
-                      sx={{ cursor: 'pointer' }}
-                    >
-                      <TableCell sx={{ whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: 12 }}>
-                        {fmt(row.created_at)}
-                      </TableCell>
-                      <TableCell>
-                        <Chip
-                          label={row.event_type}
-                          size="small"
-                          sx={{
-                            bgcolor: eventColor(row.event_type) + '15',
-                            color: eventColor(row.event_type),
-                            fontWeight: 600, fontSize: 11,
-                          }}
-                        />
-                      </TableCell>
-                      <TableCell sx={{ fontSize: 12, fontFamily: 'monospace' }}>
-                        {actorUsername ?? row.actor_id?.slice(0, 12) ?? '–'}
-                      </TableCell>
-                      <TableCell>
-                        {row.actor_role ? (
-                          <Chip label={row.actor_role} size="small" variant="outlined" sx={{ fontSize: 11 }} />
-                        ) : '–'}
-                      </TableCell>
-                      <TableCell sx={{ fontFamily: 'monospace', fontSize: 12 }}>
-                        {row.entity_id ?? '–'}
-                        {row.entity_type && (
-                          <Typography variant="caption" display="block" color="text.secondary">
-                            {row.entity_type}
-                          </Typography>
-                        )}
-                      </TableCell>
-                      <TableCell sx={{ fontFamily: 'monospace', fontSize: 12, color: '#888' }}>
-                        {row.location_id?.slice(0, 8) ?? '–'}
-                      </TableCell>
-                      <TableCell sx={{ color: '#bbb', pr: 1 }}>
-                        <ChevronRightIcon fontSize="small" />
-                      </TableCell>
-                    </TableRow>
-                  )})}
+                      <TableRow
+                        key={row.id}
+                        hover
+                        onClick={() => setSelectedEntry(row)}
+                        sx={{ cursor: 'pointer' }}
+                      >
+                        <TableCell sx={{ whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: 12 }}>
+                          {fmt(row.created_at)}
+                        </TableCell>
+                        <TableCell>
+                          <Chip
+                            label={row.event_type}
+                            size="small"
+                            sx={{
+                              bgcolor: eventColor(row.event_type) + '15',
+                              color: eventColor(row.event_type),
+                              fontWeight: 600, fontSize: 11,
+                              maxWidth: 190,
+                            }}
+                          />
+                        </TableCell>
+                        <TableCell sx={{ fontSize: 12, color: '#333' }}>
+                          {summarize(row)}
+                        </TableCell>
+                        <TableCell sx={{ fontSize: 12 }}>
+                          {actorUsername ?? (row.actor_id ? row.actor_id.slice(0, 12) + '…' : '–')}
+                        </TableCell>
+                        <TableCell>
+                          {row.actor_role ? (
+                            <Chip label={row.actor_role} size="small" variant="outlined" sx={{ fontSize: 11 }} />
+                          ) : '–'}
+                        </TableCell>
+                        <TableCell sx={{ fontSize: 12 }}>
+                          {row.location_name ?? (row.location_id ? row.location_id.slice(0, 8) + '…' : '–')}
+                        </TableCell>
+                        <TableCell sx={{ color: '#bbb', pr: 1 }}>
+                          <ChevronRightIcon fontSize="small" />
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
                 </TableBody>
               </Table>
             </TableContainer>
