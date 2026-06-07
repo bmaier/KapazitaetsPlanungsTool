@@ -73,10 +73,12 @@ async def _enrich_entries(
     - location_id → location_name (Einrichtungsname)
     - payload.requester_location_id / target_location_id → *_name
     - payload.bed_id / confirmed_bed_id → *_info (Raum / Bettnummer)
+    - payload.room_id → room_name
     """
     # 1. Alle zu auflösenden IDs sammeln
     loc_ids: set[str] = set()
     bed_ids: set[str] = set()
+    room_ids: set[str] = set()
 
     for row in rows:
         if row.location_id:
@@ -90,6 +92,9 @@ async def _enrich_entries(
             val = payload.get(key)
             if val:
                 bed_ids.add(str(val))
+        val = payload.get("room_id")
+        if val:
+            room_ids.add(str(val))
 
     # 2. Batch-Auflösung Einrichtungsnamen
     loc_name_map: dict[str, str] = {}
@@ -117,7 +122,16 @@ async def _enrich_entries(
         )
         bed_info_map = {r.id: f"{r.room_name} / Bett {r.bett_nummer}" for r in result.fetchall()}
 
-    # 4. Einträge anreichern
+    # 4. Batch-Auflösung Raumname (für historische Einträge ohne room_name im Payload)
+    room_name_map: dict[str, str] = {}
+    if room_ids:
+        result = await session.execute(
+            text("SELECT id::text, name FROM capacity.rooms WHERE id::text = ANY(:ids)"),
+            {"ids": list(room_ids)},
+        )
+        room_name_map = {r.id: r.name for r in result.fetchall()}
+
+    # 5. Einträge anreichern
     items: List[AuditEntryOut] = []
     for row in rows:
         entry = AuditEntryOut.model_validate(row.__dict__)
@@ -139,6 +153,10 @@ async def _enrich_entries(
                     info = bed_info_map.get(str(enriched[key]))
                     if info:
                         enriched[key.replace("_id", "_info")] = info
+            if "room_id" in enriched and "room_name" not in enriched:
+                rname = room_name_map.get(str(enriched["room_id"]))
+                if rname:
+                    enriched["room_name"] = rname
             entry.payload = enriched
 
         items.append(entry)

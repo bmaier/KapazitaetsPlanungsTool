@@ -175,6 +175,7 @@ async def get_kontingent_report(
 async def create_location(
     body: LocationCreate,
     session: AsyncSession = Depends(get_session),
+    user: UserContext = Depends(get_current_user),
 ):
     """
     Erstellt eine neue Einrichtung.
@@ -199,7 +200,7 @@ async def create_location(
         notbett_kapazitaet=body.notbett_kapazitaet,
         is_active=True,
     )
-    created = await loc_repo.create(location)
+    created = await loc_repo.create(location, user=user)
     return LocationResponse(
         id=created.id,
         name=created.name,
@@ -841,7 +842,7 @@ async def set_location_labels(
 async def deactivate_location_safe(
     location_id: UUID,
     session: AsyncSession = Depends(get_session),
-    _: UserContext = Depends(get_current_user),
+    user: UserContext = Depends(get_current_user),
 ):
     """Deaktiviert eine Einrichtung. Schlägt fehl, wenn noch aktive Belegungen vorhanden sind."""
     result = await session.execute(
@@ -861,9 +862,23 @@ async def deactivate_location_safe(
             status_code=409,
             detail=f"Einrichtung hat noch {row.cnt} aktive Belegungen. Erst umbuchen, dann deaktivieren.",
         )
+    loc_row = await session.execute(
+        text("SELECT name FROM capacity.locations WHERE id = :id"),
+        {"id": str(location_id)},
+    )
+    loc_name = (loc_row.fetchone() or (None,))[0]
     await session.execute(
         text("UPDATE capacity.locations SET is_active = false, updated_at = NOW() WHERE id = :id"),
         {"id": str(location_id)},
+    )
+    await write_audit(
+        session,
+        "location.deactivated",
+        {"name": loc_name or str(location_id)},
+        user=user,
+        location_id=location_id,
+        entity_type="LOCATION",
+        entity_id=loc_name,
     )
     return {"status": "deactivated"}
 
@@ -872,13 +887,14 @@ async def deactivate_location_safe(
 async def deactivate_location(
     location_id: UUID,
     session: AsyncSession = Depends(get_session),
+    user: UserContext = Depends(get_current_user),
 ):
     """Soft-Delete: setzt is_active=False, löscht nicht physisch."""
     repo = SqlLocationRepo(session)
     loc = await repo.get_by_id(location_id)
     if not loc:
         raise HTTPException(status_code=404, detail="Location nicht gefunden")
-    await repo.deactivate(location_id)
+    await repo.deactivate(location_id, user=user, location_name=loc.name)
     return {"deactivated": True}
 
 
@@ -896,6 +912,7 @@ async def create_room(
     location_id: UUID,
     body: RoomCreate,
     session: AsyncSession = Depends(get_session),
+    user: UserContext = Depends(get_current_user),
 ):
     """Fügt einen Raum zu einer Einrichtung hinzu."""
     loc_repo = SqlLocationRepo(session)
@@ -912,7 +929,7 @@ async def create_room(
         is_active=True,
     )
     room_repo = SqlRoomRepo(session)
-    created = await room_repo.create(room)
+    created = await room_repo.create(room, user=user)
     return RoomResponse(
         id=created.id,
         location_id=created.location_id,
@@ -969,6 +986,7 @@ async def list_rooms(
 async def deactivate_room(
     room_id: UUID,
     session: AsyncSession = Depends(get_session),
+    user: UserContext = Depends(get_current_user),
 ):
     """Soft-Delete eines Raums."""
     repo = SqlRoomRepo(session)
@@ -991,7 +1009,7 @@ async def deactivate_room(
             status_code=409,
             detail=f"Raum hat noch {row.cnt} aktive Belegung(en). Erst umbuchen, dann deaktivieren.",
         )
-    await repo.deactivate(room_id)
+    await repo.deactivate(room_id, user=user)
     return {"deactivated": True}
 
 
@@ -1062,6 +1080,7 @@ async def create_bed(
     room_id: UUID,
     body: BedCreate,
     session: AsyncSession = Depends(get_session),
+    user: UserContext = Depends(get_current_user),
 ):
     """Fügt ein Bett zu einem Raum hinzu."""
     room_repo = SqlRoomRepo(session)
@@ -1077,7 +1096,7 @@ async def create_bed(
         is_active=True,
     )
     bed_repo = SqlBedRepo(session)
-    created = await bed_repo.create(bed)
+    created = await bed_repo.create(bed, user=user, location_id=room.location_id, room_name=room.name)
     return BedResponse(
         id=created.id,
         room_id=created.room_id,
@@ -1119,7 +1138,7 @@ async def list_beds(
 async def deactivate_bed(
     bed_id: UUID,
     session: AsyncSession = Depends(get_session),
-    _: UserContext = Depends(get_current_user),
+    user: UserContext = Depends(get_current_user),
 ):
     """Soft-Delete eines Betts. Blockiert wenn Occupant oder aktive Reservierung vorhanden."""
     repo = SqlBedRepo(session)
@@ -1145,7 +1164,7 @@ async def deactivate_bed(
     if res_row.fetchone():
         raise HTTPException(status_code=409, detail="Bett hat eine aktive Reservierung")
 
-    await repo.deactivate(bed_id)
+    await repo.deactivate(bed_id, user=user)
     return {"deactivated": True}
 
 

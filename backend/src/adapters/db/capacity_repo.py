@@ -99,7 +99,7 @@ class SqlLocationRepo(LocationRepo):
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def create(self, location: Location) -> Location:
+    async def create(self, location: Location, user: Optional[UserContext] = None) -> Location:
         now = datetime.now(timezone.utc)
         model = LocationModel(
             id=location.id,
@@ -116,11 +116,11 @@ class SqlLocationRepo(LocationRepo):
         await write_audit(
             self._session,
             "location.created",
-            {
-                "id": str(location.id),
-                "name": location.name,
-                "kontingent": location.kontingent,
-            },
+            {"name": location.name, "kontingent": location.kontingent},
+            user=user,
+            location_id=location.id,
+            entity_type="LOCATION",
+            entity_id=location.name,
         )
         return _to_location(model)
 
@@ -149,7 +149,7 @@ class SqlLocationRepo(LocationRepo):
         )
         return result.scalar_one()
 
-    async def deactivate(self, id: UUID) -> None:
+    async def deactivate(self, id: UUID, user: Optional[UserContext] = None, location_name: Optional[str] = None) -> None:
         result = await self._session.execute(
             select(LocationModel).where(LocationModel.id == id)
         )
@@ -157,10 +157,15 @@ class SqlLocationRepo(LocationRepo):
         if model:
             model.is_active = False
             model.updated_at = datetime.now(timezone.utc)
+            name = location_name or model.name
             await write_audit(
                 self._session,
                 "location.deactivated",
-                {"id": str(id)},
+                {"name": name},
+                user=user,
+                location_id=id,
+                entity_type="LOCATION",
+                entity_id=name,
             )
 
 
@@ -168,7 +173,7 @@ class SqlRoomRepo(RoomRepo):
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def create(self, room: Room) -> Room:
+    async def create(self, room: Room, user: Optional[UserContext] = None) -> Room:
         now = datetime.now(timezone.utc)
         model = RoomModel(
             id=room.id,
@@ -186,11 +191,14 @@ class SqlRoomRepo(RoomRepo):
             self._session,
             "room.created",
             {
-                "id": str(room.id),
-                "location_id": str(room.location_id),
                 "name": room.name,
                 "geschlechts_designation": room.geschlechts_designation.value,
+                "room_type": room.room_type,
             },
+            user=user,
+            location_id=room.location_id,
+            entity_type="ROOM",
+            entity_id=room.name,
         )
         return _to_room(model)
 
@@ -216,7 +224,7 @@ class SqlRoomRepo(RoomRepo):
         )
         return [_to_room(m) for m in result.scalars().all()]
 
-    async def deactivate(self, id: UUID) -> None:
+    async def deactivate(self, id: UUID, user: Optional[UserContext] = None) -> None:
         result = await self._session.execute(
             select(RoomModel).where(RoomModel.id == id)
         )
@@ -227,7 +235,11 @@ class SqlRoomRepo(RoomRepo):
             await write_audit(
                 self._session,
                 "room.deactivated",
-                {"id": str(id)},
+                {"name": model.name, "room_type": model.room_type},
+                user=user,
+                location_id=model.location_id,
+                entity_type="ROOM",
+                entity_id=model.name,
             )
 
 
@@ -235,7 +247,13 @@ class SqlBedRepo(BedRepo):
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def create(self, bed: Bed) -> Bed:
+    async def create(
+        self,
+        bed: Bed,
+        user: Optional[UserContext] = None,
+        location_id: Optional[UUID] = None,
+        room_name: Optional[str] = None,
+    ) -> Bed:
         now = datetime.now(timezone.utc)
         model = BedModel(
             id=bed.id,
@@ -248,15 +266,17 @@ class SqlBedRepo(BedRepo):
         )
         self._session.add(model)
         await self._session.flush()
+        payload: dict = {"bett_nummer": bed.bett_nummer, "bett_typ": bed.bett_typ.value}
+        if room_name:
+            payload["room_name"] = room_name
         await write_audit(
             self._session,
             "bed.created",
-            {
-                "id": str(bed.id),
-                "room_id": str(bed.room_id),
-                "bett_nummer": bed.bett_nummer,
-                "bett_typ": bed.bett_typ.value,
-            },
+            payload,
+            user=user,
+            location_id=location_id,
+            entity_type="BED",
+            entity_id=bed.bett_nummer,
         )
         return _to_bed(model)
 
@@ -282,7 +302,7 @@ class SqlBedRepo(BedRepo):
         )
         return [_to_bed(m) for m in result.scalars().all()]
 
-    async def deactivate(self, id: UUID) -> None:
+    async def deactivate(self, id: UUID, user: Optional[UserContext] = None) -> None:
         result = await self._session.execute(
             select(BedModel).where(BedModel.id == id)
         )
@@ -290,10 +310,22 @@ class SqlBedRepo(BedRepo):
         if model:
             model.is_active = False
             model.updated_at = datetime.now(timezone.utc)
+            room_result = await self._session.execute(
+                select(RoomModel).where(RoomModel.id == model.room_id)
+            )
+            room_model = room_result.scalar_one_or_none()
             await write_audit(
                 self._session,
                 "bed.deactivated",
-                {"id": str(id)},
+                {
+                    "bett_nummer": model.bett_nummer,
+                    "bett_typ": model.bett_typ,
+                    "room_name": room_model.name if room_model else None,
+                },
+                user=user,
+                location_id=room_model.location_id if room_model else None,
+                entity_type="BED",
+                entity_id=model.bett_nummer,
             )
 
 
