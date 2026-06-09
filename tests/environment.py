@@ -67,33 +67,105 @@ def _get_db_connection():
     )
 
 
+def _collect_test_location_ids(context) -> list[str]:
+    """
+    Sammelt alle im Szenario angelegten Location-IDs aus allen bekannten
+    context-Attributen. loc_map-Werte können UUID-Strings oder Dicts mit
+    "uuid"-Key sein (suggestion_steps verwendet Dicts).
+    """
+    ids: set[str] = set()
+
+    # loc_map: Werte sind entweder UUID-Strings oder {"uuid": ..., "name": ...}
+    for val in getattr(context, "loc_map", {}).values():
+        if isinstance(val, dict):
+            uid = val.get("uuid")
+        else:
+            uid = val
+        if uid:
+            ids.add(str(uid))
+
+    # Direkte Attribute (reservation_steps, capacity_steps, ziel9_steps etc.)
+    for attr in ("location_id", "location_a_id", "location_b_id", "location_c_id"):
+        uid = getattr(context, attr, None)
+        if uid:
+            ids.add(str(uid))
+
+    return list(ids)
+
+
 def after_scenario(context, scenario):
-    # Nur die vom Test angelegten Locations löschen (via context.loc_map).
-    # ON DELETE CASCADE entfernt zugehörige Rooms, Beds und Occupants automatisch.
-    # Demo-Daten bleiben erhalten.
-    test_loc_ids = list(getattr(context, "loc_map", {}).values())
-    if not test_loc_ids:
+    """
+    Löscht alle vom Test angelegten Locations und alle abhängigen Daten.
+    Reihenfolge entspricht den FK-Abhängigkeiten (NO ACTION überall außer *_labels).
+    """
+    loc_ids = _collect_test_location_ids(context)
+    if not loc_ids:
         return
+
+    conn = _get_db_connection()
+    conn.autocommit = True
     try:
-        conn = _get_db_connection()
-        conn.autocommit = True
         with conn.cursor() as cur:
-            placeholders = ",".join(["%s"] * len(test_loc_ids))
-            # Reservierungen und Tasks zu diesen Locations zuerst löschen
-            cur.execute(
-                f"DELETE FROM reservations.requests WHERE requester_location_id IN ({placeholders}) "
-                f"OR target_location_id IN ({placeholders})",
-                test_loc_ids + test_loc_ids,
-            )
-            cur.execute(
-                f"DELETE FROM tasks.inbox WHERE location_id IN ({placeholders})",
-                test_loc_ids,
-            )
-            # Locations löschen — CASCADE entfernt Rooms, Beds, Occupants
-            cur.execute(
-                f"DELETE FROM capacity.locations WHERE id IN ({placeholders})",
-                test_loc_ids,
-            )
+            ph = ",".join(["%s"] * len(loc_ids))
+
+            # 1. Belegungslabels
+            cur.execute(f"""
+                DELETE FROM persons.occupant_labels ol
+                USING persons.occupants o
+                JOIN capacity.beds b ON b.id = o.bed_id
+                JOIN capacity.rooms r ON r.id = b.room_id
+                WHERE ol.occupant_id = o.id
+                  AND r.location_id IN ({ph})
+            """, loc_ids)
+
+            # 2. Belegungen
+            cur.execute(f"""
+                DELETE FROM persons.occupants o
+                USING capacity.beds b
+                JOIN capacity.rooms r ON r.id = b.room_id
+                WHERE o.bed_id = b.id
+                  AND r.location_id IN ({ph})
+            """, loc_ids)
+
+            # 3. Postkorb — vor Reservierungen (FK: inbox → requests)
+            cur.execute(f"""
+                DELETE FROM tasks.inbox
+                WHERE location_id IN ({ph})
+                   OR related_reservation_id IN (
+                       SELECT id FROM reservations.requests
+                       WHERE requester_location_id IN ({ph})
+                          OR target_location_id    IN ({ph})
+                   )
+            """, loc_ids + loc_ids + loc_ids)
+
+            # 4. Reservierungen
+            cur.execute(f"""
+                DELETE FROM reservations.requests
+                WHERE requester_location_id IN ({ph})
+                   OR target_location_id    IN ({ph})
+            """, loc_ids + loc_ids)
+
+            # 5. Kontingent-Historie
+            cur.execute(f"DELETE FROM capacity.kontingent_history WHERE location_id IN ({ph})", loc_ids)
+
+            # 6. Audit-Einträge (bordercap-User hat DELETE auf audit.events)
+            cur.execute(f"DELETE FROM audit.events WHERE location_id IN ({ph})", loc_ids)
+
+            # 7. Betten (bed_labels via CASCADE)
+            cur.execute(f"""
+                DELETE FROM capacity.beds b
+                USING capacity.rooms r
+                WHERE b.room_id = r.id
+                  AND r.location_id IN ({ph})
+            """, loc_ids)
+
+            # 8. Räume (room_labels via CASCADE)
+            cur.execute(f"DELETE FROM capacity.rooms WHERE location_id IN ({ph})", loc_ids)
+
+            # 9. Locations (location_labels via CASCADE)
+            cur.execute(f"DELETE FROM capacity.locations WHERE id IN ({ph})", loc_ids)
+
+    except Exception as exc:
+        print(f"\n[after_scenario] Cleanup-Fehler (Szenario: {scenario.name}): {exc}")
+    finally:
         conn.close()
-    except Exception:
-        pass
