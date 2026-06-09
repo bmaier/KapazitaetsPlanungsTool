@@ -143,7 +143,16 @@ migrate:
 		/home/appuser/app/.venv/bin/python3 -m alembic upgrade head
 	@echo ">>> Migrationen abgeschlossen."
 
-seed: ## Seed Demo-Daten in die DB einfügen (idempotent)
+seed: ## Seed Demo-Daten in die DB einfügen (idempotent, NUR für lokale Entwicklung!)
+	@if [ "$(SEED_DEMO)" != "yes" ]; then \
+		echo ""; \
+		echo "!!! SICHERHEITSSCHUTZ: 'make seed' legt Demo-Daten an."; \
+		echo "    In Produktion NICHT ausführen."; \
+		echo "    Für lokale Entwicklung bestätigen mit:"; \
+		echo "      make seed SEED_DEMO=yes"; \
+		echo ""; \
+		exit 1; \
+	fi
 	@echo ">>> Warte auf PostgreSQL (Port 5432)..."
 	@elapsed=0; \
 	while ! nc -z localhost 5432 2>/dev/null; do \
